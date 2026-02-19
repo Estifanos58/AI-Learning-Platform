@@ -8,10 +8,12 @@ import lombok.Data;
 
 @Data
 public class SignupRequest {
-    @Email @NotBlank
+    @Email
+    @NotBlank
     private String email;
     private String username;
-    @NotBlank @Size(min = 8)
+    @NotBlank
+    @Size(min = 8)
     private String password;
     private User.Role role = User.Role.STUDENT;
 }

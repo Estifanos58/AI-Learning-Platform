@@ -8,7 +8,11 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "password_resets")
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class PasswordReset {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

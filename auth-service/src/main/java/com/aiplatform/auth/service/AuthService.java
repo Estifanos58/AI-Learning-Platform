@@ -12,6 +12,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -155,7 +156,7 @@ public class AuthService {
                 .user(user)
                 .tokenHash(newRefreshTokenHash)
                 .issuedAt(LocalDateTime.now())
-                .expiresAt(LocalDateTime.now().plus(java.time.Duration.ofMillis(tokenService.getRefreshTokenExpiration())))
+                .expiresAt(LocalDateTime.now().plus(Duration.ofMillis(tokenService.getRefreshTokenExpiration())))
                 .revoked(false)
                 .build();
         refreshTokenRepository.save(newRefreshToken);
@@ -235,7 +236,7 @@ public class AuthService {
                 .user(user)
                 .tokenHash(hashUtil.hashSHA256(rawRefreshToken))
                 .issuedAt(LocalDateTime.now())
-                .expiresAt(LocalDateTime.now().plus(java.time.Duration.ofMillis(tokenService.getRefreshTokenExpiration())))
+                .expiresAt(LocalDateTime.now().plus(Duration.ofMillis(tokenService.getRefreshTokenExpiration())))
                 .revoked(false)
                 .ipAddress(ipAddress)
                 .userAgent(userAgent)

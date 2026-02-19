@@ -7,7 +7,11 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "refresh_tokens")
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class RefreshToken {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

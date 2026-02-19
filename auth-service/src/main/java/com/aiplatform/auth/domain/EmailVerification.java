@@ -8,7 +8,11 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "email_verifications")
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class EmailVerification {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

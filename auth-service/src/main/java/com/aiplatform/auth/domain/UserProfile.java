@@ -9,7 +9,11 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "user_profiles")
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class UserProfile {
     @Id
     private UUID userId;
