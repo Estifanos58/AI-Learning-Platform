@@ -27,16 +27,22 @@ public class RsaKeyProvider {
     private final PublicKey publicKey;
 
     public RsaKeyProvider(ResourceLoader resourceLoader, JwtProperties jwtProperties) {
-        try {
-            this.privateKey = loadPrivateKey(resourceLoader.getResource(jwtProperties.getPrivateKeyLocation()));
-            this.publicKey = loadPublicKey(resourceLoader.getResource(jwtProperties.getPublicKeyLocation()));
-        } catch (Exception exception) {
-            log.warn("Failed to load RSA keys from resources, generating ephemeral keys for runtime", exception);
-            KeyPair generatedPair = generateEphemeralKeyPair();
-            this.privateKey = generatedPair.getPrivate();
-            this.publicKey = generatedPair.getPublic();
-        }
+    PrivateKey tempPrivate = null;
+    PublicKey tempPublic = null;
+
+    try {
+        tempPrivate = loadPrivateKey(resourceLoader.getResource(jwtProperties.getPrivateKeyLocation()));
+        tempPublic = loadPublicKey(resourceLoader.getResource(jwtProperties.getPublicKeyLocation()));
+    } catch (Exception exception) {
+        log.warn("Failed to load RSA keys from resources, generating ephemeral keys for runtime", exception);
+        KeyPair generatedPair = generateEphemeralKeyPair();
+        tempPrivate = generatedPair.getPrivate();
+        tempPublic = generatedPair.getPublic();
     }
+
+    this.privateKey = tempPrivate;
+    this.publicKey = tempPublic;
+}
 
     public PrivateKey getPrivateKey() {
         return privateKey;
