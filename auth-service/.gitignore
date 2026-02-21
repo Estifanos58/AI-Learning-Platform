@@ -1,0 +1,31 @@
+# Maven / Java build output
+target/
+*.class
+
+# Logs
+*.log
+logs/
+
+# IDE/editor files
+.idea/
+*.iml
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment / local config
+.env
+.env.*
+*.local
+
+# Sensitive keys
+src/main/resources/keys/*.pem
+src/main/resources/keys/*.key
+src/main/resources/keys/*.p12
+src/main/resources/keys/*.jks
+
+# Temporary files
+*.tmp
+*.swp
