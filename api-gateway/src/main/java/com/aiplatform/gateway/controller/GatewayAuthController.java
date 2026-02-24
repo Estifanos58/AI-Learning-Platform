@@ -44,7 +44,10 @@ public class GatewayAuthController {
     public Mono<ResponseEntity<AuthResponse>> signup(@Valid @RequestBody SignupRequest request,
                                                      @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader) {
         return Mono.fromCallable(() -> {
-                com.aiplatform.auth.proto.AuthResponse response = withMetadata(correlationIdOrCreate(correlationHeader)).signup(
+                String correlationId = correlationIdOrCreate(correlationHeader);
+                log.info("Gateway forwarding signup via gRPC. correlationId={}", correlationId);
+
+                com.aiplatform.auth.proto.AuthResponse response = withMetadata(correlationId).signup(
                             com.aiplatform.auth.proto.SignupRequest.newBuilder()
                                     .setEmail(request.email())
                                     .setUsername(request.username())
@@ -81,7 +84,10 @@ public class GatewayAuthController {
     public Mono<ResponseEntity<ApiMessageResponse>> verifyEmail(@Valid @RequestBody VerifyEmailRequest request,
                                                                 @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader) {
         return Mono.fromCallable(() -> {
-                    SimpleResponse response = withMetadata(correlationIdOrCreate(correlationHeader)).verifyEmail(
+                String correlationId = correlationIdOrCreate(correlationHeader);
+                log.info("Gateway forwarding verify-email via gRPC. correlationId={}", correlationId);
+
+                SimpleResponse response = withMetadata(correlationId).verifyEmail(
                             VerifyRequest.newBuilder()
                                     .setToken(request.token())
                                     .build()
@@ -96,7 +102,10 @@ public class GatewayAuthController {
     public Mono<ResponseEntity<AuthResponse>> refresh(@Valid @RequestBody RefreshRequest request,
                                                       @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader) {
         return Mono.fromCallable(() -> {
-                com.aiplatform.auth.proto.AuthResponse response = withMetadata(correlationIdOrCreate(correlationHeader)).refreshToken(
+                String correlationId = correlationIdOrCreate(correlationHeader);
+                log.info("Gateway forwarding refresh via gRPC. correlationId={}", correlationId);
+
+                com.aiplatform.auth.proto.AuthResponse response = withMetadata(correlationId).refreshToken(
                             com.aiplatform.auth.proto.RefreshRequest.newBuilder()
                                     .setRefreshToken(request.refreshToken())
                                     .build()
@@ -111,7 +120,10 @@ public class GatewayAuthController {
     public Mono<ResponseEntity<ApiMessageResponse>> logout(@Valid @RequestBody LogoutRequest request,
                                                            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader) {
         return Mono.fromCallable(() -> {
-                    SimpleResponse response = withMetadata(correlationIdOrCreate(correlationHeader)).logout(
+                String correlationId = correlationIdOrCreate(correlationHeader);
+                log.info("Gateway forwarding logout via gRPC. correlationId={}", correlationId);
+
+                SimpleResponse response = withMetadata(correlationId).logout(
                             com.aiplatform.auth.proto.LogoutRequest.newBuilder()
                                     .setRefreshToken(request.refreshToken())
                                     .build()
