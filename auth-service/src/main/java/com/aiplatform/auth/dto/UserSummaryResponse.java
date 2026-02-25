@@ -1,7 +1,7 @@
 package com.aiplatform.auth.dto;
 
-import com.aiplatform.auth.domain.Role;
 import com.aiplatform.auth.domain.UserStatus;
+import com.aiplatform.auth.proto.Role;
 
 import java.util.UUID;
 

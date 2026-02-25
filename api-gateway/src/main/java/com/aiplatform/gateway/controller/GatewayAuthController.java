@@ -45,6 +45,7 @@ public class GatewayAuthController {
     @PostMapping("/signup")
     public Mono<ResponseEntity<AuthResponse>> signup(@Valid @RequestBody SignupRequest request,
                                                      @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader) {
+        log.info("Request came to ={}", request.email());
         return Mono.fromCallable(() -> {
                 String correlationId = correlationIdOrCreate(correlationHeader);
                 log.info("Gateway forwarding signup via gRPC. correlationId={}", correlationId);

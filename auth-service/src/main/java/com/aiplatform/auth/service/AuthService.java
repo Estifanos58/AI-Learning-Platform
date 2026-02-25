@@ -4,7 +4,7 @@ import com.aiplatform.auth.dto.*;
 
 public interface AuthService {
 
-    SignupResponse signup(SignupRequest request);
+    SignupResponse signup(SignupRequest request, RequestMetadata metadata);
 
     ApiMessageResponse verifyEmail(VerifyEmailRequest request);
 

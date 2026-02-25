@@ -1,6 +1,5 @@
 package com.aiplatform.auth.grpc;
 
-import com.aiplatform.auth.domain.Role;
 import com.aiplatform.auth.dto.ApiMessageResponse;
 import com.aiplatform.auth.dto.RequestMetadata;
 import com.aiplatform.auth.dto.SignupResponse;
@@ -20,6 +19,7 @@ import com.aiplatform.auth.proto.VerifyRequest;
 import com.aiplatform.auth.service.AuthService;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.devh.boot.grpc.server.service.GrpcService;
@@ -33,7 +33,7 @@ public class AuthGrpcService extends AuthServiceGrpc.AuthServiceImplBase {
     private final AuthService authService;
 
     @Override
-    public void signup(SignupRequest request, StreamObserver<AuthResponse> responseObserver) {
+    public void signup(@Valid SignupRequest request, StreamObserver<AuthResponse> responseObserver) {
         try {
             String correlationId = GrpcContextKeys.CORRELATION_ID.get();
             log.info("Handling Signup gRPC request. correlationId={}", correlationId);
@@ -42,11 +42,13 @@ public class AuthGrpcService extends AuthServiceGrpc.AuthServiceImplBase {
                     request.getEmail(),
                     request.getUsername(),
                     request.getPassword(),
-                    Role.valueOf(request.getRole())
-            ));
+                    request.getRole()
+            ),  new RequestMetadata("grpc-client", "api-gateway"));
 
             responseObserver.onNext(AuthResponse.newBuilder()
                     .setMessage(signupResponse.message())
+                    .setAccessToken(signupResponse.accessToken())
+                    .setRefreshToken(signupResponse.refreshToken())
                     .setUser(toProtoUser(signupResponse.user()))
                     .build());
             responseObserver.onCompleted();
@@ -134,7 +136,7 @@ public class AuthGrpcService extends AuthServiceGrpc.AuthServiceImplBase {
                 .setId(user.id().toString())
                 .setEmail(user.email())
                 .setUsername(user.username())
-                .setRole(user.role().name())
+                .setRole(user.role())
                 .setStatus(user.status().name())
                 .setEmailVerified(Boolean.TRUE.equals(user.emailVerified()))
                 .build();

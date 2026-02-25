@@ -64,30 +64,32 @@ public final class AuthProto {
       descriptor;
   static {
     java.lang.String[] descriptorData = {
-      "\n\nauth.proto\022\007auth.v1\"P\n\rSignupRequest\022\r" +
+      "\n\nauth.proto\022\007auth.v1\"_\n\rSignupRequest\022\r" +
       "\n\005email\030\001 \001(\t\022\020\n\010username\030\002 \001(\t\022\020\n\010passw" +
-      "ord\030\003 \001(\t\022\014\n\004role\030\004 \001(\t\"/\n\014LoginRequest\022" +
-      "\r\n\005email\030\001 \001(\t\022\020\n\010password\030\002 \001(\t\"\036\n\rVeri" +
-      "fyRequest\022\r\n\005token\030\001 \001(\t\"\'\n\016RefreshReque" +
-      "st\022\025\n\rrefresh_token\030\001 \001(\t\"&\n\rLogoutReque" +
-      "st\022\025\n\rrefresh_token\030\001 \001(\t\"\255\001\n\014AuthRespon" +
-      "se\022\017\n\007message\030\001 \001(\t\022\024\n\014access_token\030\002 \001(" +
-      "\t\022\025\n\rrefresh_token\030\003 \001(\t\022\022\n\ntoken_type\030\004" +
-      " \001(\t\022\'\n\037access_token_expires_in_seconds\030" +
-      "\005 \001(\003\022\"\n\004user\030\006 \001(\0132\024.auth.v1.UserSummar" +
-      "y\"!\n\016SimpleResponse\022\017\n\007message\030\001 \001(\t\"p\n\013" +
-      "UserSummary\022\n\n\002id\030\001 \001(\t\022\r\n\005email\030\002 \001(\t\022\020" +
-      "\n\010username\030\003 \001(\t\022\014\n\004role\030\004 \001(\t\022\016\n\006status" +
-      "\030\005 \001(\t\022\026\n\016email_verified\030\006 \001(\0102\270\002\n\013AuthS" +
-      "ervice\0227\n\006Signup\022\026.auth.v1.SignupRequest" +
-      "\032\025.auth.v1.AuthResponse\0225\n\005Login\022\025.auth." +
-      "v1.LoginRequest\032\025.auth.v1.AuthResponse\022>" +
-      "\n\013VerifyEmail\022\026.auth.v1.VerifyRequest\032\027." +
-      "auth.v1.SimpleResponse\022>\n\014RefreshToken\022\027" +
-      ".auth.v1.RefreshRequest\032\025.auth.v1.AuthRe" +
-      "sponse\0229\n\006Logout\022\026.auth.v1.LogoutRequest" +
-      "\032\027.auth.v1.SimpleResponseB(\n\031com.aiplatf" +
-      "orm.auth.protoB\tAuthProtoP\001b\006proto3"
+      "ord\030\003 \001(\t\022\033\n\004role\030\004 \001(\0162\r.auth.v1.Role\"/" +
+      "\n\014LoginRequest\022\r\n\005email\030\001 \001(\t\022\020\n\010passwor" +
+      "d\030\002 \001(\t\"\036\n\rVerifyRequest\022\r\n\005token\030\001 \001(\t\"" +
+      "\'\n\016RefreshRequest\022\025\n\rrefresh_token\030\001 \001(\t" +
+      "\"&\n\rLogoutRequest\022\025\n\rrefresh_token\030\001 \001(\t" +
+      "\"\255\001\n\014AuthResponse\022\017\n\007message\030\001 \001(\t\022\024\n\014ac" +
+      "cess_token\030\002 \001(\t\022\025\n\rrefresh_token\030\003 \001(\t\022" +
+      "\022\n\ntoken_type\030\004 \001(\t\022\'\n\037access_token_expi" +
+      "res_in_seconds\030\005 \001(\003\022\"\n\004user\030\006 \001(\0132\024.aut" +
+      "h.v1.UserSummary\"!\n\016SimpleResponse\022\017\n\007me" +
+      "ssage\030\001 \001(\t\"\177\n\013UserSummary\022\n\n\002id\030\001 \001(\t\022\r" +
+      "\n\005email\030\002 \001(\t\022\020\n\010username\030\003 \001(\t\022\033\n\004role\030" +
+      "\004 \001(\0162\r.auth.v1.Role\022\016\n\006status\030\005 \001(\t\022\026\n\016" +
+      "email_verified\030\006 \001(\010*.\n\004Role\022\013\n\007STUDENT\020" +
+      "\000\022\016\n\nINSTRUCTOR\020\001\022\t\n\005ADMIN\020\0022\270\002\n\013AuthSer" +
+      "vice\0227\n\006Signup\022\026.auth.v1.SignupRequest\032\025" +
+      ".auth.v1.AuthResponse\0225\n\005Login\022\025.auth.v1" +
+      ".LoginRequest\032\025.auth.v1.AuthResponse\022>\n\013" +
+      "VerifyEmail\022\026.auth.v1.VerifyRequest\032\027.au" +
+      "th.v1.SimpleResponse\022>\n\014RefreshToken\022\027.a" +
+      "uth.v1.RefreshRequest\032\025.auth.v1.AuthResp" +
+      "onse\0229\n\006Logout\022\026.auth.v1.LogoutRequest\032\027" +
+      ".auth.v1.SimpleResponseB(\n\031com.aiplatfor" +
+      "m.auth.protoB\tAuthProtoP\001b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,

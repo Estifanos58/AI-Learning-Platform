@@ -42,7 +42,7 @@ spring:
 grpc:
   client:
     auth-service:
-      address: ${GRPC_AUTH_ADDRESS:static://auth-service:9090}
+      address: ${GRPC_AUTH_ADDRESS:static://localhost:9090}  # in docker change the localhost to auth-service
       negotiationType: ${GRPC_AUTH_NEGOTIATION:PLAINTEXT}
 
 app:

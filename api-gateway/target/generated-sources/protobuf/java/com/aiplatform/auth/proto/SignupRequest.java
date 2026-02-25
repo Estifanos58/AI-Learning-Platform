@@ -20,7 +20,7 @@ private static final long serialVersionUID = 0L;
     email_ = "";
     username_ = "";
     password_ = "";
-    role_ = "";
+    role_ = 0;
   }
 
   @java.lang.Override
@@ -161,42 +161,21 @@ private static final long serialVersionUID = 0L;
   }
 
   public static final int ROLE_FIELD_NUMBER = 4;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object role_ = "";
+  private int role_ = 0;
   /**
-   * <code>string role = 4;</code>
-   * @return The role.
+   * <code>.auth.v1.Role role = 4;</code>
+   * @return The enum numeric value on the wire for role.
    */
-  @java.lang.Override
-  public java.lang.String getRole() {
-    java.lang.Object ref = role_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      role_ = s;
-      return s;
-    }
+  @java.lang.Override public int getRoleValue() {
+    return role_;
   }
   /**
-   * <code>string role = 4;</code>
-   * @return The bytes for role.
+   * <code>.auth.v1.Role role = 4;</code>
+   * @return The role.
    */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getRoleBytes() {
-    java.lang.Object ref = role_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      role_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
+  @java.lang.Override public com.aiplatform.auth.proto.Role getRole() {
+    com.aiplatform.auth.proto.Role result = com.aiplatform.auth.proto.Role.forNumber(role_);
+    return result == null ? com.aiplatform.auth.proto.Role.UNRECOGNIZED : result;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -222,8 +201,8 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(password_)) {
       com.google.protobuf.GeneratedMessageV3.writeString(output, 3, password_);
     }
-    if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(role_)) {
-      com.google.protobuf.GeneratedMessageV3.writeString(output, 4, role_);
+    if (role_ != com.aiplatform.auth.proto.Role.STUDENT.getNumber()) {
+      output.writeEnum(4, role_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -243,8 +222,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(password_)) {
       size += com.google.protobuf.GeneratedMessageV3.computeStringSize(3, password_);
     }
-    if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(role_)) {
-      size += com.google.protobuf.GeneratedMessageV3.computeStringSize(4, role_);
+    if (role_ != com.aiplatform.auth.proto.Role.STUDENT.getNumber()) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeEnumSize(4, role_);
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -267,8 +247,7 @@ private static final long serialVersionUID = 0L;
         .equals(other.getUsername())) return false;
     if (!getPassword()
         .equals(other.getPassword())) return false;
-    if (!getRole()
-        .equals(other.getRole())) return false;
+    if (role_ != other.role_) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -287,7 +266,7 @@ private static final long serialVersionUID = 0L;
     hash = (37 * hash) + PASSWORD_FIELD_NUMBER;
     hash = (53 * hash) + getPassword().hashCode();
     hash = (37 * hash) + ROLE_FIELD_NUMBER;
-    hash = (53 * hash) + getRole().hashCode();
+    hash = (53 * hash) + role_;
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -422,7 +401,7 @@ private static final long serialVersionUID = 0L;
       email_ = "";
       username_ = "";
       password_ = "";
-      role_ = "";
+      role_ = 0;
       return this;
     }
 
@@ -529,10 +508,8 @@ private static final long serialVersionUID = 0L;
         bitField0_ |= 0x00000004;
         onChanged();
       }
-      if (!other.getRole().isEmpty()) {
-        role_ = other.role_;
-        bitField0_ |= 0x00000008;
-        onChanged();
+      if (other.role_ != 0) {
+        setRoleValue(other.getRoleValue());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -575,11 +552,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000004;
               break;
             } // case 26
-            case 34: {
-              role_ = input.readStringRequireUtf8();
+            case 32: {
+              role_ = input.readEnum();
               bitField0_ |= 0x00000008;
               break;
-            } // case 34
+            } // case 32
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -813,74 +790,55 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private java.lang.Object role_ = "";
+    private int role_ = 0;
     /**
-     * <code>string role = 4;</code>
+     * <code>.auth.v1.Role role = 4;</code>
+     * @return The enum numeric value on the wire for role.
+     */
+    @java.lang.Override public int getRoleValue() {
+      return role_;
+    }
+    /**
+     * <code>.auth.v1.Role role = 4;</code>
+     * @param value The enum numeric value on the wire for role to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRoleValue(int value) {
+      role_ = value;
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.auth.v1.Role role = 4;</code>
      * @return The role.
      */
-    public java.lang.String getRole() {
-      java.lang.Object ref = role_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        role_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
+    @java.lang.Override
+    public com.aiplatform.auth.proto.Role getRole() {
+      com.aiplatform.auth.proto.Role result = com.aiplatform.auth.proto.Role.forNumber(role_);
+      return result == null ? com.aiplatform.auth.proto.Role.UNRECOGNIZED : result;
     }
     /**
-     * <code>string role = 4;</code>
-     * @return The bytes for role.
-     */
-    public com.google.protobuf.ByteString
-        getRoleBytes() {
-      java.lang.Object ref = role_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        role_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string role = 4;</code>
+     * <code>.auth.v1.Role role = 4;</code>
      * @param value The role to set.
      * @return This builder for chaining.
      */
-    public Builder setRole(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      role_ = value;
+    public Builder setRole(com.aiplatform.auth.proto.Role value) {
+      if (value == null) {
+        throw new NullPointerException();
+      }
       bitField0_ |= 0x00000008;
+      role_ = value.getNumber();
       onChanged();
       return this;
     }
     /**
-     * <code>string role = 4;</code>
+     * <code>.auth.v1.Role role = 4;</code>
      * @return This builder for chaining.
      */
     public Builder clearRole() {
-      role_ = getDefaultInstance().getRole();
       bitField0_ = (bitField0_ & ~0x00000008);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string role = 4;</code>
-     * @param value The bytes for role to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRoleBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      role_ = value;
-      bitField0_ |= 0x00000008;
+      role_ = 0;
       onChanged();
       return this;
     }

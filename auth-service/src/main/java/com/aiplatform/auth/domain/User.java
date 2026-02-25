@@ -1,5 +1,6 @@
 package com.aiplatform.auth.domain;
 
+import com.aiplatform.auth.proto.Role;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
