@@ -25,6 +25,7 @@
 /home/estifanos/Documents/Projects/AI-Learning-Platform--main/api-gateway/target/generated-sources/protobuf/java/com/aiplatform/auth/proto/LogoutRequestOrBuilder.java
 /home/estifanos/Documents/Projects/AI-Learning-Platform--main/api-gateway/target/generated-sources/protobuf/java/com/aiplatform/auth/proto/RefreshRequest.java
 /home/estifanos/Documents/Projects/AI-Learning-Platform--main/api-gateway/target/generated-sources/protobuf/java/com/aiplatform/auth/proto/RefreshRequestOrBuilder.java
+/home/estifanos/Documents/Projects/AI-Learning-Platform--main/api-gateway/target/generated-sources/protobuf/java/com/aiplatform/auth/proto/Role.java
 /home/estifanos/Documents/Projects/AI-Learning-Platform--main/api-gateway/target/generated-sources/protobuf/java/com/aiplatform/auth/proto/SignupRequest.java
 /home/estifanos/Documents/Projects/AI-Learning-Platform--main/api-gateway/target/generated-sources/protobuf/java/com/aiplatform/auth/proto/SignupRequestOrBuilder.java
 /home/estifanos/Documents/Projects/AI-Learning-Platform--main/api-gateway/target/generated-sources/protobuf/java/com/aiplatform/auth/proto/SimpleResponse.java

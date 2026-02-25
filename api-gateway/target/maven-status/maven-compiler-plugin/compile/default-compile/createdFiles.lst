@@ -26,7 +26,9 @@ com/aiplatform/auth/proto/AuthServiceGrpc$AuthServiceStub.class
 com/aiplatform/auth/proto/SignupRequestOrBuilder.class
 com/aiplatform/gateway/dto/AuthResponse.class
 com/aiplatform/gateway/ApiGatewayApplication.class
+com/aiplatform/auth/proto/Role$1.class
 com/aiplatform/auth/proto/AuthServiceGrpc$AuthServiceMethodDescriptorSupplier.class
+com/aiplatform/auth/proto/Role.class
 com/aiplatform/auth/proto/UserSummary$1.class
 com/aiplatform/auth/proto/SimpleResponse.class
 com/aiplatform/auth/proto/SignupRequest$Builder.class

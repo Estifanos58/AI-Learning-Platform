@@ -6,6 +6,12 @@ option java_multiple_files = true;
 option java_package = "com.aiplatform.auth.proto";
 option java_outer_classname = "AuthProto";
 
+enum Role {
+  STUDENT = 0;
+  INSTRUCTOR = 1;
+  ADMIN = 2;
+}
+
 service AuthService {
   rpc Signup(SignupRequest) returns (AuthResponse);
   rpc Login(LoginRequest) returns (AuthResponse);
@@ -18,7 +24,7 @@ message SignupRequest {
   string email = 1;
   string username = 2;
   string password = 3;
-  string role = 4;
+  Role role = 4;
 }
 
 message LoginRequest {
@@ -55,7 +61,7 @@ message UserSummary {
   string id = 1;
   string email = 2;
   string username = 3;
-  string role = 4;
+  Role role = 4;
   string status = 5;
   bool email_verified = 6;
 }

@@ -1,6 +1,6 @@
 package com.aiplatform.auth.dto;
 
-import com.aiplatform.auth.domain.Role;
+import com.aiplatform.auth.proto.Role;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;

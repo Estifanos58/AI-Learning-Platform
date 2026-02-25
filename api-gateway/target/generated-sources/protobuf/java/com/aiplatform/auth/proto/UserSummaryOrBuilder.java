@@ -45,16 +45,15 @@ public interface UserSummaryOrBuilder extends
       getUsernameBytes();
 
   /**
-   * <code>string role = 4;</code>
+   * <code>.auth.v1.Role role = 4;</code>
+   * @return The enum numeric value on the wire for role.
+   */
+  int getRoleValue();
+  /**
+   * <code>.auth.v1.Role role = 4;</code>
    * @return The role.
    */
-  java.lang.String getRole();
-  /**
-   * <code>string role = 4;</code>
-   * @return The bytes for role.
-   */
-  com.google.protobuf.ByteString
-      getRoleBytes();
+  com.aiplatform.auth.proto.Role getRole();
 
   /**
    * <code>string status = 5;</code>

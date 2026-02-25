@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * Central authentication application service implementing signup, login,
@@ -42,7 +43,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     @Transactional
-    public SignupResponse signup(SignupRequest request) {
+    public SignupResponse signup(SignupRequest request, RequestMetadata metadata) {
         if (userRepository.existsByEmailIgnoreCase(request.email())) {
             throw new ApiException(HttpStatus.CONFLICT, "Email already exists");
         }
@@ -62,6 +63,21 @@ public class AuthServiceImpl implements AuthService {
 
         userProfileRepository.save(UserProfile.builder().user(savedUser).build());
 
+
+        String accessToken = jwtService.generateAccessToken(user);
+        String refreshRawToken = tokenGeneratorUtil.generateToken();
+
+        refreshTokenRepository.save(RefreshToken.builder()
+                .user(user)
+                .tokenHash(tokenHashUtil.sha256(refreshRawToken))
+                .expiresAt(LocalDateTime.now().plusDays(jwtProperties.getRefreshTokenExpirationDays()))
+                .revoked(Boolean.FALSE)
+                .ipAddress(metadata.ipAddress())
+                .userAgent(metadata.userAgent())
+                .build());
+
+
+
         String rawToken = tokenGeneratorUtil.generateToken();
         emailVerificationRepository.save(EmailVerification.builder()
                 .user(savedUser)
@@ -73,7 +89,7 @@ public class AuthServiceImpl implements AuthService {
         emailService.sendVerificationEmail(savedUser, rawToken);
         log.info("User signed up successfully. userId={}", savedUser.getId());
 
-        return new SignupResponse("Signup successful. Please verify your email.", userMapper.toSummary(savedUser));
+        return new SignupResponse("Signup successful. Please verify your email.", accessToken, refreshRawToken, userMapper.toSummary(savedUser));
     }
 
     @Override
@@ -100,15 +116,20 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public TokenResponse login(LoginRequest request, RequestMetadata metadata) {
+
+        log.info("Login info from the login service ={} , ={}", request.email(), request.password());
+
         User user = userRepository.findByEmailIgnoreCase(request.email())
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
+
+//        log.info("Login user Info found ={}",user.getUsername());
 
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
-        if (!Boolean.TRUE.equals(user.getEmailVerified())) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Email is not verified");
-        }
+//        if (!Boolean.TRUE.equals(user.getEmailVerified())) {
+//            throw new ApiException(HttpStatus.FORBIDDEN, "Email is not verified");
+//        }
         if (user.getStatus() != UserStatus.ACTIVE) {
             throw new ApiException(HttpStatus.FORBIDDEN, "User account is not active");
         }
@@ -134,14 +155,30 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor =  ApiException.class)
     public TokenResponse refresh(RefreshRequest request, RequestMetadata metadata) {
         String tokenHash = tokenHashUtil.sha256(request.refreshToken());
         RefreshToken currentToken = refreshTokenRepository.findByTokenHash(tokenHash)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Invalid refresh token"));
 
-        if (Boolean.TRUE.equals(currentToken.getRevoked()) || currentToken.getExpiresAt().isBefore(LocalDateTime.now())) {
+        if (Boolean.TRUE.equals(currentToken.getRevoked())) {
+
+            log.info("REfresh token used again = {}", currentToken.getReplacedBy());
+
+            UUID replacedBy =  currentToken.getReplacedBy();
+
+            RefreshToken newRefToken = refreshTokenRepository.findById(replacedBy).orElseThrow(() ->
+                    new ApiException(HttpStatus.UNAUTHORIZED, "Invalid refresh token"));
+
+            log.info("WE HAVE FOUND it, {}", newRefToken.getId());
+            newRefToken.setRevoked(Boolean.TRUE);
+            newRefToken.setRevokedAt(LocalDateTime.now());
+            refreshTokenRepository.save(newRefToken);
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Refresh token is expired or revoked");
+        }
+
+        if(currentToken.getExpiresAt().isBefore((LocalDateTime.now()))){
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "Refresh token is Expired");
         }
 
         User user = currentToken.getUser();
