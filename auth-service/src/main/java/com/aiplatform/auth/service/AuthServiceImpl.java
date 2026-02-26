@@ -7,6 +7,7 @@ import com.aiplatform.auth.mapper.UserMapper;
 import com.aiplatform.auth.repository.*;
 import com.aiplatform.auth.security.JwtProperties;
 import com.aiplatform.auth.security.JwtService;
+import com.aiplatform.auth.service.event.UserRegisteredEventPublisher;
 import com.aiplatform.auth.util.TokenGeneratorUtil;
 import com.aiplatform.auth.util.TokenHashUtil;
 import lombok.RequiredArgsConstructor;
@@ -29,7 +30,6 @@ import java.util.UUID;
 public class AuthServiceImpl implements AuthService {
 
     private final UserRepository userRepository;
-    private final UserProfileRepository userProfileRepository;
     private final EmailVerificationRepository emailVerificationRepository;
     private final PasswordResetRepository passwordResetRepository;
     private final RefreshTokenRepository refreshTokenRepository;
@@ -40,6 +40,7 @@ public class AuthServiceImpl implements AuthService {
     private final JwtProperties jwtProperties;
     private final UserMapper userMapper;
     private final EmailService emailService;
+    private final UserRegisteredEventPublisher userRegisteredEventPublisher;
 
     @Override
     @Transactional
@@ -60,8 +61,7 @@ public class AuthServiceImpl implements AuthService {
                 .emailVerified(Boolean.FALSE)
                 .build();
         User savedUser = userRepository.save(user);
-
-        userProfileRepository.save(UserProfile.builder().user(savedUser).build());
+            userRegisteredEventPublisher.publish(savedUser.getId(), savedUser.getEmail(), null, metadata.correlationId());
 
 
         String accessToken = jwtService.generateAccessToken(user);

@@ -18,6 +18,12 @@ spring:
                 redis-rate-limiter.replenishRate: 10
                 redis-rate-limiter.burstCapacity: 20
             - RewritePath=/api/auth/?(?<segment>.*), /api/internal/auth/${segment}
+        - id: profile-route
+          uri: forward:/
+          predicates:
+            - Path=/api/profile/**
+          filters:
+            - RewritePath=/api/profile/?(?<segment>.*), /api/internal/profile/${segment}
       globalcors:
         add-to-simple-url-handler-mapping: true
         cors-configurations:
@@ -44,6 +50,9 @@ grpc:
     auth-service:
       address: ${GRPC_AUTH_ADDRESS:static://localhost:9090}  # in docker change the localhost to auth-service
       negotiationType: ${GRPC_AUTH_NEGOTIATION:PLAINTEXT}
+    profile-service:
+      address: ${GRPC_PROFILE_ADDRESS:static://localhost:9091}
+      negotiationType: ${GRPC_PROFILE_NEGOTIATION:PLAINTEXT}
 
 app:
   jwt:
@@ -52,6 +61,8 @@ app:
   grpc:
     auth:
       service-secret: ${APP_GRPC_AUTH_SERVICE_SECRET:change-me-shared-secret}
+    profile:
+      service-secret: ${APP_GRPC_PROFILE_SERVICE_SECRET:change-me-shared-secret}
 
 management:
   endpoints:

@@ -1,157 +1,416 @@
-## Objective
-Create a production-ready API Gateway and refactor the existing Auth Service to transition from external REST endpoints to internal gRPC communication. The Gateway will act as the single entry point for clients (REST), while communicating with backend services via gRPC for high efficiency and type safety.
+Objective
 
-1. Project Metadata (New Service)
-Project Name: api-gateway
+Create a production-ready User Profile Service responsible for:
 
+Managing user profile data
+
+Consuming UserRegistered events from Kafka
+
+Automatically creating default profiles for new users
+
+Exposing gRPC endpoints for profile operations
+
+Supporting search and profile visibility rules
+
+Maintaining strong service boundaries (no direct DB coupling with auth-service)
+
+This service must follow event-driven architecture principles and integrate with:
+
+auth-service (via Kafka events)
+
+api-gateway (via gRPC)
+
+Kafka (as message broker)
+
+SQL database (PostgreSQL preferred)
+
+1. Project Metadata
+
+Project Name: user-profile-service
 Build Tool: Maven
-
 Language: Java 21
+Framework: Spring Boot 3.x
+Communication:
 
-Framework: Spring Boot 3.x / Spring Cloud Gateway
+gRPC (Server)
 
-Communication: gRPC (Client), REST (Server)
+Kafka (Consumer)
 
-2. Architecture Evolution
-Phase A: The API Gateway (New)
-Acts as a Reverse Proxy and Protocol Transcoder.
+SQL (JPA/Hibernate)
 
-Receives REST/JSON requests from the public internet.
+2. Architectural Role
 
-Converts them into gRPC/Protobuf calls for the Auth Service.
+The User Profile Service:
 
-Handles CORS, Rate Limiting, and Global Security.
+Owns profile data
 
-Phase B: The Auth Service (Refactor)
-Remove/Deprecate REST controllers.
+Does NOT authenticate users
 
-Implement gRPC Server stubs.
+Does NOT manage credentials
 
-Maintain existing Domain, Service, and Repository layers.
+Reacts to domain events from Auth Service
+
+Exposes profile operations via gRPC only
+
+High-Level Flow
+
+User signs up via API Gateway
+
+Gateway → Auth Service (gRPC)
+
+Auth Service:
+
+Creates User
+
+Publishes UserRegisteredEvent to Kafka
+
+User Profile Service:
+
+Consumes event
+
+Creates default profile
+
+Clients fetch/update profile via:
+REST → API Gateway → gRPC → User Profile Service
 
 3. Technology Stack & Dependencies
-API Gateway:
-spring-cloud-starter-gateway
+Core Dependencies
 
-spring-boot-starter-data-redis-reactive (for Rate Limiting)
+spring-boot-starter-data-jpa
 
-grpc-client-spring-boot-starter
+spring-boot-starter-validation
 
-protobuf-java-util
+spring-kafka
 
-spring-boot-starter-security
-
-Auth Service (Additions):
 grpc-server-spring-boot-starter
 
 protobuf-java
 
-4. Protobuf Definition (auth.proto)
-Create a shared .proto file to define the contract between the Gateway and Auth Service.
+postgresql (or mysql)
 
-Service Name: AuthService
+lombok
 
-RPCs Required:
+mapstruct (for DTO mapping)
 
-Signup(SignupRequest) returns (AuthResponse)
+4. Database Design
+Table: user_profiles
+CREATE TABLE user_profiles (
+    user_id UUID PRIMARY KEY,
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    university_id VARCHAR(50),
+    department VARCHAR(100),
+    bio TEXT,
+    avatar_url TEXT,
+    profile_visibility VARCHAR(20) DEFAULT 'PUBLIC',
+    reputation_score INTEGER DEFAULT 0,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+Important:
 
-Login(LoginRequest) returns (AuthResponse)
+DO NOT use foreign key to auth-service database.
 
-VerifyEmail(VerifyRequest) returns (SimpleResponse)
+Services must remain database-isolated.
 
-RefreshToken(RefreshRequest) returns (AuthResponse)
+Only store user_id as UUID.
 
-Logout(LogoutRequest) returns (SimpleResponse)
+5. Updated Domain Model
 
-Security: Use Metadata (Headers) in gRPC to pass correlation IDs or existing JWTs if needed.
+Enhance your current model:
 
-5. API Gateway Implementation
-Advanced Rate Limiting
-Implement Redis-based Key Rate Limiting.
+@Entity
+@Table(name = "user_profiles")
+public class UserProfile {
 
-Configure a KeyResolver to limit by IP address or Authenticated User ID.
+    @Id
+    private UUID userId;
 
-Limits: 10 requests per second (Replenish Rate), 20 requests burst capacity.
+    private String firstName;
+    private String lastName;
+    private String universityId;
+    private String department;
 
-CORS Configuration
-Allow specific origins (configurable via application.yml).
+    @Column(columnDefinition = "TEXT")
+    private String bio;
 
-Allowed Methods: GET, POST, PUT, DELETE, OPTIONS.
+    private String avatarUrl;
 
-Allowed Headers: Content-Type, Authorization.
+    @Enumerated(EnumType.STRING)
+    private ProfileVisibility profileVisibility; // PUBLIC, UNIVERSITY_ONLY, PRIVATE
 
-Allow Credentials: true.
+    private Integer reputationScore;
 
-gRPC Client Logic
-Create a GatewayAuthController that accepts REST requests.
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+}
+Enum
+public enum ProfileVisibility {
+    PUBLIC,
+    UNIVERSITY_ONLY,
+    PRIVATE
+}
+6. Kafka Integration
+Topic
 
-Use a ManagedChannel to communicate with the Auth Service.
+user.registered.v1
 
-Map REST DTOs to Protobuf Messages.
+Event Schema (JSON)
 
-6. Auth Service Refactoring
-Remove: controller package REST endpoints.
+Auth Service must publish:
 
-Add: grpc package.
+{
+  "eventId": "uuid",
+  "eventType": "USER_REGISTERED",
+  "userId": "uuid",
+  "email": "string",
+  "universityId": "string",
+  "timestamp": "2026-02-25T10:15:30"
+}
+Kafka Consumer Requirements
 
-Implement: AuthGrpcService extending the generated AuthServiceImplBase.
+Group ID: user-profile-service
 
-Logic: Inject existing Service layer beans into the gRPC implementation.
+Manual acknowledgment
 
-Error Handling: Map Java Exceptions to io.grpc.Status (e.g., UserNotFoundException -> Status.NOT_FOUND).
+Idempotent processing
 
-7. Security Requirements
-Gateway Level: Implement a GlobalFilter to validate JWTs for protected routes (non-auth routes).
+Retry mechanism
 
-Auth Routes: /api/auth/** must remain public at the Gateway level to allow Signup/Login.
+Dead Letter Topic: user.registered.dlt
 
-Secure Channel: Configure the gRPC communication to use TLS/SSL (ALTS if in a cloud environment) or at minimum, a shared secret in the gRPC metadata for service-to-service authentication.
+Consumer Logic
 
-8. Docker & Orchestration
+When USER_REGISTERED event is received:
+
+Check if profile exists (idempotency check)
+
+If not exists:
+
+Create profile with:
+
+profileVisibility = PUBLIC
+
+reputationScore = 0
+
+firstName/lastName = null
+
+bio = empty
+
+Save to DB
+
+Log correlationId if present
+
+7. gRPC Definition (profile.proto)
+
+This is the source of truth.
+
+Service Name: UserProfileService
+
+RPCs Required
+GetMyProfile(GetMyProfileRequest) returns (UserProfileResponse)
+GetProfileById(GetProfileRequest) returns (UserProfileResponse)
+UpdateMyProfile(UpdateProfileRequest) returns (UserProfileResponse)
+SearchProfiles(SearchProfilesRequest) returns (SearchProfilesResponse)
+UpdateProfileVisibility(UpdateVisibilityRequest) returns (SimpleResponse)
+IncrementReputation(IncrementReputationRequest) returns (SimpleResponse)
+Security Model
+
+JWT validated at API Gateway
+
+Gateway forwards:
+
+userId
+
+roles
+
+universityId
+via gRPC metadata
+
+Service must:
+
+Extract userId from metadata
+
+Never trust client-submitted userId for "my profile"
+
+8. Business Rules
+GetMyProfile
+
+Must use authenticated userId from metadata
+
+GetProfileById
+
+Respect visibility rules:
+
+PUBLIC → visible to everyone
+
+UNIVERSITY_ONLY → visible only if same universityId
+
+PRIVATE → only owner can view
+
+UpdateMyProfile
+
+User can update:
+
+firstName
+
+lastName
+
+bio
+
+department
+
+avatarUrl
+
+universityId
+
+User cannot update:
+
+reputationScore
+
+userId
+
+createdAt
+
+9. Additional Recommended Features
+A. Profile Completion Score
+
+Add computed field:
+
+completionScore (0–100)
+
+Calculated based on:
+
+firstName
+
+lastName
+
+bio
+
+avatar
+
+department
+
+B. Soft Delete Support
+
+Add:
+
+deleted BOOLEAN DEFAULT FALSE
+C. Audit Logging
+
+Log:
+
+profile updates
+
+visibility changes
+
+reputation changes
+
+D. Profile Search Indexing
+
+Allow search by:
+
+universityId
+
+department
+
+name (LIKE search)
+
+Use DB index:
+
+CREATE INDEX idx_university ON user_profiles(university_id);
+CREATE INDEX idx_department ON user_profiles(department);
+10. Docker & Orchestration
+
 Update docker-compose.yml:
 
-Redis Service: Add a redis:7-alpine container for the Gateway rate limiter.
+Add:
 
-API Gateway Service:
+user-profile-service:
+  build: ./user-profile-service
+  ports:
+    - "9091:9091"
+  depends_on:
+    - kafka
+    - postgres
 
-Expose port 8080.
+Add Kafka:
 
-Depends on auth-service and redis.
+kafka:
+  image: bitnami/kafka:latest
 
-Auth Service:
+Add PostgreSQL:
 
-Expose port 9090 (gRPC port).
+postgres:
+  image: postgres:15-alpine
 
-Do not expose REST ports to the public network.
+Expose only gRPC port (9091).
 
-9. application.yml (API Gateway)
-YAML
+Do NOT expose DB externally.
+
+11. application.yml
+server:
+  port: 9091
+
 spring:
-  cloud:
-    gateway:
-      routes:
-        - id: auth-service
-          uri: grpc://auth-service:9090
-          predicates:
-            - Path=/api/auth/**
-      globalcors:
-        cors-configurations:
-          '[/**]':
-            allowedOrigins: "*"
-            allowedMethods: "*"
-  data:
-    redis:
-      host: redis
-      port: 6379
-10. Definition of Done
-Project Structure: api-gateway exists alongside auth-service.
+  datasource:
+    url: jdbc:postgresql://postgres:5432/user_profile_db
+    username: postgres
+    password: postgres
 
-Communication: A user can POST /api/auth/login to the Gateway (REST), and the Gateway successfully calls the Auth Service via gRPC.
+  jpa:
+    hibernate:
+      ddl-auto: update
 
-Rate Limiting: Sending 50 rapid requests to the Gateway triggers a 429 Too Many Requests.
+  kafka:
+    bootstrap-servers: kafka:9092
+    consumer:
+      group-id: user-profile-service
+      auto-offset-reset: earliest
+12. Error Handling
 
-CORS: Browser-based preflight requests (OPTIONS) are handled correctly.
+Map exceptions to gRPC status:
 
-Logging: Every gRPC call is logged in both services with a shared Correlation ID.
+ProfileNotFound → NOT_FOUND
 
-Protobuf: The .proto file is the "source of truth" for all Auth models.
+UnauthorizedAccess → PERMISSION_DENIED
+
+InvalidUpdate → INVALID_ARGUMENT
+
+DuplicateProfile → ALREADY_EXISTS
+
+13. Observability
+
+Structured logging (JSON logs recommended)
+
+Include Correlation ID from metadata
+
+Log Kafka eventId
+
+Add health endpoint via Spring Actuator
+
+14. Definition of Done
+
+✔ When a new user registers, a profile is automatically created
+✔ Duplicate Kafka events do not create duplicate profiles
+✔ Authenticated user can update only their profile
+✔ Visibility rules are enforced correctly
+✔ Search works by university and department
+✔ gRPC communication works through API Gateway
+✔ Service is containerized and works via docker-compose
+✔ Dead-letter topic handles failed events
+✔ Logs contain correlation IDs
+
+15. Future Enhancements (Phase 2)
+
+Profile picture upload via File Service
+
+Reputation driven by AI learning achievements
+
+Skill tags
+
+Course enrollment linkage
+
+Profile analytics
+
+GraphQL support at Gateway

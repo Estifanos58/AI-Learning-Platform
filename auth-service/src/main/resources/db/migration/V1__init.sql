@@ -24,20 +24,6 @@ CREATE TABLE users (
       CHECK (status IN ('ACTIVE','SUSPENDED','LOCKED','DELETED'))
 );
 
-CREATE TABLE user_profiles (
-    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-
-    first_name VARCHAR(100),
-    last_name VARCHAR(100),
-    university_id VARCHAR(50),
-    department VARCHAR(100),
-
-    avatar_url TEXT,
-
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-
 CREATE TABLE refresh_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 

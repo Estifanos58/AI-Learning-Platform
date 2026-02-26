@@ -43,7 +43,7 @@ public class AuthGrpcService extends AuthServiceGrpc.AuthServiceImplBase {
                     request.getUsername(),
                     request.getPassword(),
                     request.getRole()
-            ),  new RequestMetadata("grpc-client", "api-gateway"));
+                ),  new RequestMetadata("grpc-client", "api-gateway", correlationId));
 
             responseObserver.onNext(AuthResponse.newBuilder()
                     .setMessage(signupResponse.message())
@@ -65,7 +65,7 @@ public class AuthGrpcService extends AuthServiceGrpc.AuthServiceImplBase {
 
             TokenResponse tokenResponse = authService.login(
                     new com.aiplatform.auth.dto.LoginRequest(request.getEmail(), request.getPassword()),
-                    new RequestMetadata("grpc-client", "api-gateway")
+                    new RequestMetadata("grpc-client", "api-gateway", correlationId)
             );
 
             responseObserver.onNext(AuthResponse.newBuilder()
@@ -102,7 +102,7 @@ public class AuthGrpcService extends AuthServiceGrpc.AuthServiceImplBase {
 
             TokenResponse tokenResponse = authService.refresh(
                     new com.aiplatform.auth.dto.RefreshRequest(request.getRefreshToken()),
-                    new RequestMetadata("grpc-client", "api-gateway")
+                    new RequestMetadata("grpc-client", "api-gateway", correlationId)
             );
 
             responseObserver.onNext(AuthResponse.newBuilder()

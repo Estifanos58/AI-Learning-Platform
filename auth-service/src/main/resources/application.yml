@@ -28,6 +28,11 @@ spring:
     port: ${SPRING_MAIL_PORT:1025}
     username: ${SPRING_MAIL_USERNAME:}
     password: ${SPRING_MAIL_PASSWORD:}
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
   autocofingure:
     exclude: 
       - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration, 
@@ -52,6 +57,9 @@ app:
   grpc:
     auth:
       service-secret: ${APP_GRPC_AUTH_SERVICE_SECRET:change-me-shared-secret}
+  kafka:
+    topics:
+      user-registered: ${APP_KAFKA_TOPIC_USER_REGISTERED:user.registered.v1}
   jwt:
     issuer: ${APP_JWT_ISSUER:ai-learning-platform-auth}
     audience: ${APP_JWT_AUDIENCE:ai-learning-platform-clients}

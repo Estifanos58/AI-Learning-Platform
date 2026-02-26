@@ -1,4 +1,24 @@
 services:
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: platform-kafka
+    environment:
+      - CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk
+      - KAFKA_NODE_ID=0
+      - KAFKA_PROCESS_ROLES=controller,broker
+      - KAFKA_LISTENERS=PLAINTEXT://:29092,PLAINTEXT_HOST://:9092,CONTROLLER://:9093
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+    ports:
+      - "9092:9092"
+
   postgres:
     image: postgres:15
     container_name: auth-postgres
@@ -16,44 +36,88 @@ services:
       timeout: 5s
       retries: 10
 
-  auth-service:
-    build:
-      context: .
-      dockerfile: auth-service/Dockerfile
-    container_name: auth-service
-    depends_on:
-      postgres:
-        condition: service_healthy
+  # auth-service:
+  #   build:
+  #     context: .
+  #     dockerfile: auth-service/Dockerfile
+  #   container_name: auth-service
+  #   depends_on:
+  #     kafka:
+  #       condition: service_started
+  #     postgres:
+  #       condition: service_healthy
+  #   environment:
+  #     SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/auth_db
+  #     SPRING_DATASOURCE_USERNAME: auth_user
+  #     SPRING_DATASOURCE_PASSWORD: auth_pass
+  #     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  #     GRPC_SERVER_PORT: 9090
+  #     APP_GRPC_AUTH_SERVICE_SECRET: change-me-shared-secret
+  #     APP_KAFKA_TOPIC_USER_REGISTERED: user.registered.v1
+  #     APP_MAIL_ENABLED: "false"
+
+  profile-postgres:
+    image: postgres:15-alpine
+    container_name: profile-postgres
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/auth_db
-      SPRING_DATASOURCE_USERNAME: auth_user
-      SPRING_DATASOURCE_PASSWORD: auth_pass
-      GRPC_SERVER_PORT: 9090
-      APP_GRPC_AUTH_SERVICE_SECRET: change-me-shared-secret
-      APP_MAIL_ENABLED: "false"
+      POSTGRES_DB: user_profile_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - profile_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d user_profile_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # user-profile-service:
+  #   build:
+  #     context: .
+  #     dockerfile: user-profile-service/Dockerfile
+  #   container_name: user-profile-service
+  #   depends_on:
+  #     kafka:
+  #       condition: service_started
+  #     profile-postgres:
+  #       condition: service_healthy
+  #   environment:
+  #     SPRING_DATASOURCE_URL: jdbc:postgresql://profile-postgres:5432/user_profile_db
+  #     SPRING_DATASOURCE_USERNAME: postgres
+  #     SPRING_DATASOURCE_PASSWORD: postgres
+  #     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  #     GRPC_SERVER_PORT: 9091
+  #     APP_GRPC_PROFILE_SERVICE_SECRET: change-me-shared-secret
+  #     APP_KAFKA_TOPIC_USER_REGISTERED: user.registered.v1
+  #     APP_KAFKA_TOPIC_USER_REGISTERED_DLT: user.registered.dlt
+  #   ports:
+  #     - "9091:9091"
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.2-alpine3.19
     container_name: auth-redis
     ports:
       - "6379:6379"
 
-  api-gateway:
-    build:
-      context: .
-      dockerfile: api-gateway/Dockerfile
-    container_name: api-gateway
-    depends_on:
-      - auth-service
-      - redis
-    environment:
-      SERVER_PORT: 8080
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      GRPC_AUTH_ADDRESS: static://auth-service:9090
-      APP_GRPC_AUTH_SERVICE_SECRET: change-me-shared-secret
-    ports:
-      - "8080:8080"
+  # api-gateway:
+  #   build:
+  #     context: .
+  #     dockerfile: api-gateway/Dockerfile
+  #   container_name: api-gateway
+  #   depends_on:
+  #     - auth-service
+  #     - redis
+  #   environment:
+  #     SERVER_PORT: 8080
+  #     SPRING_DATA_REDIS_HOST: redis
+  #     SPRING_DATA_REDIS_PORT: 6379
+  #     GRPC_AUTH_ADDRESS: static://auth-service:9090
+  #     APP_GRPC_AUTH_SERVICE_SECRET: change-me-shared-secret
+  #   ports:
+  #     - "8080:8080"
 
 volumes:
   auth_postgres_data:
+  profile_postgres_data:
