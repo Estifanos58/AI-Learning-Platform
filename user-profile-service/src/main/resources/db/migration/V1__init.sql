@@ -5,7 +5,6 @@ CREATE TABLE user_profiles (
     university_id VARCHAR(50),
     department VARCHAR(100),
     bio TEXT,
-    profile_image_file_id UUID,
     profile_visibility VARCHAR(20) NOT NULL DEFAULT 'PUBLIC',
     reputation_score INTEGER NOT NULL DEFAULT 0,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,

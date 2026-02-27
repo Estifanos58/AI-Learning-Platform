@@ -60,7 +60,7 @@ grpc:
       address: ${GRPC_PROFILE_ADDRESS:static://localhost:9091}
       negotiationType: ${GRPC_PROFILE_NEGOTIATION:PLAINTEXT}
     file-service:
-      address: ${GRPC_FILE_ADDRESS:static://localhost:9092}
+      address: ${GRPC_FILE_ADDRESS:static://localhost:9093}
       negotiationType: ${GRPC_FILE_NEGOTIATION:PLAINTEXT}
 
 app:
