@@ -1,225 +1,339 @@
-Objective
+1. Objective
 
-Create a production-ready File Service responsible for:
+Refactor the existing File Service to introduce a hierarchical folder system.
 
-Storing and managing user files
+The new requirements are:
 
-Separating profile images from general user files
+A user MUST create a folder before uploading files.
 
-Managing file metadata
+Every file MUST belong to exactly one folder.
 
-Supporting file sharing between users
+Introduce:
 
-Exposing file operations via gRPC
+Create Folder
 
-Publishing domain events when necessary
+Update Folder
 
-Storing files locally inside Docker-managed storage
+Delete Folder (soft delete)
 
-Serving file paths (NOT raw file streaming to other services)
+Share Folder
 
-Allowing full internal DB access for RAG service (read-only recommended)
+Unshare Folder
 
-This service must integrate with:
+List Folders
 
-auth-service (JWT validated at API Gateway)
+Refactor file upload logic to require folderId
 
-user-profile-service (stores profile image reference)
+Modify database schema accordingly
 
-RAG service (reads file paths + direct DB access for embedding)
+Update gRPC contracts
 
-api-gateway (gRPC only)
+Update API Gateway endpoints
 
-Kafka (for file events)
+Preserve all previous file features
 
-1. Project Metadata
+Maintain Kafka event publication
 
-Project Name: file-service
-Build Tool: Maven
-Language: Java 21
-Framework: Spring Boot 3.x
+The service must remain production-grade.
 
-Communication:
+2. High-Level Architectural Constraints
 
-gRPC (Server)
+Do NOT break:
 
-Kafka (Producer optional for file events)
+gRPC communication model
 
-SQL Database (PostgreSQL for metadata)
+Kafka event-driven architecture
 
-Local File Storage (Docker volume)
+Local filesystem storage
 
-2. Architectural Role
+Soft delete logic
 
-The File Service:
+Ownership validation
 
-Owns file metadata
+Sharing model consistency
 
-Owns physical file storage
+RAG service direct volume access
 
-Does NOT authenticate users
+PostgreSQL metadata storage
 
-Trusts user identity from API Gateway metadata
+JWT is validated at API Gateway.
+User identity is received via gRPC metadata.
 
-Returns file path, not file content to other services
+3. New Domain Model – Folder
+3.1 Folder Table
 
-Enforces file ownership rules
+Create a new table:
 
-Enforces sharing rules
-
-3. Storage Strategy (Critical Design Decision)
-
-We must separate:
-
-A) Metadata Database
-
-Use: PostgreSQL
-
-Reason:
-
-Strong relational modeling
-
-Sharing rules require relational joins
-
-Reliable indexing
-
-Mature production support
-
-B) File Binary Storage
-
-Use:
-
-Local filesystem inside Docker container
-
-Mounted volume: /data/files
-
-Reason:
-
-Storing large binaries inside PostgreSQL (BYTEA) is inefficient
-
-Filesystem storage is faster for large objects
-
-Enables direct path access by RAG service
-
-Cleaner separation of concerns
-
-4. Storage Structure
-
-Inside container:
-
-/data
-   /profile-images
-   /user-files
-
-Example:
-
-/data/profile-images/{userId}/{filename}
-/data/user-files/{userId}/{fileId}.{ext}
-
-RAG service will receive:
-
-fileId
-
-absolutePath
-
-It must not download from HTTP.
-It reads directly from mounted shared volume.
-
-5. Database Design
-Table: files
-CREATE TABLE files (
+CREATE TABLE folders (
     id UUID PRIMARY KEY,
     owner_id UUID NOT NULL,
-    file_type VARCHAR(20) NOT NULL, -- PROFILE_IMAGE, DOCUMENT
-    original_name VARCHAR(255) NOT NULL,
-    stored_name VARCHAR(255) NOT NULL,
-    content_type VARCHAR(100),
-    file_size BIGINT NOT NULL,
-    storage_path TEXT NOT NULL,
-    is_shareable BOOLEAN DEFAULT FALSE,
+    name VARCHAR(255) NOT NULL,
+    parent_id UUID NULL,
+    deleted BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL,
-    deleted BOOLEAN DEFAULT FALSE
+    updated_at TIMESTAMP NOT NULL
 );
 
 Indexes:
 
-CREATE INDEX idx_files_owner ON files(owner_id);
-CREATE INDEX idx_files_type ON files(file_type);
-Table: file_shares
-CREATE TABLE file_shares (
+CREATE INDEX idx_folders_owner ON folders(owner_id);
+CREATE INDEX idx_folders_parent ON folders(parent_id);
+
+Notes:
+
+parent_id allows future nested folders.
+
+For now, allow only single-level hierarchy (validation enforced in service).
+
+No foreign key to users table.
+
+Soft delete only.
+
+3.2 Folder Shares Table
+CREATE TABLE folder_shares (
     id UUID PRIMARY KEY,
-    file_id UUID NOT NULL,
+    folder_id UUID NOT NULL,
     shared_with_user_id UUID NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE(file_id, shared_with_user_id)
+    UNIQUE(folder_id, shared_with_user_id)
 );
 
 Indexes:
 
-CREATE INDEX idx_shared_user ON file_shares(shared_with_user_id);
+CREATE INDEX idx_folder_shared_user ON folder_shares(shared_with_user_id);
+
+Folder sharing automatically grants access to all files in that folder.
+
+4. File Schema Changes (Critical)
+
+Modify files table:
+
+Add:
+
+ALTER TABLE files
+ADD COLUMN folder_id UUID NOT NULL;
+
+Add index:
+
+CREATE INDEX idx_files_folder ON files(folder_id);
 
 Important:
 
-No foreign key to user-profile DB
+Every file MUST reference a folder.
 
-Only store UUID references
+Remove logic that stores files directly under /profile-images/{userId}
 
-6. Domain Model
+Instead:
+
+/data/{ownerId}/{folderId}/{fileId}.{ext}
+
+Profile image logic still exists, but file must belong to a folder.
+
+5. Updated Domain Models
+FolderEntity
 @Entity
-@Table(name = "files")
-public class FileEntity {
+@Table(name = "folders")
+public class FolderEntity {
 
     @Id
     private UUID id;
 
     private UUID ownerId;
 
-    @Enumerated(EnumType.STRING)
-    private FileType fileType; // PROFILE_IMAGE, DOCUMENT
+    private String name;
 
-    private String originalName;
-    private String storedName;
-    private String contentType;
-
-    private Long fileSize;
-
-    @Column(columnDefinition = "TEXT")
-    private String storagePath;
-
-    private Boolean isShareable;
+    private UUID parentId;
 
     private Boolean deleted;
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
+FileEntity Modification
 
-Enum:
+Add:
 
-public enum FileType {
-    PROFILE_IMAGE,
-    DOCUMENT
+@Column(name = "folder_id", nullable = false)
+private UUID folderId;
+6. Storage Structure Refactor
+
+OLD:
+
+/data/profile-images/{userId}
+/data/user-files/{userId}
+
+NEW:
+
+/data/{ownerId}/{folderId}/{storedFileName}
+
+Rules:
+
+Folder must exist before physical write
+
+Folder physical directory auto-created if missing
+
+If folder is deleted → files inside become inaccessible
+
+7. New gRPC Definitions
+
+Update file.proto
+
+Add RPCs:
+
+CreateFolder(CreateFolderRequest) returns (FolderResponse)
+UpdateFolder(UpdateFolderRequest) returns (FolderResponse)
+DeleteFolder(DeleteFolderRequest) returns (SimpleResponse)
+ShareFolder(ShareFolderRequest) returns (SimpleResponse)
+UnshareFolder(UnshareFolderRequest) returns (SimpleResponse)
+ListMyFolders(ListMyFoldersRequest) returns (ListFoldersResponse)
+ListSharedFolders(ListSharedFoldersRequest) returns (ListFoldersResponse)
+
+Modify:
+
+UploadFileRequest
+
+Add:
+
+string folderId = X;
+
+Make it required.
+
+8. Business Logic Rules
+CreateFolder
+
+Extract ownerId from metadata
+
+Name required
+
+Prevent duplicate folder names per owner at same hierarchy level
+
+Generate UUID
+
+Save to DB
+
+Publish event (optional)
+
+UpdateFolder
+
+Only owner
+
+Cannot update deleted folder
+
+Cannot rename to existing sibling name
+
+DeleteFolder
+
+Only owner
+
+Soft delete
+
+All files inside folder:
+
+Soft delete automatically
+
+Publish:
+
+folder.deleted.v1
+
+file.deleted.v1 for each file (optional batch event)
+
+ShareFolder
+
+Only owner
+
+Insert into folder_shares
+
+All files inside implicitly accessible
+
+UnshareFolder
+
+Remove entry from folder_shares
+
+Files inside become inaccessible unless individually shared
+
+9. Updated UploadFile Logic
+
+Before uploading:
+
+Validate folderId exists
+
+Validate folder not deleted
+
+Validate:
+
+Owner OR
+
+Folder shared with user
+
+Then:
+
+Store physically in:
+
+/data/{ownerId}/{folderId}/
+
+Save metadata including folderId
+
+Profile image logic:
+
+Still ensure only 1 active PROFILE_IMAGE per user
+
+Must belong to a folder
+
+Soft delete previous image
+
+10. Authorization Matrix
+Operation	Owner	Folder Shared User
+Upload	✔	✔ (if allowed)
+Delete file	✔	✖
+Share file	✔	✖
+Read metadata	✔	✔
+Delete folder	✔	✖
+Share folder	✔	✖
+11. Kafka Topics
+
+Add:
+
+folder.created.v1
+
+folder.deleted.v1
+
+folder.shared.v1
+
+Existing:
+
+file.uploaded.v1
+
+file.deleted.v1
+
+Example folder event:
+
+{
+  "eventId": "uuid",
+  "folderId": "uuid",
+  "ownerId": "uuid",
+  "timestamp": "2026-03-01T10:00:00"
 }
-7. gRPC Definition (file.proto)
+12. API Gateway Updates
 
-Service Name: FileService
+Expose REST endpoints mapping to gRPC:
 
-Required RPCs
-UploadFile(UploadFileRequest) returns (FileResponse)
-GetFileMetadata(GetFileRequest) returns (FileResponse)
-DeleteFile(DeleteFileRequest) returns (SimpleResponse)
-ShareFile(ShareFileRequest) returns (SimpleResponse)
-UnshareFile(UnshareFileRequest) returns (SimpleResponse)
-UpdateFileMetadata(UpdateFileMetadataRequest) returns (FileResponse)
-ListMyFiles(ListMyFilesRequest) returns (ListFilesResponse)
-ListSharedWithMe(ListSharedWithMeRequest) returns (ListFilesResponse)
-GetFilePath(GetFilePathRequest) returns (FilePathResponse)
-8. Security Model
+POST   /folders
+PUT    /folders/{id}
+DELETE /folders/{id}
+POST   /folders/{id}/share
+DELETE /folders/{id}/share/{userId}
+GET    /folders
+GET    /folders/shared
 
-JWT validated at API Gateway.
+Modify:
 
-Gateway forwards via metadata:
+POST /files
+
+Must include:
+
+folderId
+
+Gateway continues forwarding:
 
 userId
 
@@ -227,246 +341,125 @@ roles
 
 universityId
 
-Rules:
+correlationId
 
-Owner can delete file
+13. Required Refactoring Steps (Sequential Execution Plan)
 
-Owner can modify metadata
+Create FolderEntity + Repository
 
-Only owner can mark file shareable
+Create FolderShareEntity + Repository
 
-Only owner can share/unshare
+Update FileEntity to include folderId
 
-Shared users can access metadata + path
+Write DB migration
 
-Non-shareable file cannot be shared
+Refactor file upload service
 
-9. Business Rules
-UploadFile
+Refactor storage path logic
 
-Extract userId from metadata
+Add folder service layer
 
-Validate max file size (configurable)
+Implement gRPC methods
 
-If fileType == PROFILE_IMAGE:
+Update protobuf
 
-Ensure only 1 active profile image per user
+Update API Gateway mappings
 
-Soft delete old image
+Add integration tests
 
-Generate storedName = UUID + extension
+Validate backward compatibility migration
 
-Save file physically
+Update docker-compose if necessary
 
-Save metadata in DB
+Run full regression test
 
-DeleteFile
+14. Observability Requirements
 
-Only owner allowed
+Log:
 
-Soft delete (deleted = true)
+folderId
 
-Optionally delete physical file
+ownerId
 
-ShareFile
+fileId
 
-File must have isShareable = true
+correlationId
 
-Owner only
+Add validation error logs.
 
-Insert into file_shares
+Add metrics:
 
-GetFilePath
+folder.create.count
 
-Used by RAG service
+file.upload.count
 
-Returns absolute path
+folder.share.count
 
-Validate:
+15. Definition of Done
 
-Owner OR
+✔ Folder CRUD implemented
+✔ Folder sharing implemented
+✔ Files require folderId
+✔ Storage path refactored
+✔ Kafka events emitted
+✔ gRPC updated
+✔ API Gateway updated
+✔ Soft delete enforced
+✔ Ownership validation correct
+✔ No cross-service DB coupling
+✔ RAG still reads file path via volume
+✔ All integration tests pass
 
-Shared user
+16. Important Constraints
 
-10. Kafka Integration (Optional but Recommended)
+Do NOT introduce cross-service foreign keys
 
-Topics:
+Do NOT break RAG direct file access
 
-file.uploaded.v1
+Do NOT expose DB externally
 
-file.deleted.v1
+Do NOT store raw file content in PostgreSQL
 
-Example event:
+Maintain clean separation of concerns
 
-{
-  "eventId": "uuid",
-  "fileId": "uuid",
-  "ownerId": "uuid",
-  "fileType": "DOCUMENT",
-  "path": "/data/user-files/xxx.pdf",
-  "timestamp": "2026-02-27T10:00:00"
-}
+Maintain production-readiness
 
-RAG Service can consume this to auto-embed.
+17. Future Enhancements (Not Now)
 
-11. Docker Configuration
+Nested folders (true tree support)
 
-Add to docker-compose.yml:
+Folder-level permission roles
 
-file-service:
-  build: ./file-service
-  ports:
-    - "9092:9092"
-  volumes:
-    - file-storage:/data
-  depends_on:
-    - postgres
-    - kafka
+Folder-level visibility (public/private)
 
-Volume:
+Folder quotas
 
-volumes:
-  file-storage:
+Bulk file move between folders
 
-Postgres DB:
+Versioned folders
 
-file_service_db
+Migration to S3/MinIO
 
-Do NOT expose DB externally.
-
-12. application.yml
-server:
-  port: 9092
-
-spring:
-  datasource:
-    url: jdbc:postgresql://postgres:5432/file_service_db
-    username: postgres
-    password: postgres
-
-  jpa:
-    hibernate:
-      ddl-auto: update
-
-file:
-  storage:
-    root-path: /data
-    max-size-mb: 50
-13. Observability
-
-Structured logging
-
-Log fileId and ownerId
-
-Include correlationId from metadata
-
-Expose Actuator health endpoint
-
-Log physical file write failures
-
-14. Required Modification to User Profile Service
-
-Currently:
-
-avatar_url TEXT
-
-This must be changed.
-
-❌ REMOVE:
-avatar_url TEXT
-✅ REPLACE WITH:
-profile_image_file_id UUID
-
-Updated user_profiles table:
-
-ALTER TABLE user_profiles
-ADD COLUMN profile_image_file_id UUID;
-
-Reason:
-
-User Profile Service must NOT store file paths
-
-It should only store fileId reference
-
-File Service remains single source of truth
-
-When uploading PROFILE_IMAGE:
-
-File Service stores file
-
-Returns fileId
-
-API Gateway calls:
-UpdateMyProfile(profileImageFileId)
-
-User Profile Service only stores reference.
-
-15. RAG Service Special Access
-
-RAG service requirements:
-
-Needs direct read access to file storage volume
-
-Needs read-only access to file_service_db
-
-Should not modify files
-
-Update docker-compose:
-
-rag-service:
-  volumes:
-    - file-storage:/data:ro
-
-Grant read-only DB user.
-
-16. Definition of Done
-
-✔ Files stored physically in Docker volume
-✔ Metadata stored in PostgreSQL
-✔ Profile images separated from documents
-✔ Sharing rules enforced
-✔ Only owner can delete
-✔ RAG can access file path directly
-✔ gRPC communication works via API Gateway
-✔ Service containerized
-✔ File size validation enforced
-✔ Soft delete works
-
-17. Future Enhancements
-
-Move to MinIO (S3 compatible)
-
-Pre-signed URLs
-
-File versioning
-
-Virus scanning
-
-File encryption at rest
-
-CDN support
-
-Rate limiting per user
-
-Final Architecture Overview
-
-Services:
-
-auth-service
-
-user-profile-service
-
-file-service
-
-rag-service
-
-chat-service
+Final Architecture After Refactor
 
 File Service becomes:
 
-Single Source of Truth for file storage.
+Owner of file metadata
 
-Other services:
-Never store file paths.
-Only store fileId references.
-Only request file path via gRPC.
+Owner of folder metadata
+
+Owner of physical file storage
+
+Folder-based hierarchical storage system
+
+Event-driven file lifecycle publisher
+
+Integrated with:
+
+Auth Service
+
+User Profile Service
+
+RAG Service
+
+API Gateway

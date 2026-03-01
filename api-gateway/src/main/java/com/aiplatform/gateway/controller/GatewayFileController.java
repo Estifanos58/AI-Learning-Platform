@@ -1,13 +1,20 @@
 package com.aiplatform.gateway.controller;
 
 import com.aiplatform.file.proto.DeleteFileRequest;
+import com.aiplatform.file.proto.DeleteFolderRequest;
+import com.aiplatform.file.proto.CreateFolderRequest;
 import com.aiplatform.file.proto.FileServiceGrpc;
 import com.aiplatform.file.proto.GetFilePathRequest;
 import com.aiplatform.file.proto.GetFileRequest;
+import com.aiplatform.file.proto.ListMyFoldersRequest;
 import com.aiplatform.file.proto.ListMyFilesRequest;
+import com.aiplatform.file.proto.ListSharedFoldersRequest;
 import com.aiplatform.file.proto.ListSharedWithMeRequest;
+import com.aiplatform.file.proto.ShareFolderRequest;
 import com.aiplatform.file.proto.ShareFileRequest;
+import com.aiplatform.file.proto.UnshareFolderRequest;
 import com.aiplatform.file.proto.UnshareFileRequest;
+import com.aiplatform.file.proto.UpdateFolderRequest;
 import com.aiplatform.file.proto.UpdateFileMetadataRequest;
 import com.aiplatform.file.proto.UploadFileRequest;
 import com.aiplatform.gateway.config.GrpcFileProperties;
@@ -16,6 +23,11 @@ import com.aiplatform.gateway.dto.FileMetadataUpdateRequest;
 import com.aiplatform.gateway.dto.FileResponse;
 import com.aiplatform.gateway.dto.FileShareRequest;
 import com.aiplatform.gateway.dto.FileUploadRequest;
+import com.aiplatform.gateway.dto.FolderCreateRequest;
+import com.aiplatform.gateway.dto.FolderResponse;
+import com.aiplatform.gateway.dto.FolderShareRequest;
+import com.aiplatform.gateway.dto.FolderUpdateRequest;
+import com.aiplatform.gateway.dto.ListFoldersResponse;
 import com.aiplatform.gateway.dto.ListFilesResponse;
 import com.aiplatform.gateway.security.JwtValidationService;
 import com.aiplatform.gateway.util.GatewayPrincipal;
@@ -23,6 +35,7 @@ import com.aiplatform.gateway.util.GatewayPrincipalResolver;
 import com.aiplatform.gateway.util.GatewayRequestUtils;
 import com.aiplatform.gateway.util.GrpcExceptionMapper;
 import com.aiplatform.gateway.util.mapper.FileResponseMapper;
+import com.aiplatform.gateway.util.mapper.FolderResponseMapper;
 import com.google.protobuf.ByteString;
 import io.grpc.Metadata;
 import io.grpc.stub.MetadataUtils;
@@ -37,6 +50,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -83,6 +97,7 @@ public class GatewayFileController {
 
                     UploadFileRequest grpcRequest = UploadFileRequest.newBuilder()
                             .setFileType(request.fileType())
+                            .setFolderId(request.folderId())
                             .setOriginalName(request.originalName())
                             .setContentType(GatewayRequestUtils.defaultString(request.contentType()))
                             .setContent(ByteString.copyFrom(content))
@@ -91,6 +106,143 @@ public class GatewayFileController {
 
                     var response = withMetadata(principal).uploadFile(grpcRequest);
                     return ResponseEntity.ok(FileResponseMapper.toDto(response));
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
+    @PostMapping("/folders")
+    public Mono<ResponseEntity<FolderResponse>> createFolder(
+            @Valid @RequestBody FolderCreateRequest request,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
+    ) {
+        return Mono.fromCallable(() -> {
+                    GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
+                    var response = withMetadata(principal)
+                            .createFolder(CreateFolderRequest.newBuilder()
+                                    .setName(request.name())
+                                    .setParentId(GatewayRequestUtils.defaultString(request.parentId()))
+                                    .build());
+                    return ResponseEntity.ok(FolderResponseMapper.toDto(response));
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
+    @PutMapping("/folders/{folderId}")
+    public Mono<ResponseEntity<FolderResponse>> updateFolder(
+            @PathVariable String folderId,
+            @Valid @RequestBody FolderUpdateRequest request,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
+    ) {
+        return Mono.fromCallable(() -> {
+                    GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
+                    var response = withMetadata(principal)
+                            .updateFolder(UpdateFolderRequest.newBuilder()
+                                    .setFolderId(folderId)
+                                    .setName(request.name())
+                                    .build());
+                    return ResponseEntity.ok(FolderResponseMapper.toDto(response));
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
+    @DeleteMapping("/folders/{folderId}")
+    public Mono<ResponseEntity<ApiMessageResponse>> deleteFolder(
+            @PathVariable String folderId,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
+    ) {
+        return Mono.fromCallable(() -> {
+                    GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
+                    var response = withMetadata(principal)
+                            .deleteFolder(DeleteFolderRequest.newBuilder().setFolderId(folderId).build());
+                    return ResponseEntity.ok(new ApiMessageResponse(response.getMessage()));
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
+    @PostMapping("/folders/{folderId}/share")
+    public Mono<ResponseEntity<ApiMessageResponse>> shareFolder(
+            @PathVariable String folderId,
+            @Valid @RequestBody FolderShareRequest request,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
+    ) {
+        return Mono.fromCallable(() -> {
+                    GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
+                    var response = withMetadata(principal)
+                            .shareFolder(ShareFolderRequest.newBuilder()
+                                    .setFolderId(folderId)
+                                    .setSharedWithUserId(request.sharedWithUserId())
+                                    .build());
+                    return ResponseEntity.ok(new ApiMessageResponse(response.getMessage()));
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
+    @DeleteMapping("/folders/{folderId}/share/{userId}")
+    public Mono<ResponseEntity<ApiMessageResponse>> unshareFolder(
+            @PathVariable String folderId,
+            @PathVariable String userId,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
+    ) {
+        return Mono.fromCallable(() -> {
+                    GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
+                    var response = withMetadata(principal)
+                            .unshareFolder(UnshareFolderRequest.newBuilder()
+                                    .setFolderId(folderId)
+                                    .setSharedWithUserId(userId)
+                                    .build());
+                    return ResponseEntity.ok(new ApiMessageResponse(response.getMessage()));
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
+    @GetMapping("/folders")
+    public Mono<ResponseEntity<ListFoldersResponse>> listMyFolders(
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return Mono.fromCallable(() -> {
+                    GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
+                    var response = withMetadata(principal)
+                            .listMyFolders(ListMyFoldersRequest.newBuilder()
+                                    .setPage(Math.max(page, 0))
+                                    .setSize(Math.max(size, 1))
+                                    .build());
+                    List<FolderResponse> folders = response.getFoldersList().stream().map(FolderResponseMapper::toDto).toList();
+                    return ResponseEntity.ok(new ListFoldersResponse(folders, response.getTotal()));
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
+    @GetMapping("/folders/shared")
+    public Mono<ResponseEntity<ListFoldersResponse>> listSharedFolders(
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return Mono.fromCallable(() -> {
+                    GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
+                    var response = withMetadata(principal)
+                            .listSharedFolders(ListSharedFoldersRequest.newBuilder()
+                                    .setPage(Math.max(page, 0))
+                                    .setSize(Math.max(size, 1))
+                                    .build());
+                    List<FolderResponse> folders = response.getFoldersList().stream().map(FolderResponseMapper::toDto).toList();
+                    return ResponseEntity.ok(new ListFoldersResponse(folders, response.getTotal()));
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorMap(GrpcExceptionMapper::toResponseStatus);

@@ -12,6 +12,14 @@ enum FileType {
 }
 
 service FileService {
+  rpc CreateFolder(CreateFolderRequest) returns (FolderResponse);
+  rpc UpdateFolder(UpdateFolderRequest) returns (FolderResponse);
+  rpc DeleteFolder(DeleteFolderRequest) returns (SimpleResponse);
+  rpc ShareFolder(ShareFolderRequest) returns (SimpleResponse);
+  rpc UnshareFolder(UnshareFolderRequest) returns (SimpleResponse);
+  rpc ListMyFolders(ListMyFoldersRequest) returns (ListFoldersResponse);
+  rpc ListSharedFolders(ListSharedFoldersRequest) returns (ListFoldersResponse);
+
   rpc UploadFile(UploadFileRequest) returns (FileResponse);
   rpc GetFileMetadata(GetFileRequest) returns (FileResponse);
   rpc DeleteFile(DeleteFileRequest) returns (SimpleResponse);
@@ -23,12 +31,62 @@ service FileService {
   rpc GetFilePath(GetFilePathRequest) returns (FilePathResponse);
 }
 
+message CreateFolderRequest {
+  string name = 1;
+  string parent_id = 2;
+}
+
+message UpdateFolderRequest {
+  string folder_id = 1;
+  string name = 2;
+}
+
+message DeleteFolderRequest {
+  string folder_id = 1;
+}
+
+message ShareFolderRequest {
+  string folder_id = 1;
+  string shared_with_user_id = 2;
+}
+
+message UnshareFolderRequest {
+  string folder_id = 1;
+  string shared_with_user_id = 2;
+}
+
+message ListMyFoldersRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message ListSharedFoldersRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message FolderResponse {
+  string id = 1;
+  string owner_id = 2;
+  string name = 3;
+  string parent_id = 4;
+  bool deleted = 5;
+  string created_at = 6;
+  string updated_at = 7;
+}
+
+message ListFoldersResponse {
+  repeated FolderResponse folders = 1;
+  int64 total = 2;
+}
+
 message UploadFileRequest {
   FileType file_type = 1;
   string original_name = 2;
   string content_type = 3;
   bytes content = 4;
   bool is_shareable = 5;
+  string folder_id = 6;
 }
 
 message GetFileRequest {
@@ -74,6 +132,7 @@ message GetFilePathRequest {
 message FileResponse {
   string id = 1;
   string owner_id = 2;
+  string folder_id = 13;
   FileType file_type = 3;
   string original_name = 4;
   string stored_name = 5;

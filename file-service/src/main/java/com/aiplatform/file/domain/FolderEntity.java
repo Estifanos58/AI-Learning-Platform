@@ -2,8 +2,6 @@ package com.aiplatform.file.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
@@ -18,13 +16,13 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "files")
+@Table(name = "folders")
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class FileEntity {
+public class FolderEntity {
 
     @Id
     @Column(nullable = false, updatable = false)
@@ -33,30 +31,11 @@ public class FileEntity {
     @Column(name = "owner_id", nullable = false, updatable = false)
     private UUID ownerId;
 
-    @Column(name = "folder_id", nullable = false, updatable = false)
-    private UUID folderId;
+    @Column(nullable = false, length = 255)
+    private String name;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "file_type", nullable = false, length = 20)
-    private FileType fileType;
-
-    @Column(name = "original_name", nullable = false, length = 255)
-    private String originalName;
-
-    @Column(name = "stored_name", nullable = false, length = 255)
-    private String storedName;
-
-    @Column(name = "content_type", length = 100)
-    private String contentType;
-
-    @Column(name = "file_size", nullable = false)
-    private Long fileSize;
-
-    @Column(name = "storage_path", nullable = false, columnDefinition = "TEXT")
-    private String storagePath;
-
-    @Column(name = "is_shareable", nullable = false)
-    private Boolean isShareable;
+    @Column(name = "parent_id")
+    private UUID parentId;
 
     @Column(name = "deleted", nullable = false)
     private Boolean deleted;
@@ -74,9 +53,6 @@ public class FileEntity {
             createdAt = now;
         }
         updatedAt = now;
-        if (isShareable == null) {
-            isShareable = Boolean.FALSE;
-        }
         if (deleted == null) {
             deleted = Boolean.FALSE;
         }

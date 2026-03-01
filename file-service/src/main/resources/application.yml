@@ -46,3 +46,6 @@ app:
       enabled: ${APP_KAFKA_FILE_EVENTS_ENABLED:false}
       uploaded-topic: ${APP_KAFKA_TOPIC_FILE_UPLOADED:file.uploaded.v1}
       deleted-topic: ${APP_KAFKA_TOPIC_FILE_DELETED:file.deleted.v1}
+      folder-created-topic: ${APP_KAFKA_TOPIC_FOLDER_CREATED:folder.created.v1}
+      folder-deleted-topic: ${APP_KAFKA_TOPIC_FOLDER_DELETED:folder.deleted.v1}
+      folder-shared-topic: ${APP_KAFKA_TOPIC_FOLDER_SHARED:folder.shared.v1}

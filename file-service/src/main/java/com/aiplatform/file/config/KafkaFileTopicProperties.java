@@ -7,6 +7,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record KafkaFileTopicProperties(
         boolean enabled,
         @NotBlank String uploadedTopic,
-        @NotBlank String deletedTopic
+        @NotBlank String deletedTopic,
+        @NotBlank String folderCreatedTopic,
+        @NotBlank String folderDeletedTopic,
+        @NotBlank String folderSharedTopic
 ) {
 }

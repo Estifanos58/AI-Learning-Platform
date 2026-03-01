@@ -11,6 +11,7 @@ public final class FileResponseMapper {
         return new FileResponse(
                 response.getId(),
                 response.getOwnerId(),
+            response.getFolderId(),
                 response.getFileType(),
                 response.getOriginalName(),
                 response.getStoredName(),

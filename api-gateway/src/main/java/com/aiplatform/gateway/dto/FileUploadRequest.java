@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotNull;
 
 public record FileUploadRequest(
         @NotNull FileType fileType,
+        @NotBlank String folderId,
         @NotBlank String originalName,
         String contentType,
         @NotBlank String contentBase64,

@@ -4,12 +4,15 @@ import com.aiplatform.file.config.FileStorageProperties;
 import com.aiplatform.file.domain.FileEntity;
 import com.aiplatform.file.domain.FileShareEntity;
 import com.aiplatform.file.domain.FileType;
+import com.aiplatform.file.domain.FolderEntity;
 import com.aiplatform.file.exception.DuplicateShareException;
 import com.aiplatform.file.exception.FileNotFoundException;
 import com.aiplatform.file.exception.InvalidFileOperationException;
 import com.aiplatform.file.exception.UnauthorizedFileAccessException;
 import com.aiplatform.file.repository.FileRepository;
 import com.aiplatform.file.repository.FileShareRepository;
+import com.aiplatform.file.repository.FolderShareRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -33,8 +36,11 @@ public class FileApplicationService {
 
     private final FileRepository fileRepository;
     private final FileShareRepository fileShareRepository;
+    private final FolderShareRepository folderShareRepository;
     private final FileStorageProperties storageProperties;
+    private final FolderApplicationService folderApplicationService;
     private final FileEventPublisher fileEventPublisher;
+    private final MeterRegistry meterRegistry;
 
     @Transactional
     public FileEntity uploadFile(AuthenticatedPrincipal principal,
@@ -42,8 +48,15 @@ public class FileApplicationService {
                                  String originalName,
                                  String contentType,
                                  byte[] content,
-                                 boolean isShareable) {
+                                 boolean isShareable,
+                                 UUID folderId) {
         requireAuthenticated(principal);
+
+        if (folderId == null) {
+            throw new InvalidFileOperationException("folderId is required");
+        }
+
+        FolderEntity folder = folderApplicationService.requireActiveFolderForUpload(folderId, principal);
 
         if (content == null || content.length == 0) {
             throw new InvalidFileOperationException("Uploaded file content is empty");
@@ -56,20 +69,24 @@ public class FileApplicationService {
 
         UUID fileId = UUID.randomUUID();
         String extension = extension(originalName);
-        String storedName = storedNameFor(fileType, fileId, extension);
-        Path targetPath = targetPath(fileType, principal.userId(), storedName);
+        String storedName = storedNameFor(fileId, extension);
+        Path targetPath = targetPath(folder.getOwnerId(), folder.getId(), storedName);
 
         writeFile(targetPath, content, principal);
 
         if (fileType == FileType.PROFILE_IMAGE) {
-            fileRepository.findActiveProfileImageByOwnerId(principal.userId(), FileType.PROFILE_IMAGE)
+            if (!principal.userId().equals(folder.getOwnerId())) {
+                throw new UnauthorizedFileAccessException("Profile image can only be uploaded to your own folder");
+            }
+            fileRepository.findActiveProfileImageByOwnerId(folder.getOwnerId(), FileType.PROFILE_IMAGE)
                     .ifPresent(existing -> existing.setDeleted(Boolean.TRUE));
             isShareable = false;
         }
 
         FileEntity entity = FileEntity.builder()
                 .id(fileId)
-                .ownerId(principal.userId())
+                .ownerId(folder.getOwnerId())
+                .folderId(folder.getId())
                 .fileType(fileType)
                 .originalName(safeOriginalName(originalName, storedName))
                 .storedName(storedName)
@@ -82,8 +99,10 @@ public class FileApplicationService {
 
         FileEntity saved = fileRepository.save(entity);
         fileEventPublisher.publishUploaded(saved);
+        meterRegistry.counter("file.upload.count").increment();
 
-        log.info("File uploaded. fileId={}, ownerId={}, correlationId={}", saved.getId(), saved.getOwnerId(), principal.correlationId());
+        log.info("File uploaded. fileId={}, folderId={}, ownerId={}, correlationId={}",
+            saved.getId(), saved.getFolderId(), saved.getOwnerId(), principal.correlationId());
         return saved;
     }
 
@@ -104,7 +123,8 @@ public class FileApplicationService {
         fileShareRepository.deleteAllByFileId(fileId);
         fileEventPublisher.publishDeleted(file);
 
-        log.info("File soft deleted. fileId={}, ownerId={}, correlationId={}", file.getId(), file.getOwnerId(), principal.correlationId());
+        log.info("File soft deleted. fileId={}, folderId={}, ownerId={}, correlationId={}",
+            file.getId(), file.getFolderId(), file.getOwnerId(), principal.correlationId());
     }
 
     @Transactional
@@ -128,8 +148,8 @@ public class FileApplicationService {
                 .build();
         fileShareRepository.save(shareEntity);
 
-        log.info("File shared. fileId={}, ownerId={}, targetUserId={}, correlationId={}",
-                file.getId(), file.getOwnerId(), sharedWithUserId, principal.correlationId());
+        log.info("File shared. fileId={}, folderId={}, ownerId={}, targetUserId={}, correlationId={}",
+            file.getId(), file.getFolderId(), file.getOwnerId(), sharedWithUserId, principal.correlationId());
     }
 
     @Transactional
@@ -138,8 +158,8 @@ public class FileApplicationService {
         validateOwner(file, principal);
 
         fileShareRepository.deleteByFileIdAndSharedWithUserId(fileId, sharedWithUserId);
-        log.info("File unshared. fileId={}, ownerId={}, targetUserId={}, correlationId={}",
-                file.getId(), file.getOwnerId(), sharedWithUserId, principal.correlationId());
+        log.info("File unshared. fileId={}, folderId={}, ownerId={}, targetUserId={}, correlationId={}",
+            file.getId(), file.getFolderId(), file.getOwnerId(), sharedWithUserId, principal.correlationId());
     }
 
     @Transactional
@@ -157,8 +177,8 @@ public class FileApplicationService {
         }
 
         FileEntity saved = fileRepository.save(file);
-        log.info("File metadata updated. fileId={}, ownerId={}, shareable={}, correlationId={}",
-                saved.getId(), saved.getOwnerId(), saved.getIsShareable(), principal.correlationId());
+        log.info("File metadata updated. fileId={}, folderId={}, ownerId={}, shareable={}, correlationId={}",
+            saved.getId(), saved.getFolderId(), saved.getOwnerId(), saved.getIsShareable(), principal.correlationId());
         return saved;
     }
 
@@ -211,6 +231,12 @@ public class FileApplicationService {
         if (file.getOwnerId().equals(principal.userId())) {
             return;
         }
+
+        boolean folderShared = folderShareRepository.existsByFolderIdAndSharedWithUserId(file.getFolderId(), principal.userId());
+        if (folderShared) {
+            return;
+        }
+
         boolean shared = fileShareRepository.existsByFileIdAndSharedWithUserId(file.getId(), principal.userId());
         if (!shared) {
             throw new UnauthorizedFileAccessException("No access to this file");
@@ -247,18 +273,12 @@ public class FileApplicationService {
         return ext.isBlank() ? "" : ext.toLowerCase();
     }
 
-    private String storedNameFor(FileType fileType, UUID fileId, String extension) {
-        if (fileType == FileType.PROFILE_IMAGE) {
-            return extension.isBlank() ? UUID.randomUUID().toString() : UUID.randomUUID() + "." + extension;
-        }
+    private String storedNameFor(UUID fileId, String extension) {
         return extension.isBlank() ? fileId.toString() : fileId + "." + extension;
     }
 
-    private Path targetPath(FileType fileType, UUID userId, String storedName) {
+    private Path targetPath(UUID ownerId, UUID folderId, String storedName) {
         Path root = Paths.get(storageProperties.rootPath());
-        if (fileType == FileType.PROFILE_IMAGE) {
-            return root.resolve("profile-images").resolve(userId.toString()).resolve(storedName);
-        }
-        return root.resolve("user-files").resolve(userId.toString()).resolve(storedName);
+        return root.resolve(ownerId.toString()).resolve(folderId.toString()).resolve(storedName);
     }
 }

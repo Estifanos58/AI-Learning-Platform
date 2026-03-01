@@ -10,10 +10,13 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
 
 public interface FileRepository extends JpaRepository<FileEntity, UUID> {
 
     Optional<FileEntity> findByIdAndDeletedFalse(UUID id);
+
+        List<FileEntity> findAllByFolderIdAndDeletedFalse(UUID folderId);
 
     @Query("""
             select f

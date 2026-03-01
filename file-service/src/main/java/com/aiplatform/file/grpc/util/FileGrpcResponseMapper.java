@@ -16,6 +16,7 @@ public final class FileGrpcResponseMapper {
         FileResponse.Builder builder = FileResponse.newBuilder()
                 .setId(file.getId().toString())
                 .setOwnerId(file.getOwnerId().toString())
+            .setFolderId(file.getFolderId().toString())
                 .setFileType(com.aiplatform.file.proto.FileType.valueOf(file.getFileType().name()))
                 .setOriginalName(file.getOriginalName())
                 .setStoredName(file.getStoredName())

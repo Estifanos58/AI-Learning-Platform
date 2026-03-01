@@ -5,6 +5,7 @@ import com.aiplatform.file.proto.FileType;
 public record FileResponse(
         String id,
         String ownerId,
+        String folderId,
         FileType fileType,
         String originalName,
         String storedName,
