@@ -90,6 +90,23 @@ services:
       timeout: 5s
       retries: 10
 
+  chat-postgres:
+    image: postgres:15-alpine
+    container_name: chat-postgres
+    environment:
+      POSTGRES_DB: chat_service_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - chat_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d chat_service_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   # user-profile-service:
   #   build:
   #     context: .
@@ -135,6 +152,30 @@ services:
   #   ports:
   #     - "9092:9092"
 
+  # chat-service:
+  #   build:
+  #     context: .
+  #     dockerfile: chat-service/Dockerfile
+  #   container_name: chat-service
+  #   depends_on:
+  #     kafka:
+  #       condition: service_started
+  #     redis:
+  #       condition: service_started
+  #     chat-postgres:
+  #       condition: service_healthy
+  #   environment:
+  #     SPRING_DATASOURCE_URL: jdbc:postgresql://chat-postgres:5432/chat_service_db
+  #     SPRING_DATASOURCE_USERNAME: postgres
+  #     SPRING_DATASOURCE_PASSWORD: postgres
+  #     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  #     SPRING_DATA_REDIS_HOST: redis
+  #     SPRING_DATA_REDIS_PORT: 6379
+  #     GRPC_SERVER_PORT: 9094
+  #     APP_GRPC_CHAT_SERVICE_SECRET: change-me-shared-secret
+  #   ports:
+  #     - "9094:9094"
+
   redis:
     image: redis:7.2-alpine3.19
     container_name: auth-redis
@@ -156,9 +197,11 @@ services:
   #     GRPC_AUTH_ADDRESS: static://auth-service:9090
   #     GRPC_PROFILE_ADDRESS: static://user-profile-service:9091
   #     GRPC_FILE_ADDRESS: static://file-service:9092
+  #     GRPC_CHAT_ADDRESS: static://chat-service:9094
   #     APP_GRPC_AUTH_SERVICE_SECRET: change-me-shared-secret
   #     APP_GRPC_PROFILE_SERVICE_SECRET: change-me-shared-secret
   #     APP_GRPC_FILE_SERVICE_SECRET: change-me-shared-secret
+  #     APP_GRPC_CHAT_SERVICE_SECRET: change-me-shared-secret
   #   ports:
   #     - "8080:8080"
 
@@ -170,4 +213,5 @@ volumes:
   auth_postgres_data:
   profile_postgres_data:
   file_postgres_data:
+  chat_postgres_data:
   file-storage:

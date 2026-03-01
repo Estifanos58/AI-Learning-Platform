@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package auth.v1;
+
+option java_multiple_files = true;
+option java_package = "com.aiplatform.auth.proto";
+option java_outer_classname = "AuthProto";
+
+enum Role {
+  STUDENT = 0;
+  INSTRUCTOR = 1;
+  ADMIN = 2;
+}
+
+service AuthService {
+  rpc Signup(SignupRequest) returns (AuthResponse);
+  rpc Login(LoginRequest) returns (AuthResponse);
+  rpc VerifyEmail(VerifyRequest) returns (SimpleResponse);
+  rpc RefreshToken(RefreshRequest) returns (AuthResponse);
+  rpc Logout(LogoutRequest) returns (SimpleResponse);
+}
+
+message SignupRequest {
+  string email = 1;
+  string username = 2;
+  string password = 3;
+  Role role = 4;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message VerifyRequest {
+  string token = 1;
+}
+
+message RefreshRequest {
+  string refresh_token = 1;
+}
+
+message LogoutRequest {
+  string refresh_token = 1;
+}
+
+message AuthResponse {
+  string message = 1;
+  string access_token = 2;
+  string refresh_token = 3;
+  string token_type = 4;
+  int64 access_token_expires_in_seconds = 5;
+  UserSummary user = 6;
+}
+
+message SimpleResponse {
+  string message = 1;
+}
+
+message UserSummary {
+  string id = 1;
+  string email = 2;
+  string username = 3;
+  Role role = 4;
+  string status = 5;
+  bool email_verified = 6;
+}
