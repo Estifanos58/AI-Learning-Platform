@@ -50,13 +50,30 @@ public class FileApplicationService {
                                  byte[] content,
                                  boolean isShareable,
                                  UUID folderId) {
+        return uploadFile(principal, fileType, originalName, contentType, content, isShareable, folderId, null);
+    }
+
+    @Transactional
+    public FileEntity uploadFile(AuthenticatedPrincipal principal,
+                                 FileType fileType,
+                                 String originalName,
+                                 String contentType,
+                                 byte[] content,
+                                 boolean isShareable,
+                                 UUID folderId,
+                                 String internalSource) {
         requireAuthenticated(principal);
 
-        if (folderId == null) {
-            throw new InvalidFileOperationException("folderId is required");
+        UUID resolvedFolderId = folderId;
+        if (resolvedFolderId == null) {
+            if ("chat-service".equals(internalSource)) {
+                resolvedFolderId = folderApplicationService.resolveOrCreateSharedInMessageFolder(principal.userId()).getId();
+            } else {
+                throw new InvalidFileOperationException("folderId is required");
+            }
         }
 
-        FolderEntity folder = folderApplicationService.requireActiveFolderForUpload(folderId, principal);
+        FolderEntity folder = folderApplicationService.requireActiveFolderForUpload(resolvedFolderId, principal);
 
         if (content == null || content.length == 0) {
             throw new InvalidFileOperationException("Uploaded file content is empty");

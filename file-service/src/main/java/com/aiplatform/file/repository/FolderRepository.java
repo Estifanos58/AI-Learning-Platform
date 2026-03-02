@@ -16,6 +16,8 @@ public interface FolderRepository extends JpaRepository<FolderEntity, UUID> {
 
     Optional<FolderEntity> findByIdAndOwnerIdAndDeletedFalse(UUID id, UUID ownerId);
 
+    Optional<FolderEntity> findByOwnerIdAndParentIdIsNullAndNameIgnoreCaseAndDeletedFalse(UUID ownerId, String name);
+
     boolean existsByOwnerIdAndParentIdIsNullAndNameIgnoreCaseAndDeletedFalse(UUID ownerId, String name);
 
     Page<FolderEntity> findByOwnerIdAndDeletedFalseOrderByCreatedAtDesc(UUID ownerId, Pageable pageable);

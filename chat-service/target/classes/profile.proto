@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package profile.v1;
+
+option java_multiple_files = true;
+option java_package = "com.aiplatform.profile.proto";
+option java_outer_classname = "ProfileProto";
+
+enum ProfileVisibility {
+  PUBLIC = 0;
+  UNIVERSITY_ONLY = 1;
+  PRIVATE = 2;
+}
+
+service UserProfileService {
+  rpc GetMyProfile(GetMyProfileRequest) returns (UserProfileResponse);
+  rpc GetProfileById(GetProfileRequest) returns (UserProfileResponse);
+  rpc UpdateMyProfile(UpdateProfileRequest) returns (UserProfileResponse);
+  rpc SearchProfiles(SearchProfilesRequest) returns (SearchProfilesResponse);
+  rpc UpdateProfileVisibility(UpdateVisibilityRequest) returns (SimpleResponse);
+  rpc IncrementReputation(IncrementReputationRequest) returns (SimpleResponse);
+}
+
+message GetMyProfileRequest {}
+
+message GetProfileRequest {
+  string user_id = 1;
+}
+
+message UpdateProfileRequest {
+  string first_name = 1;
+  string last_name = 2;
+  string university_id = 3;
+  string department = 4;
+  string bio = 5;
+  string profile_image_file_id = 6;
+}
+
+message SearchProfilesRequest {
+  string university_id = 1;
+  string department = 2;
+  string name_query = 3;
+  int32 page = 4;
+  int32 size = 5;
+}
+
+message UpdateVisibilityRequest {
+  ProfileVisibility visibility = 1;
+}
+
+message IncrementReputationRequest {
+  string user_id = 1;
+  int32 amount = 2;
+}
+
+message UserProfileResponse {
+  string user_id = 1;
+  string first_name = 2;
+  string last_name = 3;
+  string university_id = 4;
+  string department = 5;
+  string bio = 6;
+  string profile_image_file_id = 7;
+  ProfileVisibility visibility = 8;
+  int32 reputation_score = 9;
+  int32 completion_score = 10;
+  string created_at = 11;
+  string updated_at = 12;
+}
+
+message SearchProfilesResponse {
+  repeated UserProfileResponse profiles = 1;
+  int64 total = 2;
+}
+
+message SimpleResponse {
+  string message = 1;
+}
