@@ -155,14 +155,22 @@ public class FileGrpcService extends FileServiceGrpc.FileServiceImplBase {
     public void uploadFile(UploadFileRequest request, StreamObserver<FileResponse> responseObserver) {
         try {
             AuthenticatedPrincipal principal = FileGrpcPrincipalResolver.requirePrincipal();
+            String internalSource = GrpcContextKeys.INTERNAL_SOURCE.get();
+
+            UUID folderId = null;
+            if (request.getFolderId() != null && !request.getFolderId().isBlank()) {
+                folderId = UUID.fromString(request.getFolderId());
+            }
+
             FileEntity saved = fileApplicationService.uploadFile(
                     principal,
                     FileType.valueOf(request.getFileType().name()),
                     request.getOriginalName(),
                     request.getContentType(),
                     request.getContent().toByteArray(),
-                        request.getIsShareable(),
-                        UUID.fromString(request.getFolderId())
+                    request.getIsShareable(),
+                    folderId,
+                    internalSource
             );
             responseObserver.onNext(FileGrpcResponseMapper.toResponse(saved));
             responseObserver.onCompleted();

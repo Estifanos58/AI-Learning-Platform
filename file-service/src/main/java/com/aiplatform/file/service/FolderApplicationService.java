@@ -177,6 +177,24 @@ public class FolderApplicationService {
         return folderShareRepository.existsByFolderIdAndSharedWithUserId(folderId, userId);
     }
 
+    @Transactional
+    public FolderEntity resolveOrCreateSharedInMessageFolder(UUID ownerId) {
+        return folderRepository
+                .findByOwnerIdAndParentIdIsNullAndNameIgnoreCaseAndDeletedFalse(ownerId, "SharedInMessage")
+                .orElseGet(() -> {
+                    FolderEntity folder = FolderEntity.builder()
+                            .id(UUID.randomUUID())
+                            .ownerId(ownerId)
+                            .name("SharedInMessage")
+                            .parentId(null)
+                            .deleted(Boolean.FALSE)
+                            .build();
+                    FolderEntity saved = folderRepository.save(folder);
+                    log.info("Auto-created SharedInMessage folder. folderId={}, ownerId={}", saved.getId(), saved.getOwnerId());
+                    return saved;
+                });
+    }
+
     private FolderEntity requireOwnerFolder(UUID folderId, AuthenticatedPrincipal principal) {
         requireAuthenticated(principal);
         FolderEntity folder = folderRepository.findByIdAndDeletedFalse(folderId)

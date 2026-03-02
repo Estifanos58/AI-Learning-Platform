@@ -27,6 +27,7 @@ public class GrpcFileServerInterceptor implements ServerInterceptor {
     private static final Metadata.Key<String> USER_ID_KEY = Metadata.Key.of(GrpcMetadataConstants.USER_ID_HEADER, Metadata.ASCII_STRING_MARSHALLER);
     private static final Metadata.Key<String> USER_ROLES_KEY = Metadata.Key.of(GrpcMetadataConstants.USER_ROLES_HEADER, Metadata.ASCII_STRING_MARSHALLER);
     private static final Metadata.Key<String> UNIVERSITY_ID_KEY = Metadata.Key.of(GrpcMetadataConstants.UNIVERSITY_ID_HEADER, Metadata.ASCII_STRING_MARSHALLER);
+    private static final Metadata.Key<String> INTERNAL_SOURCE_KEY = Metadata.Key.of(GrpcMetadataConstants.INTERNAL_SOURCE_HEADER, Metadata.ASCII_STRING_MARSHALLER);
 
     private final GrpcFileProperties grpcFileProperties;
 
@@ -51,6 +52,7 @@ public class GrpcFileServerInterceptor implements ServerInterceptor {
         String userId = headers.get(USER_ID_KEY);
         String userRoles = headers.get(USER_ROLES_KEY);
         String universityId = headers.get(UNIVERSITY_ID_KEY);
+        String internalSource = headers.get(INTERNAL_SOURCE_KEY);
 
         log.info("Incoming gRPC call. method={}, correlationId={}, userId={}",
                 call.getMethodDescriptor().getFullMethodName(), correlationId, userId);
@@ -59,7 +61,8 @@ public class GrpcFileServerInterceptor implements ServerInterceptor {
                 .withValue(GrpcContextKeys.CORRELATION_ID, correlationId)
                 .withValue(GrpcContextKeys.USER_ID, userId)
                 .withValue(GrpcContextKeys.USER_ROLES, userRoles)
-                .withValue(GrpcContextKeys.UNIVERSITY_ID, universityId);
+                .withValue(GrpcContextKeys.UNIVERSITY_ID, universityId)
+                .withValue(GrpcContextKeys.INTERNAL_SOURCE, internalSource);
 
         return Contexts.interceptCall(context, call, headers, next);
     }

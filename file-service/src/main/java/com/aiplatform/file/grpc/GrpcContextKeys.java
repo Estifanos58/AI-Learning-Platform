@@ -11,4 +11,5 @@ public final class GrpcContextKeys {
     public static final Context.Key<String> USER_ID = Context.key("user-id");
     public static final Context.Key<String> USER_ROLES = Context.key("user-roles");
     public static final Context.Key<String> UNIVERSITY_ID = Context.key("university-id");
+    public static final Context.Key<String> INTERNAL_SOURCE = Context.key("internal-source");
 }

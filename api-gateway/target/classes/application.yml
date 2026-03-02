@@ -30,6 +30,12 @@ spring:
             - Path=/api/files/**
           filters:
             - RewritePath=/api/files/?(?<segment>.*), /api/internal/files/${segment}
+        - id: chat-route
+          uri: forward:/
+          predicates:
+            - Path=/api/chat/**
+          filters:
+            - RewritePath=/api/chat/?(?<segment>.*), /api/internal/chat/${segment}
       globalcors:
         add-to-simple-url-handler-mapping: true
         cors-configurations:
@@ -62,6 +68,9 @@ grpc:
     file-service:
       address: ${GRPC_FILE_ADDRESS:static://localhost:9093}
       negotiationType: ${GRPC_FILE_NEGOTIATION:PLAINTEXT}
+    chat-service:
+      address: ${GRPC_CHAT_ADDRESS:static://localhost:9095}
+      negotiationType: ${GRPC_CHAT_NEGOTIATION:PLAINTEXT}
 
 app:
   jwt:
@@ -74,6 +83,8 @@ app:
       service-secret: ${APP_GRPC_PROFILE_SERVICE_SECRET:change-me-shared-secret}
     file:
       service-secret: ${APP_GRPC_FILE_SERVICE_SECRET:change-me-shared-secret}
+    chat:
+      service-secret: ${APP_GRPC_CHAT_SERVICE_SECRET:change-me-shared-secret}
 
 management:
   endpoints:

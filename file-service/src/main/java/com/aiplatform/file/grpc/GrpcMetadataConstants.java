@@ -10,4 +10,5 @@ public final class GrpcMetadataConstants {
     public static final String USER_ID_HEADER = "x-user-id";
     public static final String USER_ROLES_HEADER = "x-roles";
     public static final String UNIVERSITY_ID_HEADER = "x-university-id";
+    public static final String INTERNAL_SOURCE_HEADER = "x-internal-source";
 }
