@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Ignore build output directories
 target/
 
@@ -6,3 +7,6 @@ target/
 .vscode/
 *.log
 *.tmp
+=======
+target/
+>>>>>>> f3ba78d (Remove tracked target/ files and ignore them)
