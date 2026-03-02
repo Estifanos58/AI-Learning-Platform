@@ -1,480 +1,465 @@
-# INSTRUCTION.md
+1. Objective
 
-## Chat Service – AI Learning Platform
+Refactor the existing File Service to introduce a hierarchical folder system.
 
----
+The new requirements are:
 
-# Objective
+A user MUST create a folder before uploading files.
 
-Create a production-ready **Chat Service** responsible for:
+Every file MUST belong to exactly one folder.
 
-* Managing direct messages (DM) and group chatrooms
-* Managing chatroom memberships
-* Persisting messages
-* Supporting AI model participation inside chatrooms
-* Publishing chat-related events
-* Providing typing indicators
-* Enabling real-time messaging
-* Exposing operations via gRPC
-* Using Redis for real-time pub/sub and caching
-* Publishing AI-triggered messages to Kafka for future RAG processing
+Introduce:
 
-This service must integrate with:
+Create Folder
 
-* **api-gateway** (gRPC only)
-* **auth-service** (JWT validated at gateway)
-* **user-profile-service** (no direct DB coupling, only userId references)
-* **Kafka** (for AI-related message events)
-* **Redis** (for pub/sub and typing indicators)
-* Future **rag-service** (consumes AI message events)
+Update Folder
 
----
+Delete Folder (soft delete)
 
-# 1. Project Metadata
+Share Folder
 
-Project Name: `chat-service`
-Build Tool: Maven
-Language: Java 21
-Framework: Spring Boot 3.x
+Unshare Folder
 
-Communication:
+List Folders
 
-* gRPC (Server)
-* Redis (Pub/Sub + caching)
-* Kafka (Producer)
-* Database: PostgreSQL **or** MongoDB
+Refactor file upload logic to require folderId
 
-  * Prefer PostgreSQL for consistency with other services
+Modify database schema accordingly
 
----
+Update gRPC contracts
 
-# 2. Architectural Role
+Update API Gateway endpoints
 
-The Chat Service:
+Preserve all previous file features
 
-* Owns chatroom lifecycle
-* Owns membership lifecycle
-* Owns message persistence
-* Does NOT authenticate users
-* Trusts identity forwarded by API Gateway
-* Publishes AI-related messages to Kafka
-* Uses Redis for real-time communication
-* Supports soft delete strategy
-* Supports typing indicators
+Maintain Kafka event publication
 
----
+The service must remain production-grade.
 
-# 3. High-Level Behavior
+2. High-Level Architectural Constraints
 
-## 3.1 Direct Message Flow
+Do NOT break:
 
-When user A sends message to user B:
+gRPC communication model
 
-1. Extract `userId` from gRPC metadata.
-2. Look for existing non-group chatroom containing both users.
-3. If not found:
+Kafka event-driven architecture
 
-   * Create new chatroom
-   * Insert memberships
-   * Publish Redis event: `chatroom.created`
-4. Persist message in DB.
-5. Publish Redis event: `message.sent`
-6. If message references AI model:
+Local filesystem storage
 
-   * Publish Kafka event: `chat.message.ai_requested.v1`
+Soft delete logic
 
----
+Ownership validation
 
-## 3.2 Group Chat Flow
+Sharing model consistency
 
-* Created explicitly via gRPC
-* Multiple members allowed
-* AI models can be added as members
-* Role-based membership supported
+RAG service direct volume access
 
----
+PostgreSQL metadata storage
 
-# 4. Database Design
+JWT is validated at API Gateway.
+User identity is received via gRPC metadata.
 
-You MUST keep the schema structure EXACTLY as defined below.
-It is derived from a previous production-grade social media system.
+3. New Domain Model – Folder
+3.1 Folder Table
 
-We will adapt it to JPA entities (PostgreSQL).
+Create a new table:
 
----
-
-## 4.1 Chatroom
-
-```
-CREATE TABLE chatrooms (
+CREATE TABLE folders (
     id UUID PRIMARY KEY,
-    name VARCHAR(255),
-    is_group BOOLEAN DEFAULT FALSE,
-    avatar_url TEXT,
-    created_by_id UUID NOT NULL,
+    owner_id UUID NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    parent_id UUID NULL,
+    deleted BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL,
-    deleted_at TIMESTAMP NULL
+    updated_at TIMESTAMP NOT NULL
 );
 
-CREATE INDEX idx_chatroom_created_by ON chatrooms(created_by_id);
-CREATE INDEX idx_chatroom_created_at ON chatrooms(created_at);
-```
+Indexes:
 
----
+CREATE INDEX idx_folders_owner ON folders(owner_id);
+CREATE INDEX idx_folders_parent ON folders(parent_id);
 
-## 4.2 ChatroomUser (Membership)
+Notes:
 
-```
-CREATE TABLE chatroom_users (
+parent_id allows future nested folders.
+
+For now, allow only single-level hierarchy (validation enforced in service).
+
+No foreign key to users table.
+
+Soft delete only.
+
+3.2 Folder Shares Table
+CREATE TABLE folder_shares (
     id UUID PRIMARY KEY,
-    user_id UUID NOT NULL,
-    chatroom_id UUID NOT NULL,
-    role VARCHAR(20) DEFAULT 'MEMBER',
-    joined_at TIMESTAMP NOT NULL,
-    last_read_at TIMESTAMP NULL,
-    is_muted BOOLEAN DEFAULT FALSE,
-
-    UNIQUE(user_id, chatroom_id)
-);
-
-CREATE INDEX idx_chatroom_user ON chatroom_users(chatroom_id, user_id);
-```
-
-Roles Enum:
-
-```
-MEMBER
-ADMIN
-AI_MODEL
-```
-
-AI models will also be inserted as "members" with role `AI_MODEL`.
-
----
-
-## 4.3 Message
-
-```
-CREATE TABLE messages (
-    id UUID PRIMARY KEY,
-    content TEXT,
-    image_url TEXT,
-    user_id UUID NOT NULL,
-    chatroom_id UUID NOT NULL,
-    ai_model_id UUID NULL,
-    is_edited BOOLEAN DEFAULT FALSE,
+    folder_id UUID NOT NULL,
+    shared_with_user_id UUID NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL,
-    deleted_at TIMESTAMP NULL
+    UNIQUE(folder_id, shared_with_user_id)
 );
 
-CREATE INDEX idx_messages_room_time
-ON messages(chatroom_id, created_at, user_id, deleted_at);
-```
+Indexes:
 
-### Important:
+CREATE INDEX idx_folder_shared_user ON folder_shares(shared_with_user_id);
 
-* `ai_model_id` must be nullable.
-* Only present when message is directed to AI.
-* Used to trigger Kafka event.
+Folder sharing automatically grants access to all files in that folder.
 
----
+4. File Schema Changes (Critical)
 
-## 4.4 AI Models Table (Expandable Design)
+Modify files table:
 
-We must NOT hardcode models.
+Add:
 
-```
-CREATE TABLE ai_models (
-    id UUID PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    provider VARCHAR(100),
-    description TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP NOT NULL
-);
-```
+ALTER TABLE files
+ADD COLUMN folder_id UUID NOT NULL;
 
-This allows:
+Add index:
 
-* Adding models dynamically
-* Future RAG service mapping
-* No hardcoded AI logic
+CREATE INDEX idx_files_folder ON files(folder_id);
 
----
+Important:
 
-# 5. Domain Model (JPA)
+Every file MUST reference a folder.
 
-Create:
+Remove logic that stores files directly under /profile-images/{userId}
 
-* ChatroomEntity
-* ChatroomUserEntity
-* MessageEntity
-* AiModelEntity
+Instead:
 
-Use:
+/data/{ownerId}/{folderId}/{fileId}.{ext}
 
-* UUID
-* @Enumerated(EnumType.STRING) for role
-* Soft delete using deletedAt
+Profile image logic still exists, but file must belong to a folder.
 
----
+5. Updated Domain Models
+FolderEntity
+@Entity
+@Table(name = "folders")
+public class FolderEntity {
 
-# 6. gRPC Definition (chat.proto)
+    @Id
+    private UUID id;
 
-Service Name: `ChatService`
+    private UUID ownerId;
 
-### Required RPCs
+    private String name;
 
-CreateOrGetDirectChat(CreateDirectChatRequest) returns (ChatroomResponse)
+    private UUID parentId;
 
-CreateGroupChat(CreateGroupChatRequest) returns (ChatroomResponse)
+    private Boolean deleted;
 
-SendMessage(SendMessageRequest) returns (MessageResponse)
-
-ListMessages(ListMessagesRequest) returns (ListMessagesResponse)
-
-AddMember(AddMemberRequest) returns (SimpleResponse)
-
-RemoveMember(RemoveMemberRequest) returns (SimpleResponse)
-
-MarkAsRead(MarkAsReadRequest) returns (SimpleResponse)
-
-GetMyChatrooms(GetMyChatroomsRequest) returns (ListChatroomsResponse)
-
-AddAiModelToChat(AddAiModelRequest) returns (SimpleResponse)
-
-TypingEvent(TypingRequest) returns (SimpleResponse)
-
----
-
-# 7. Redis Integration
-
-Redis is used for:
-
-* Pub/Sub messaging
-* Typing indicators
-* Chatroom creation notifications
-* Real-time message broadcasting
-* Optional caching of last messages
-
-### Channels
-
-```
-chatroom.created.{chatroomId}
-chat.message.{chatroomId}
-chat.typing.{chatroomId}
-```
-
-### Typing Event
-
-When user is typing:
-
-* Publish event:
-
-```
-{
-  chatroomId,
-  userId,
-  typing: true,
-  timestamp
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }
-```
+FileEntity Modification
 
-Do NOT persist typing events.
+Add:
 
----
+@Column(name = "folder_id", nullable = false)
+private UUID folderId;
+6. Storage Structure Refactor
 
-# 8. Kafka Integration
+OLD:
 
-Kafka is used ONLY for AI-triggered messages.
+/data/profile-images/{userId}
+/data/user-files/{userId}
 
-Topic:
+NEW:
 
-```
-chat.message.ai_requested.v1
-```
-
-Event Example:
-
-```
-{
-  "eventId": "uuid",
-  "messageId": "uuid",
-  "chatroomId": "uuid",
-  "userId": "uuid",
-  "aiModelId": "uuid",
-  "content": "Explain this PDF",
-  "timestamp": "2026-03-01T10:00:00"
-}
-```
-
-Future RAG service will consume this.
-
----
-
-# 9. Security Model
-
-JWT validated at API Gateway.
-
-Gateway forwards:
-
-* userId
-* roles
-* universityId
+/data/{ownerId}/{folderId}/{storedFileName}
 
 Rules:
 
-* Only members can send messages
-* Only members can view messages
-* Only ADMIN can remove members
-* AI_MODEL role cannot send manual messages
-* Soft delete only allowed by sender
+Folder must exist before physical write
 
----
+Folder physical directory auto-created if missing
 
-# 10. Business Rules
+If folder is deleted → files inside become inaccessible
 
-## SendMessage
+7. New gRPC Definitions
 
-* Validate membership
-* Persist message
-* If aiModelId != null:
+Update file.proto
 
-  * Validate AI model exists and active
-  * Publish Kafka event
-* Publish Redis message event
+Add RPCs:
 
-## CreateDirectChat
+CreateFolder(CreateFolderRequest) returns (FolderResponse)
+UpdateFolder(UpdateFolderRequest) returns (FolderResponse)
+DeleteFolder(DeleteFolderRequest) returns (SimpleResponse)
+ShareFolder(ShareFolderRequest) returns (SimpleResponse)
+UnshareFolder(UnshareFolderRequest) returns (SimpleResponse)
+ListMyFolders(ListMyFoldersRequest) returns (ListFoldersResponse)
+ListSharedFolders(ListSharedFoldersRequest) returns (ListFoldersResponse)
 
-* Must contain exactly 2 human users
-* If exists → return existing
-* Else create and publish Redis event
+Modify:
 
-## Soft Delete
+UploadFileRequest
 
-* Set deleted_at
-* Do NOT physically remove row
+Add:
 
----
+string folderId = X;
 
-# 11. Docker Configuration
+Make it required.
 
-```
-chat-service:
-  build: ./chat-service
-  ports:
-    - "9094:9094"
-  depends_on:
-    - postgres
-    - redis
-    - kafka
-```
+8. Business Logic Rules
+CreateFolder
 
-Database:
+Extract ownerId from metadata
 
-`chat_service_db`
+Name required
 
-Redis container required.
+Prevent duplicate folder names per owner at same hierarchy level
 
-Do NOT expose DB externally.
+Generate UUID
 
----
+Save to DB
 
-# 12. application.yml
+Publish event (optional)
 
-```
-server:
-  port: 9094
+UpdateFolder
 
-spring:
-  datasource:
-    url: jdbc:postgresql://postgres:5432/chat_service_db
-    username: postgres
-    password: postgres
+Only owner
 
-  jpa:
-    hibernate:
-      ddl-auto: update
+Cannot update deleted folder
 
-redis:
-  host: redis
-  port: 6379
+Cannot rename to existing sibling name
 
-kafka:
-  bootstrap-servers: kafka:9092
-```
+DeleteFolder
 
----
+Only owner
 
-# 13. Observability
+Soft delete
 
-* Structured logging
-* Log messageId and chatroomId
-* Include correlationId from metadata
-* Expose Actuator health endpoint
-* Log Redis publish failures
-* Log Kafka publish failures
+All files inside folder:
 
----
+Soft delete automatically
 
-# 14. Performance Considerations
+Publish:
 
-* Index chatroom_id + created_at
-* Use pagination for messages
-* Avoid N+1 membership queries
-* Consider caching last 50 messages in Redis
+folder.deleted.v1
 
----
+file.deleted.v1 for each file (optional batch event)
 
-# 15. Definition of Done
+ShareFolder
 
-✔ Direct chats auto-created
-✔ Group chats supported
-✔ AI models dynamically stored
-✔ AI-triggered messages published to Kafka
-✔ Redis real-time pub/sub working
-✔ Typing indicators working
-✔ Soft delete implemented
-✔ gRPC integrated with API Gateway
-✔ Service containerized
-✔ Membership rules enforced
-✔ Pagination implemented
+Only owner
 
----
+Insert into folder_shares
 
-# 16. Future Enhancements
+All files inside implicitly accessible
 
-* WebSocket gateway integration
-* Message reactions
-* Message attachments (via file-service)
-* Read receipts counters
-* Push notifications
-* Message encryption (E2E)
-* Sharding large chatrooms
-* Event sourcing
+UnshareFolder
 
----
+Remove entry from folder_shares
 
-# Final Architecture Overview
+Files inside become inaccessible unless individually shared
 
-Services:
+9. Updated UploadFile Logic
 
-* auth-service
-* user-profile-service
-* file-service
-* rag-service (future)
-* chat-service
+Before uploading:
 
-Chat Service becomes:
+Validate folderId exists
 
-Single Source of Truth for chatrooms, memberships, and messages.
+Validate folder not deleted
 
-AI orchestration is event-driven via Kafka.
+Validate:
 
-Redis handles real-time experience.
+Owner OR
 
-Other services:
-Never store chat messages.
-Only communicate via gRPC.
+Folder shared with user
+
+Then:
+
+Store physically in:
+
+/data/{ownerId}/{folderId}/
+
+Save metadata including folderId
+
+Profile image logic:
+
+Still ensure only 1 active PROFILE_IMAGE per user
+
+Must belong to a folder
+
+Soft delete previous image
+
+10. Authorization Matrix
+Operation	Owner	Folder Shared User
+Upload	✔	✔ (if allowed)
+Delete file	✔	✖
+Share file	✔	✖
+Read metadata	✔	✔
+Delete folder	✔	✖
+Share folder	✔	✖
+11. Kafka Topics
+
+Add:
+
+folder.created.v1
+
+folder.deleted.v1
+
+folder.shared.v1
+
+Existing:
+
+file.uploaded.v1
+
+file.deleted.v1
+
+Example folder event:
+
+{
+  "eventId": "uuid",
+  "folderId": "uuid",
+  "ownerId": "uuid",
+  "timestamp": "2026-03-01T10:00:00"
+}
+12. API Gateway Updates
+
+Expose REST endpoints mapping to gRPC:
+
+POST   /folders
+PUT    /folders/{id}
+DELETE /folders/{id}
+POST   /folders/{id}/share
+DELETE /folders/{id}/share/{userId}
+GET    /folders
+GET    /folders/shared
+
+Modify:
+
+POST /files
+
+Must include:
+
+folderId
+
+Gateway continues forwarding:
+
+userId
+
+roles
+
+universityId
+
+correlationId
+
+13. Required Refactoring Steps (Sequential Execution Plan)
+
+Create FolderEntity + Repository
+
+Create FolderShareEntity + Repository
+
+Update FileEntity to include folderId
+
+Write DB migration
+
+Refactor file upload service
+
+Refactor storage path logic
+
+Add folder service layer
+
+Implement gRPC methods
+
+Update protobuf
+
+Update API Gateway mappings
+
+Add integration tests
+
+Validate backward compatibility migration
+
+Update docker-compose if necessary
+
+Run full regression test
+
+14. Observability Requirements
+
+Log:
+
+folderId
+
+ownerId
+
+fileId
+
+correlationId
+
+Add validation error logs.
+
+Add metrics:
+
+folder.create.count
+
+file.upload.count
+
+folder.share.count
+
+15. Definition of Done
+
+✔ Folder CRUD implemented
+✔ Folder sharing implemented
+✔ Files require folderId
+✔ Storage path refactored
+✔ Kafka events emitted
+✔ gRPC updated
+✔ API Gateway updated
+✔ Soft delete enforced
+✔ Ownership validation correct
+✔ No cross-service DB coupling
+✔ RAG still reads file path via volume
+✔ All integration tests pass
+
+16. Important Constraints
+
+Do NOT introduce cross-service foreign keys
+
+Do NOT break RAG direct file access
+
+Do NOT expose DB externally
+
+Do NOT store raw file content in PostgreSQL
+
+Maintain clean separation of concerns
+
+Maintain production-readiness
+
+17. Future Enhancements (Not Now)
+
+Nested folders (true tree support)
+
+Folder-level permission roles
+
+Folder-level visibility (public/private)
+
+Folder quotas
+
+Bulk file move between folders
+
+Versioned folders
+
+Migration to S3/MinIO
+
+Final Architecture After Refactor
+
+File Service becomes:
+
+Owner of file metadata
+
+Owner of folder metadata
+
+Owner of physical file storage
+
+Folder-based hierarchical storage system
+
+Event-driven file lifecycle publisher
+
+Integrated with:
+
+Auth Service
+
+User Profile Service
+
+RAG Service
+
+API Gateway
