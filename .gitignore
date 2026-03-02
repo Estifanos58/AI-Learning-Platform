@@ -1,0 +1,8 @@
+# Ignore build output directories
+target/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.log
+*.tmp
