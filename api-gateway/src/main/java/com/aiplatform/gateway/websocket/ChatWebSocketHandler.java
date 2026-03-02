@@ -1,7 +1,6 @@
 package com.aiplatform.gateway.websocket;
 
 import com.aiplatform.gateway.security.JwtValidationService;
-import com.aiplatform.gateway.util.GatewayRequestUtils;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,7 +11,6 @@ import org.springframework.web.reactive.socket.WebSocketSession;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -41,7 +39,7 @@ public class ChatWebSocketHandler implements WebSocketHandler {
         // Authenticate the connecting user via JWT
         String userId;
         try {
-            Claims claims = jwtValidationService.parseClaims(GatewayRequestUtils.bearerToken("Bearer " + token));
+            Claims claims = jwtValidationService.parseClaims(token);
             userId = claims.getSubject();
         } catch (Exception e) {
             log.warn("WebSocket authentication failed: {}", e.getMessage());
