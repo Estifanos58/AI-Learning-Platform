@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -48,6 +48,7 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   const [folderFormName, setFolderFormName] = useState('');
   const [createParentId, setCreateParentId] = useState<string | undefined>(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Drag and Drop State
   const [isDragging, setIsDragging] = useState(false);
@@ -197,25 +198,42 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
       
       const droppedFiles = Array.from(e.dataTransfer.files);
       if (droppedFiles.length === 0) return;
+      
+      await handleUploadFiles(droppedFiles);
+  };
 
-      // Determine target folder: default to selectedFolderId, or first root folder, or create new?
-      // For now, if no folder selected, warn user.
-      if (!selectedFolderId) {
-          toast.error("Please select a folder to upload files into first.");
-          return;
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files.length > 0) {
+          const filesArray = Array.from(e.target.files);
+          await handleUploadFiles(filesArray);
+      }
+      if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+      }
+  };
+
+  const handleUploadFiles = async (filesToUpload: File[]) => {
+      // Determine target folder: default to selectedFolderId, or first folder
+      let targetFolderId = selectedFolderId;
+      if (!targetFolderId) {
+          if (folders.length > 0) {
+             targetFolderId = folders[0].id;
+          } else {
+             toast.error("Please create or select a folder to upload files into.");
+             return;
+          }
       }
 
-      toast.info(`Uploading ${droppedFiles.length} file(s)...`);
+      toast.info(`Uploading ${filesToUpload.length} file(s)...`);
       
-      // Simulate API call
-      setTimeout(async () => {
+      try {
           if (!user?.id) return;
 
           const newFiles: FileItem[] = [];
 
-          for (const file of droppedFiles) {
+          for (const file of filesToUpload) {
               const newFile = await fileMockService.uploadFile(user.id, {
-                  folderId: selectedFolderId,
+                  folderId: targetFolderId!,
                   fileType: 'DOCUMENT',
                   originalName: file.name,
                   contentType: file.type,
@@ -226,8 +244,12 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
           
           await loadContent();
           toast.success("Files uploaded");
-      }, 800);
+      } catch(err) {
+          console.error(err);
+          toast.error("Upload failed");
+      }
   };
+
 
   return (
     <aside
@@ -256,7 +278,25 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
             </span>
           )}
           <div className="flex gap-1">
+             <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" multiple />
              {isCompact ? (
+               <>
+               <Tooltip>
+                 <TooltipTrigger asChild>
+                    <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-9 w-9 hover:bg-accent hover:text-accent-foreground rounded-md transition-colors"
+                        onClick={() => fileInputRef.current?.click()}
+                    >
+                        <UploadCloud className="h-5 w-5" />
+                    </Button>
+                 </TooltipTrigger>
+                 <TooltipContent side="right" sideOffset={10}>
+                    <p>Upload Files</p>
+                 </TooltipContent>
+               </Tooltip>
+               
                <Tooltip>
                  <TooltipTrigger asChild>
                     <Button 
@@ -272,7 +312,18 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
                     <p>New Root Folder</p>
                  </TooltipContent>
                </Tooltip>
+               </>
              ) : (
+                <>
+                <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8 hover:bg-accent hover:text-accent-foreground text-muted-foreground transition-colors"
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Upload Files"
+                >
+                    <UploadCloud className="h-4 w-4" />
+                </Button>
                 <Button 
                     variant="ghost" 
                     size="icon" 
@@ -282,6 +333,7 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
                 >
                     <FolderPlus className="h-4 w-4" />
                 </Button>
+                </>
              )}
           </div>
         </div>
