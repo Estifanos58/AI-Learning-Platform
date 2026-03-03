@@ -255,3 +255,4 @@ This is a demo/skeleton project. Feel free to use as a foundation for your own a
 
 **Ready to go!** Start with `/auth/signup` to create an account and explore the workspace.
 # AI-Learning-Platform-UI
+# AI-Learning-Platform-UI
