@@ -13,8 +13,8 @@ import org.springframework.validation.annotation.Validated;
 public class GatewayJwtProperties {
 
     @NotBlank
-    private String issuer;
+    private String issuer = "ai-learning-platform-auth";
 
     @NotBlank
-    private String publicKeyLocation;
+    private String publicKeyLocation = "classpath:keys/public_key.pem";
 }

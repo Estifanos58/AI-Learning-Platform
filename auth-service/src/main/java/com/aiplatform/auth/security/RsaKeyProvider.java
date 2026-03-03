@@ -11,38 +11,41 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.security.SecureRandom;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 
 /**
  * Provides RSA keys used by JWT signing and verification.
- * Falls back to ephemeral keys when static PEM files cannot be loaded.
+ * Falls back to deterministic keys when static PEM files cannot be loaded.
  */
 @Slf4j
 @Component
 public class RsaKeyProvider {
 
+    private static final String FALLBACK_KEY_SEED_PREFIX = "aiplatform-dev-jwt-seed:";
+
     private final PrivateKey privateKey;
     private final PublicKey publicKey;
 
     public RsaKeyProvider(ResourceLoader resourceLoader, JwtProperties jwtProperties) {
-    PrivateKey tempPrivate = null;
-    PublicKey tempPublic = null;
+        PrivateKey tempPrivate = null;
+        PublicKey tempPublic = null;
 
-    try {
-        tempPrivate = loadPrivateKey(resourceLoader.getResource(jwtProperties.getPrivateKeyLocation()));
-        tempPublic = loadPublicKey(resourceLoader.getResource(jwtProperties.getPublicKeyLocation()));
-    } catch (Exception exception) {
-        log.warn("Failed to load RSA keys from resources, generating ephemeral keys for runtime", exception);
-        KeyPair generatedPair = generateEphemeralKeyPair();
-        tempPrivate = generatedPair.getPrivate();
-        tempPublic = generatedPair.getPublic();
+        try {
+            tempPrivate = loadPrivateKey(resourceLoader.getResource(jwtProperties.getPrivateKeyLocation()));
+            tempPublic = loadPublicKey(resourceLoader.getResource(jwtProperties.getPublicKeyLocation()));
+        } catch (Exception exception) {
+            log.warn("Failed to load RSA keys from resources, generating deterministic fallback keys for runtime", exception);
+            KeyPair generatedPair = generateDeterministicKeyPair(jwtProperties.getIssuer());
+            tempPrivate = generatedPair.getPrivate();
+            tempPublic = generatedPair.getPublic();
+        }
+
+        this.privateKey = tempPrivate;
+        this.publicKey = tempPublic;
     }
-
-    this.privateKey = tempPrivate;
-    this.publicKey = tempPublic;
-}
 
     public PrivateKey getPrivateKey() {
         return privateKey;
@@ -70,10 +73,12 @@ public class RsaKeyProvider {
         return KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(decoded));
     }
 
-    private KeyPair generateEphemeralKeyPair() {
+    private KeyPair generateDeterministicKeyPair(String issuerSeed) {
         try {
             KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-            generator.initialize(2048);
+            SecureRandom secureRandom = SecureRandom.getInstance("SHA1PRNG");
+            secureRandom.setSeed((FALLBACK_KEY_SEED_PREFIX + issuerSeed).getBytes(StandardCharsets.UTF_8));
+            generator.initialize(2048, secureRandom);
             return generator.generateKeyPair();
         } catch (Exception exception) {
             throw new IllegalStateException("Unable to generate RSA key pair", exception);

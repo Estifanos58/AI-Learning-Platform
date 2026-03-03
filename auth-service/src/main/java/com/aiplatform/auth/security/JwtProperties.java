@@ -14,20 +14,20 @@ import org.springframework.validation.annotation.Validated;
 public class JwtProperties {
 
     @NotBlank
-    private String issuer;
+    private String issuer = "ai-learning-platform-auth";
 
     @NotBlank
-    private String audience;
+    private String audience = "ai-learning-platform-clients";
 
     @Min(1)
-    private long accessTokenExpirationMinutes;
+    private long accessTokenExpirationMinutes = 15;
 
     @Min(1)
-    private long refreshTokenExpirationDays;
+    private long refreshTokenExpirationDays = 7;
 
     @NotBlank
-    private String privateKeyLocation;
+    private String privateKeyLocation = "classpath:keys/private_key.pem";
 
     @NotBlank
-    private String publicKeyLocation;
+    private String publicKeyLocation = "classpath:keys/public_key.pem";
 }
