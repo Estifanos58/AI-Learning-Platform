@@ -1,6 +1,8 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { AuthProvider } from '@/src/contexts/auth'
+import { ThemeProvider } from '@/components/theme-provider'
+import { ThemeColorProvider } from '@/src/contexts/theme-color-context'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -37,9 +39,18 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className="dark">
       <body className="font-sans antialiased bg-background text-foreground">
-        <AuthProvider>
-          {children}
-        </AuthProvider>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <ThemeColorProvider>
+            <AuthProvider>
+              {children}
+            </AuthProvider>
+          </ThemeColorProvider>
+        </ThemeProvider>
       </body>
     </html>
   )

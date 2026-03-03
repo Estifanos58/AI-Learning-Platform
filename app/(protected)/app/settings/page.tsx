@@ -1,17 +1,33 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { useTheme } from 'next-themes';
+import { useThemeColor } from '@/src/contexts/theme-color-context';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { Bell, Lock, Layout, Info, ChevronLeft, Moon, Sun, Monitor, Paintbrush } from 'lucide-react';
+import { Bell, Lock, Layout, Info, ChevronLeft, Moon, Sun, Monitor, Paintbrush, Check } from 'lucide-react';
 import { useWorkspace } from '@/src/features/workspace/workspace-context';
 import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 
 export default function SettingsPage() {
   const router = useRouter();
   const { setProfileOpen } = useWorkspace();
+  const { theme, setTheme } = useTheme();
+  const { themeColor, setThemeColor } = useThemeColor();
+
+  const colors = [
+    { name: 'zinc', class: 'bg-zinc-950 dark:bg-zinc-500', label: 'Zinc' },
+    { name: 'red', class: 'bg-red-500', label: 'Red' },
+    { name: 'rose', class: 'bg-rose-500', label: 'Rose' },
+    { name: 'orange', class: 'bg-orange-500', label: 'Orange' },
+    { name: 'green', class: 'bg-green-500', label: 'Green' },
+    { name: 'blue', class: 'bg-blue-500', label: 'Blue' },
+    { name: 'yellow', class: 'bg-yellow-500', label: 'Yellow' },
+    { name: 'violet', class: 'bg-violet-500', label: 'Violet' },
+  ];
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -58,15 +74,56 @@ export default function SettingsPage() {
                             <p className="text-xs text-muted-foreground">Select your preferred color theme</p>
                         </div>
                         <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-lg border">
-                            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md">
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className={cn("h-7 w-7 rounded-md transition-all", theme === 'light' && "bg-background shadow-sm text-primary")}
+                                onClick={() => setTheme('light')}
+                            >
                                 <Sun className="h-3.5 w-3.5" />
+                                <span className="sr-only">Light</span>
                             </Button>
-                            <Button variant="white" size="icon" className="h-7 w-7 rounded-md shadow-sm">
-                                <Moon className="h-3.5 w-3.5 text-primary" />
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className={cn("h-7 w-7 rounded-md transition-all", theme === 'dark' && "bg-background shadow-sm text-primary")}
+                                onClick={() => setTheme('dark')}
+                            >
+                                <Moon className="h-3.5 w-3.5" />
+                                <span className="sr-only">Dark</span>
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md">
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className={cn("h-7 w-7 rounded-md transition-all", theme === 'system' && "bg-background shadow-sm text-primary")}
+                                onClick={() => setTheme('system')}
+                            >
                                 <Monitor className="h-3.5 w-3.5" />
+                                <span className="sr-only">System</span>
                             </Button>
+                        </div>
+                    </div>
+                    <Separator />
+                    <div className="space-y-3">
+                        <Label className="text-base">Accent Color</Label>
+                        <div className="flex flex-wrap gap-3">
+                            {colors.map((color) => (
+                                <button
+                                    key={color.name}
+                                    onClick={() => setThemeColor(color.name as any)}
+                                    className={cn(
+                                        "h-8 w-8 rounded-full flex items-center justify-center ring-offset-background transition-all hover:scale-110 focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                                        color.class,
+                                        themeColor === color.name && "ring-2 ring-ring ring-offset-2 scale-110"
+                                    )}
+                                    title={color.label}
+                                >
+                                    {themeColor === color.name && (
+                                        <Check className="h-4 w-4 text-white drop-shadow-md" strokeWidth={3} />
+                                    )}
+                                    <span className="sr-only">{color.label}</span>
+                                </button>
+                            ))}
                         </div>
                     </div>
                 </CardContent>

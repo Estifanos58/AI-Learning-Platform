@@ -25,6 +25,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { useWorkspace } from '../workspace-context';
+import { ThemeCustomizer } from '@/components/theme-customizer';
 
 export function TopBar() {
   const router = useRouter();
