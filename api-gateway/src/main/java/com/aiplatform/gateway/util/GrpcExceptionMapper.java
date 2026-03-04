@@ -16,9 +16,6 @@ public final class GrpcExceptionMapper {
         }
 
         Status.Code code = statusRuntimeException.getStatus().getCode();
-        String description = statusRuntimeException.getStatus().getDescription();
-        String message = description == null ? "Gateway request failed" : description;
-
         HttpStatus status = switch (code) {
             case INVALID_ARGUMENT -> HttpStatus.BAD_REQUEST;
             case UNAUTHENTICATED -> HttpStatus.UNAUTHORIZED;
@@ -26,7 +23,24 @@ public final class GrpcExceptionMapper {
             case NOT_FOUND -> HttpStatus.NOT_FOUND;
             case ALREADY_EXISTS -> HttpStatus.CONFLICT;
             case RESOURCE_EXHAUSTED -> HttpStatus.TOO_MANY_REQUESTS;
-            default -> HttpStatus.INTERNAL_SERVER_ERROR;
+            case DEADLINE_EXCEEDED -> HttpStatus.GATEWAY_TIMEOUT;
+            case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+            case ABORTED -> HttpStatus.CONFLICT;
+            case FAILED_PRECONDITION -> HttpStatus.BAD_REQUEST;
+            default -> HttpStatus.BAD_GATEWAY;
+        };
+
+        String message = switch (status) {
+            case BAD_REQUEST -> "Request validation failed";
+            case UNAUTHORIZED -> "Authentication required";
+            case FORBIDDEN -> "Insufficient permissions";
+            case NOT_FOUND -> "Resource not found";
+            case CONFLICT -> "Request conflicts with current resource state";
+            case TOO_MANY_REQUESTS -> "Too many requests";
+            case GATEWAY_TIMEOUT -> "Upstream service timeout";
+            case SERVICE_UNAVAILABLE -> "Upstream service unavailable";
+            case BAD_GATEWAY -> "Upstream service error";
+            default -> "Gateway request failed";
         };
 
         return new ResponseStatusException(status, message, throwable);
