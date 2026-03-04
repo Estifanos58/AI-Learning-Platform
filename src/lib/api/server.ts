@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8081';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8080';
 
 export async function getServerAccessToken(): Promise<string | null> {
   const cookieStore = await cookies();

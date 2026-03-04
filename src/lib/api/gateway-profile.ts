@@ -5,7 +5,7 @@ import { updateProfileSchema } from './gateway-schemas';
 export const profileApi = {
   async getMe(token: string, options?: { revalidateSeconds?: number }): Promise<UserProfile> {
     const next = options?.revalidateSeconds ? { revalidate: options.revalidateSeconds, tags: ['profile-me'] } : undefined;
-    return apiRequest<UserProfile>('/api/profile/me', { token, cache: 'force-cache', next });
+    return apiRequest<UserProfile>('/profile/me', { token, cache: 'force-cache', next });
   },
 
   async updateMe(token: string, input: {
@@ -16,10 +16,10 @@ export const profileApi = {
     bio?: string;
     profileImageFileId?: string;
   }): Promise<UserProfile> {
-    return apiRequest<UserProfile>('/api/profile/me', { method: 'PUT', token, body: updateProfileSchema.parse(input), cache: 'no-store' });
+    return apiRequest<UserProfile>('/profile/me', { method: 'PUT', token, body: updateProfileSchema.parse(input), cache: 'no-store' });
   },
 
   async updateVisibility(token: string, visibility: ProfileVisibility): Promise<{ message: string }> {
-    return apiRequest<{ message: string }>('/api/profile/visibility', { method: 'PATCH', token, body: { visibility }, cache: 'no-store' });
+    return apiRequest<{ message: string }>('/profile/visibility', { method: 'PATCH', token, body: { visibility }, cache: 'no-store' });
   },
 };
