@@ -67,24 +67,30 @@ export default function SignupPage() {
   return (
     <div className="w-full h-screen lg:grid lg:grid-cols-2">
       {/* Visual Side */}
-      <div className="hidden lg:flex flex-col justify-between bg-zinc-900 border-r border-zinc-800 p-10 relative overflow-hidden">
+      <div className="hidden lg:flex flex-col justify-between bg-zinc-900 border-r border-zinc-800 p-10 relative overflow-hidden group">
         {/* Background Effects */}
         <div className="absolute inset-0 z-0">
-          <div className="absolute top-[20%] -right-[10%] w-[70%] h-[70%] bg-purple-500/20 blur-[120px] rounded-full opacity-30" />
-          <div className="absolute bottom-[10%] left-[10%] w-[50%] h-[50%] bg-indigo-500/10 blur-[100px] rounded-full opacity-30" />
+          <div className="absolute top-[20%] -right-[10%] w-[70%] h-[70%] bg-purple-500/20 blur-[120px] rounded-full opacity-30 animate-pulse" />
+          <div className="absolute bottom-[10%] left-[10%] w-[50%] h-[50%] bg-indigo-500/10 blur-[100px] rounded-full opacity-30 animate-pulse animation-delay-2000" />
+          <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] opacity-20"></div>
+          
+          {/* Animated Blobs */}
+          <div className="absolute top-20 left-20 w-32 h-32 bg-primary/30 rounded-full blur-2xl animate-blob" />
+          <div className="absolute bottom-40 right-20 w-40 h-40 bg-blue-500/20 rounded-full blur-2xl animate-blob animation-delay-2000" />
         </div>
 
-        <div className="relative z-10 flex items-center gap-2 text-lg font-medium text-white">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+        <div className="relative z-10 flex items-center gap-2 text-lg font-medium text-white animate-fade-in-up">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground animate-float">
             <Sparkles className="h-5 w-5" />
           </div>
           AI Learning Platform
         </div>
 
-        <div className="relative z-10 max-w-lg">
+        <div className="relative z-10 max-w-lg animate-fade-in-up animation-delay-2000">
           <blockquote className="space-y-2">
-            <p className="text-2xl font-medium leading-relaxed text-zinc-200">
-              &ldquo;Join thousands of students and educators transforming their document interaction workflow. A new era of learning awaits.&rdquo;
+            <div className="absolute -left-4 -top-4 text-6xl text-primary/20 font-serif">"</div>
+            <p className="text-2xl font-medium leading-relaxed text-zinc-200 relative">
+              Join thousands of students and educators transforming their document interaction workflow. A new era of learning awaits.
             </p>
           </blockquote>
         </div>
@@ -95,9 +101,11 @@ export default function SignupPage() {
       </div>
 
       {/* Form Side */}
-      <div className="flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-background relative overflow-y-auto">
+      <div className="flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-background relative overflow-y-auto min-h-full">
+        <div className="absolute inset-0 bg-gradient-to-bl from-primary/5 via-transparent to-transparent pointer-events-none" />
         <Button 
             variant="ghost" 
+            className="absolute top-4 right-4 md:top-8 md:right-8 z-20"
             className="absolute top-4 right-4 md:top-8 md:right-8" 
             onClick={() => router.push('/')}
         >

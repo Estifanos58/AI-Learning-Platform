@@ -38,26 +38,32 @@ export default function LoginPage() {
   return (
     <div className="w-full h-screen lg:grid lg:grid-cols-2">
       {/* Visual Side */}
-      <div className="hidden lg:flex flex-col justify-between bg-zinc-900 border-r border-zinc-800 p-10 relative overflow-hidden">
+      <div className="hidden lg:flex flex-col justify-between bg-zinc-900 border-r border-zinc-800 p-10 relative overflow-hidden group">
         {/* Background Effects */}
         <div className="absolute inset-0 z-0">
-          <div className="absolute -top-[20%] -left-[10%] w-[70%] h-[70%] bg-primary/20 blur-[120px] rounded-full opacity-30" />
-          <div className="absolute top-[40%] right-[10%] w-[50%] h-[50%] bg-blue-500/10 blur-[100px] rounded-full opacity-30" />
+          <div className="absolute top-0 -left-4 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob" />
+          <div className="absolute top-0 -right-4 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000" />
+          <div className="absolute -bottom-8 left-20 w-72 h-72 bg-indigo-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000" />
+          <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] opacity-20"></div>
         </div>
 
-        <div className="relative z-10 flex items-center gap-2 text-lg font-medium text-white">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+        <div className="relative z-10 flex items-center gap-2 text-lg font-medium text-white animate-fade-in-up">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground animate-float">
             <Bot className="h-5 w-5" />
           </div>
           AI Learning Platform
         </div>
 
-        <div className="relative z-10 max-w-lg">
+        <div className="relative z-10 max-w-lg animate-fade-in-up animation-delay-2000">
           <blockquote className="space-y-2">
-            <p className="text-2xl font-medium leading-relaxed text-zinc-200">
-              &ldquo;The future of learning is here. Coordinate with AI agents and your team in real-time to master any subject faster than ever before.&rdquo;
+            <div className="absolute -left-4 -top-4 text-6xl text-primary/20 font-serif">"</div>
+            <p className="text-2xl font-medium leading-relaxed text-zinc-200 relative">
+              The future of learning is here. Coordinate with AI agents and your team in real-time.
             </p>
-            <footer className="text-zinc-400 text-sm mt-4">Verified User</footer>
+            <footer className="text-zinc-400 text-sm mt-4 flex items-center gap-2">
+                <span className="h-1 w-1 rounded-full bg-primary inline-block"></span>
+                Verified User
+            </footer>
           </blockquote>
         </div>
 
@@ -67,10 +73,12 @@ export default function LoginPage() {
       </div>
 
       {/* Form Side */}
-      <div className="flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-background relative">
+      <div className="flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-background relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent pointer-events-none" />
+        
         <Button 
             variant="ghost" 
-            className="absolute top-4 right-4 md:top-8 md:right-8" 
+            className="absolute top-4 right-4 md:top-8 md:right-8 z-20" 
             onClick={() => router.push('/')}
         >
             <ArrowLeft className="w-4 h-4 mr-2" />

@@ -4,6 +4,9 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ThemeCustomizer } from '@/components/theme-customizer';
+import { DynamicBackground } from '@/components/dynamic-background';
+import { InfiniteMovingCards } from '@/components/ui/infinite-moving-cards';
+import { CardSpotlight } from '@/components/ui/card-spotlight';
 import { 
   Bot, 
   MessageSquare, 
@@ -21,14 +24,10 @@ export default function LandingPage() {
   const router = useRouter();
 
   return (
-    <main className="min-h-screen bg-background text-foreground overflow-hidden selection:bg-primary/20 selection:text-primary">
+    <main className="min-h-screen bg-transparent text-foreground overflow-hidden selection:bg-primary/20 selection:text-primary relative transition-all duration-700 ease-in-out">
       
-      {/* Dynamic Background */}
-      <div className="fixed inset-0 -z-10 h-full w-full bg-background">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
-        <div className="absolute left-0 right-0 top-0 -z-10 m-auto h-[310px] w-[310px] rounded-full bg-primary/20 opacity-20 blur-[100px] animate-pulse"></div>
-        <div className="absolute right-0 bottom-0 -z-10 h-[400px] w-[400px] rounded-full bg-blue-500/10 opacity-30 blur-[120px]"></div>
-      </div>
+      {/* Background */}
+      <DynamicBackground />
 
       {/* Navbar */}
       <nav className="fixed top-0 w-full z-50 border-b border-white/5 bg-background/60 backdrop-blur-xl supports-[backdrop-filter]:bg-background/20">
@@ -111,7 +110,33 @@ export default function LandingPage() {
 
         {/* Hero Image / floating UI */}
         <div className="mt-20 relative max-w-6xl mx-auto group perspective-1000">
-             <div className="absolute -inset-1 bg-gradient-to-r from-primary to-blue-600 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-1000 group-hover:duration-200"></div>
+             
+             {/* Floating Elements */}
+             <div className="hidden lg:block absolute -left-12 top-20 z-20 animate-float decoration-clone">
+                <div className="bg-card/80 backdrop-blur-md border border-white/10 p-4 rounded-xl shadow-xl flex items-center gap-3 w-48 transition-transform hover:scale-110 duration-300">
+                    <div className="bg-green-500/10 p-2 rounded-lg text-green-500">
+                        <MessageSquare className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <div className="text-xs text-muted-foreground font-medium">New Message</div>
+                        <div className="text-sm font-semibold">Study Group</div>
+                    </div>
+                </div>
+             </div>
+
+             <div className="hidden lg:block absolute -right-8 bottom-32 z-20 animate-float-delayed">
+                <div className="bg-card/80 backdrop-blur-md border border-white/10 p-4 rounded-xl shadow-xl flex items-center gap-3 w-52 transition-transform hover:scale-110 duration-300">
+                     <div className="bg-blue-500/10 p-2 rounded-lg text-blue-500">
+                        <Shield className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <div className="text-xs text-muted-foreground font-medium">Status</div>
+                        <div className="text-sm font-semibold">AI Verified Content</div>
+                    </div>
+                </div>
+             </div>
+
+             <div className="absolute -inset-1 bg-gradient-to-r from-primary to-blue-600 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-1000 group-hover:duration-200 animate-pulse"></div>
              <div className="relative rounded-2xl bg-card border border-border/50 shadow-2xl overflow-hidden aspect-video md:aspect-[21/9] transform transition-transform duration-500 hover:scale-[1.01]">
                 {/* Mock UI Header */}
                 <div className="h-12 border-b border-border bg-muted/30 flex items-center px-4 gap-2">
@@ -153,9 +178,45 @@ export default function LandingPage() {
         </div>
       </div>
 
+      {/* How it Works Section */}
+      <div id="demo" className="max-w-7xl mx-auto px-6 py-24 relative overflow-hidden">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[500px] bg-primary/5 blur-[120px] rounded-full -z-10" />
+        
+        <div className="text-center mb-20 space-y-4 animate-fade-in-up">
+            <Badge variant="outline" className="mb-4 border-primary/20 text-primary bg-primary/5">Workflow</Badge>
+            <h2 className="text-3xl md:text-5xl font-bold tracking-tight">How it works</h2>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+                Get started in minutes. Upload your materials and start learning smarter instantly.
+            </p>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-8 relative max-w-5xl mx-auto">
+            {/* Connecting Line (Desktop) */}
+            <div className="hidden md:block absolute top-12 left-[10%] right-[10%] h-0.5 bg-gradient-to-r from-transparent via-primary/20 to-transparent z-0" />
+            
+            {[
+                { step: "01", title: "Upload Documents", desc: "Drag & drop PDFs, lecture slides, or paste text content.", icon: FileText, delay: "0s" },
+                { step: "02", title: "AI Analysis", desc: "Our models process and index your content for instant retrieval.", icon: Zap, delay: "0.2s" },
+                { step: "03", title: "Start Learning", desc: "Chat, quiz, and summarize your way to mastery.", icon: Bot, delay: "0.4s" },
+            ].map((item, i) => (
+                <div key={i} className="relative z-10 flex flex-col items-center text-center group animate-fade-in-up" style={{ animationDelay: item.delay }}>
+                    <div className="w-24 h-24 rounded-2xl bg-card border border-border shadow-lg flex items-center justify-center mb-6 group-hover:scale-110 group-hover:border-primary/50 transition-all duration-300 relative overflow-hidden">
+                        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <item.icon className="w-10 h-10 text-primary group-hover:animate-float" />
+                        <div className="absolute -bottom-4 -right-4 text-7xl font-bold text-muted/10 group-hover:text-primary/5 transition-colors select-none pointer-events-none">
+                            {item.step}
+                        </div>
+                    </div>
+                    <h3 className="text-xl font-bold mb-2">{item.title}</h3>
+                    <p className="text-muted-foreground max-w-[250px]">{item.desc}</p>
+                </div>
+            ))}
+        </div>
+      </div>
+
       {/* Features Grid */}
-      <div id="features" className="max-w-7xl mx-auto px-6 py-32">
-        <div className="text-center mb-20 max-w-2xl mx-auto">
+      <div id="features" className="max-w-7xl mx-auto px-6 py-32 relative z-10">
+        <div className="text-center mb-20 max-w-2xl mx-auto animate-fade-in-up">
           <Badge variant="outline" className="mb-4 border-primary/20 text-primary bg-primary/5">Features</Badge>
           <h2 className="text-4xl md:text-5xl font-bold mb-6 tracking-tight">Powered by Advanced AI</h2>
           <p className="text-lg text-muted-foreground">Everything you need to master your subjects, from instant summaries to generated flashcards.</p>
@@ -200,49 +261,68 @@ export default function LandingPage() {
               color: 'text-orange-500'
             }
           ].map((feature, i) => (
-            <div key={i} className="group relative p-8 rounded-3xl border border-border bg-card/50 hover:bg-card hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 overflow-hidden">
-              <div className={`absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity ${feature.color}`}>
-                  <feature.icon className="w-24 h-24 -mr-8 -mt-8 rotate-12" />
+            <div key={i} className="group relative h-full"> 
+               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-3xl" />
+               <div className="relative h-full p-8 rounded-3xl border border-border bg-card/50 hover:bg-card/80 transition-all duration-300 overflow-hidden hover:shadow-2xl hover:-translate-y-1">
+                  <div className={`absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity ${feature.color}`}>
+                      <feature.icon className="w-24 h-24 -mr-8 -mt-8 rotate-12 transition-transform duration-500 group-hover:rotate-6 group-hover:scale-110" />
+                  </div>
+                  
+                  <div className={`w-14 h-14 rounded-2xl bg-background border border-border shadow-sm flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300 ${feature.color}`}>
+                    <feature.icon className="w-7 h-7" />
+                  </div>
+                  
+                  <h3 className="text-xl font-bold mb-3 tracking-tight group-hover:text-primary transition-colors">{feature.title}</h3>
+                  <p className="text-muted-foreground leading-relaxed">{feature.desc}</p>
               </div>
-              
-              <div className={`w-14 h-14 rounded-2xl bg-background border border-border shadow-sm flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300 ${feature.color}`}>
-                <feature.icon className="w-7 h-7" />
-              </div>
-              
-              <h3 className="text-xl font-bold mb-3 tracking-tight">{feature.title}</h3>
-              <p className="text-muted-foreground leading-relaxed">{feature.desc}</p>
             </div>
           ))}
         </div>
       </div>
 
+      {/* Testimonials */}
+      <div className="py-20 relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-background via-transparent to-background z-10 pointer-events-none" />
+          <InfiniteMovingCards
+            items={[
+               { quote: "This platform completely changed how I study. The AI summarization is a lifesaver.", name: "Alex Chen", title: "Medical Student" },
+               { quote: "Being able to chat with my PDF textbooks makes finding information instant.", name: "Sarah Jones", title: "Law Student" },
+               { quote: "The collaboration features let my study group work together seamlessly.", name: "Mike Ross", title: "Computer Science Major" },
+               { quote: "Flashcard generation from notes is the best feature. Saves me hours.", name: "Emily White", title: "Biology Student" },
+               { quote: "I love the clean interface and how fast the AI responds.", name: "David Kim", title: "History Major" },
+            ]}
+            direction="left"
+            speed="slow"
+            className="py-10"
+          />
+      </div>
+
       {/* CTA Section */}
-      <div className="max-w-5xl mx-auto px-6 pb-24">
-         <div className="relative rounded-[2.5rem] overflow-hidden bg-primary px-6 py-20 text-center sm:px-12 lg:px-24">
+      <div className="max-w-5xl mx-auto px-6 pb-24 relative z-10">
+         <div className="relative rounded-[2.5rem] overflow-hidden bg-gradient-to-br from-primary via-purple-600 to-blue-600 animate-gradient bg-[length:400%_400%] px-6 py-20 text-center sm:px-12 lg:px-24 shadow-2xl shadow-primary/20 hover:shadow-primary/40 transition-shadow duration-500">
              {/* Abstract Shapes */}
-            <div className="absolute top-0 left-0 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-white/10 rounded-full blur-3xl"></div>
-            <div className="absolute bottom-0 right-0 translate-x-1/2 translate-y-1/2 w-64 h-64 bg-black/10 rounded-full blur-3xl"></div>
+            <div className="absolute top-0 left-0 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-white/20 rounded-full blur-3xl animate-blob"></div>
+            <div className="absolute bottom-0 right-0 translate-x-1/2 translate-y-1/2 w-64 h-64 bg-black/20 rounded-full blur-3xl animate-blob animation-delay-2000"></div>
             
             <div className="relative z-10 space-y-8">
-                <h2 className="text-3xl font-bold tracking-tight text-primary-foreground sm:text-5xl">
+                <h2 className="text-3xl font-bold tracking-tight text-white sm:text-5xl drop-shadow-sm">
                     Ready to transform how you learn?
                 </h2>
-                <p className="mx-auto max-w-xl text-lg text-primary-foreground/80">
+                <p className="mx-auto max-w-xl text-lg text-white/90 font-medium">
                     Join thousands of students and professionals using AI to master new topics faster than ever before.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
                     <Button 
                         size="lg" 
-                        variant="secondary" 
+                        className="h-14 px-8 text-lg rounded-full font-bold shadow-xl bg-white text-primary hover:bg-white/90 hover:scale-105 transition-all text-primary"
                         onClick={() => router.push('/auth/signup')}
-                        className="h-14 px-8 text-lg rounded-full font-bold shadow-xl hover:scale-105 transition-transform"
                     >
                         Get Started for Free
                     </Button>
                     <Button 
                         size="lg" 
                         variant="outline" 
-                        className="h-14 px-8 text-lg rounded-full border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground font-semibold"
+                        className="h-14 px-8 text-lg rounded-full border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white backdrop-blur-sm font-semibold transition-all"
                     >
                         View Demo
                         <Play className="ml-2 w-4 h-4 fill-current" />
@@ -253,8 +333,11 @@ export default function LandingPage() {
       </div>
 
       {/* Footer */}
-      <footer className="border-t border-border/40 bg-card/30 backdrop-blur-sm pt-16 pb-8">
-        <div className="max-w-7xl mx-auto px-6">
+      <footer className="relative border-t border-white/10 bg-black/5 backdrop-blur-sm pt-16 pb-8 overflow-hidden">
+        <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent pointer-events-none" />
+        
+        <div className="max-w-7xl mx-auto px-6 relative z-10">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
                 <div className="col-span-2 md:col-span-1 space-y-4">
                     <div className="flex items-center gap-2 font-bold text-lg">

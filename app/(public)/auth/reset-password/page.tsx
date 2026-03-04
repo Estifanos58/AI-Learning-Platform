@@ -7,6 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { authMockService } from '@/src/lib/mocks';
 
+import { DynamicBackground } from '@/components/dynamic-background';
+import { ArrowLeft, CheckCircle2, LockKeyhole } from 'lucide-react';
+
 export default function ResetPasswordPage() {
   const router = useRouter();
   const [token, setToken] = useState('');
@@ -60,10 +63,14 @@ export default function ResetPasswordPage() {
 
   if (success) {
     return (
-      <main className="min-h-screen flex items-center justify-center px-4 py-12 bg-gradient-to-br from-background to-muted">
-        <div className="w-full max-w-md">
-          <div className="bg-card border border-border rounded-lg shadow-sm p-8 text-center">
-            <div className="text-4xl mb-4">✓</div>
+      <main className="min-h-screen flex items-center justify-center px-4 py-12 relative overflow-hidden">
+        <DynamicBackground />
+        
+        <div className="w-full max-w-md relative z-10 animate-fade-in-up">
+          <div className="bg-card/50 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-8 text-center">
+            <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-6 text-green-500 animate-float">
+                <CheckCircle2 className="w-8 h-8" />
+            </div>
             <h1 className="text-3xl font-bold mb-2">Password Reset!</h1>
             <p className="text-muted-foreground mb-6">
               Your password has been reset successfully. Redirecting to login...
@@ -75,11 +82,25 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-4 py-12 bg-gradient-to-br from-background to-muted">
-      <div className="w-full max-w-md">
-        <div className="bg-card border border-border rounded-lg shadow-sm p-8">
-          <div className="mb-8 text-center">
-            <h1 className="text-3xl font-bold mb-2">Reset Password</h1>
+    <main className="min-h-screen flex items-center justify-center px-4 py-12 relative overflow-hidden">
+      <DynamicBackground />
+      
+      <div className="w-full max-w-md relative z-10 animate-fade-in-up">
+        <Button 
+            variant="ghost" 
+            className="absolute -top-16 left-0" 
+            onClick={() => router.push('/auth/login')}
+        >
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Login
+        </Button>
+
+        <div className="bg-card/50 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-8">
+          <div className="text-center mb-8">
+            <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mx-auto mb-4 text-primary animate-float">
+                <LockKeyhole className="w-6 h-6" />
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight mb-2">Reset Password</h1>
             <p className="text-muted-foreground">
               Enter your reset token and new password
             </p>
@@ -97,6 +118,7 @@ export default function ResetPasswordPage() {
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 disabled={isLoading}
+                className="bg-background/50 border-white/10 focus:border-primary/50 transition-all"
               />
             </div>
 
@@ -114,6 +136,7 @@ export default function ResetPasswordPage() {
                   if (passwordError) validatePassword(e.target.value);
                 }}
                 disabled={isLoading}
+                className="bg-background/50 border-white/10 focus:border-primary/50 transition-all"
               />
               {passwordError && (
                 <p className="text-xs text-destructive mt-1">{passwordError}</p>
@@ -131,6 +154,7 @@ export default function ResetPasswordPage() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 disabled={isLoading}
+                className="bg-background/50 border-white/10 focus:border-primary/50 transition-all"
               />
             </div>
 
