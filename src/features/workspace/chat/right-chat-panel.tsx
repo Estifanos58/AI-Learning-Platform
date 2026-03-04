@@ -2,24 +2,29 @@
 
 import { useEffect, useState } from 'react';
 import { ChatMessage as ChatMessageType, Chatroom } from '@/src/lib/types';
-import { chatMockService } from '@/src/lib/mocks';
 import { useAuth } from '@/src/contexts/auth';
 import { useWorkspace } from '../workspace-context';
+import { useGatewayChat } from '@/src/hooks/use-gateway';
 import { ChatHeader } from './chat-header';
 import { ChatMessageList } from './chat-message-list';
 import { ChatComposer } from './chat-composer';
 import { LoadingState, EmptyState } from '@/src/components/common/states';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 interface RightChatPanelProps {
   isOpen: boolean;
 }
 
 export function RightChatPanel({ isOpen }: RightChatPanelProps) {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const { selectedFileId, chatroomId, setChatroomId, rightSidebarWidth } = useWorkspace();
   const [chatroom, setChatroom] = useState<Chatroom | null>(null);
-  const [messages, setMessages] = useState<ChatMessageType[]>([]);
+  const [models, setModels] = useState<{ id: string; name: string; provider: string; description: string }[]>([]);
+  const { messages, isLoading: isMessagesLoading, refreshMessages, sendMessage, getModels, createChatroomForFileMockFallback } = useGatewayChat(
+    session?.accessToken,
+    chatroomId
+  );
   const [isLoading, setIsLoading] = useState(false);
 
   const isCompact = rightSidebarWidth < 320; // Mobile-like breakpoint
@@ -31,20 +36,15 @@ export function RightChatPanel({ isOpen }: RightChatPanelProps) {
       if (!user?.id || !selectedFileId) {
         setChatroom(null);
         setChatroomId(null);
-        setMessages([]);
         return;
       }
 
       setIsLoading(true);
       try {
-        // Try to get existing chatroom or create new one
-        const newChatroom = await chatMockService.createChatroomForFile(user.id, selectedFileId);
+        // No backend endpoint exists for "create chatroom for file", so keep mock fallback for this specific flow.
+        const newChatroom = await createChatroomForFileMockFallback(user.id, selectedFileId);
         setChatroom(newChatroom);
         setChatroomId(newChatroom.id);
-
-        // Load messages
-        const initialMessages = await chatMockService.listMessages(user.id, newChatroom.id);
-        setMessages(initialMessages);
       } catch (err) {
         console.error('Failed to initialize chatroom:', err);
       } finally {
@@ -53,39 +53,51 @@ export function RightChatPanel({ isOpen }: RightChatPanelProps) {
     };
 
     initializeChatroom();
-  }, [user?.id, selectedFileId, setChatroomId]);
+  }, [user?.id, selectedFileId, setChatroomId, createChatroomForFileMockFallback]);
+
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        const availableModels = await getModels();
+        setModels(availableModels);
+      } catch {
+        setModels([]);
+      }
+    };
+
+    loadModels();
+  }, [getModels]);
 
   const handleSendMessage = async (content: string, aiModelId?: string) => {
-    if (!user?.id || !chatroom) return;
+    if (!user?.id) return;
 
     try {
-      // Add user message immediately (optimistic update)
-      const userMessage: ChatMessageType = {
-        id: `msg-${Date.now()}`,
-        chatroomId: chatroom.id,
-        senderUserId: user.id,
-        senderUsername: user.username,
-        content,
-        createdAt: new Date().toISOString(),
-      };
-
-      setMessages((prev) => [...prev, userMessage]);
-
-      // Send through service
-      await chatMockService.sendMessage(user.id, {
-        chatroomId: chatroom.id,
+      const response = await sendMessage({
+        chatroomId: chatroom?.id,
         content,
         aiModelId,
-        fileId: selectedFileId,
+        fileId: selectedFileId ?? undefined,
       });
 
-      // Reload messages after a delay to get AI response
-      setTimeout(async () => {
-        const updated = await chatMockService.listMessages(user.id, chatroom.id);
-        setMessages(updated);
-      }, 1000);
+      if (!chatroom || chatroom.id !== response.chatroomId) {
+        setChatroom((prev) =>
+          prev && prev.id === response.chatroomId
+            ? prev
+            : {
+                id: response.chatroomId,
+                type: 'DOCUMENT_CONTEXT',
+                memberIds: [user.id],
+                contextFileId: selectedFileId ?? undefined,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              }
+        );
+        setChatroomId(response.chatroomId);
+      }
+
+      await refreshMessages();
     } catch (err) {
-      console.error('Failed to send message:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to send message');
     }
   };
 
@@ -111,7 +123,7 @@ export function RightChatPanel({ isOpen }: RightChatPanelProps) {
         <div className={cn("flex flex-col h-full", isCompact && "text-xs")}>
           <ChatHeader chatroom={chatroom} isCompact={isCompact} />
           <ChatMessageList messages={messages} isCompact={isCompact} />
-          <ChatComposer onSendMessage={handleSendMessage} isCompact={isCompact} />
+          <ChatComposer onSendMessage={handleSendMessage} isCompact={isCompact} models={models} />
         </div>
       ) : null}
     </aside>

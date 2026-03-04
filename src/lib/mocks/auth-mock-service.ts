@@ -11,7 +11,7 @@ import {
   ResetPasswordRequest,
   SignUpRequest,
   VerifyEmailRequest,
-} from '@/lib/types';
+} from '@/src/lib/types';
 
 const MOCK_DELAY = 300;
 

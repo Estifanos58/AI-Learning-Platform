@@ -5,7 +5,7 @@ import { useAuth } from '@/src/contexts/auth';
 import { useWorkspace } from '@/src/features/workspace/workspace-context';
 import { AppShell } from '@/src/features/workspace/components/app-shell';
 import { FileItem } from '@/src/lib/types';
-import { fileMockService } from '@/src/lib/mocks';
+import { useGatewayFiles } from '@/src/hooks/use-gateway';
 import { PdfViewerShell } from '@/src/features/pdf-viewer/pdf-viewer-shell';
 import { EmptyState } from '@/src/components/common/states';
 
@@ -15,7 +15,8 @@ import { Button } from '@/components/ui/button';
 // Helper component for Empty State with Upload and Dropzone
 function EmptyStateWithUpload() {
   const { toggleSidebar, sidebarOpen, selectedFolderId, setSelectedFileId } = useWorkspace();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
+  const { folders, createFolder, uploadFiles } = useGatewayFiles(session?.accessToken);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -56,13 +57,11 @@ function EmptyStateWithUpload() {
       let targetFolderId = selectedFolderId;
       
       if (!targetFolderId) {
-        // If no folder selected, try to find the first available folder
-        const folders = await fileMockService.listMyFolders(user.id);
         if (folders.length > 0) {
             targetFolderId = folders[0].id;
         } else {
             // Create a default folder if none exists
-            const newFolder = await fileMockService.createFolder(user.id, { name: 'Uploads' });
+            const newFolder = await createFolder({ name: 'Uploads' });
             targetFolderId = newFolder.id;
         }
       }
@@ -71,21 +70,11 @@ function EmptyStateWithUpload() {
         throw new Error("Could not determine target folder");
       }
 
-      // Determine file type (simple mapping)
-      // We map everything to DOCUMENT for now as per FileType definition
-      // In a real app we'd have more granular types
-      const fileType = 'DOCUMENT';
-
-      const newFile = await fileMockService.uploadFile(user.id, {
-        fileType,
-        folderId: targetFolderId,
-        originalName: file.name,
-        contentType: file.type,
-        fileSize: file.size,
-      });
+      await uploadFiles([file], targetFolderId);
 
       // Optionally select the file to view it immediately
-      setSelectedFileId(newFile.id);
+      // The sidebar data refresh will include the uploaded file.
+      setSelectedFileId(null);
       
       // We can't easily trigger a refresh of the sidebar list from here without context changes,
       // but selecting the file might trigger a fetch in some components
@@ -169,8 +158,9 @@ function EmptyStateWithUpload() {
 }
 
 function WorkspaceContent() {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const { selectedFileId } = useWorkspace();
+  const { getFile } = useGatewayFiles(session?.accessToken);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -183,7 +173,7 @@ function WorkspaceContent() {
 
       setIsLoading(true);
       try {
-        const file = await fileMockService.getFileMetadata(user.id, selectedFileId);
+        const file = await getFile(selectedFileId);
         setSelectedFile(file);
       } catch (err) {
         console.error('Failed to load file:', err);
@@ -194,7 +184,7 @@ function WorkspaceContent() {
     };
 
     loadFile();
-  }, [user?.id, selectedFileId]);
+  }, [user?.id, selectedFileId, getFile]);
 
   return (
     <AppShell>

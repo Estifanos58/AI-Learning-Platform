@@ -5,9 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { Folder, FileItem } from '@/src/lib/types';
-import { fileMockService } from '@/src/lib/mocks';
 import { useAuth } from '@/src/contexts/auth';
 import { useWorkspace } from '../workspace-context';
+import { useGatewayFiles } from '@/src/hooks/use-gateway';
 import { FolderTree } from './folder-tree';
 import { LoadingState, EmptyState } from '@/src/components/common/states';
 import { 
@@ -32,11 +32,20 @@ interface LeftSidebarProps {
 }
 
 export function LeftSidebar({ isOpen }: LeftSidebarProps) {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const { selectedFolderId, setSelectedFolderId, setSelectedFileId, leftSidebarWidth } = useWorkspace();
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const {
+    folders,
+    files,
+    isLoading,
+    error: filesError,
+    createFolder,
+    updateFolder,
+    deleteFolder,
+    deleteFile,
+    renameFile,
+    uploadFiles,
+  } = useGatewayFiles(session?.accessToken);
 
   // Compact mode check (approx mobile width breakpoint)
   const isCompact = leftSidebarWidth < 240;
@@ -53,52 +62,21 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   // Drag and Drop State
   const [isDragging, setIsDragging] = useState(false);
 
-  // Load content
-  const loadContent = useCallback(async () => {
-    if (!user?.id) return;
-    try {
-      // 1. Load Folders
-      const foldersResult = await fileMockService.listMyFolders(user.id);
-      setFolders(foldersResult);
-      
-      // 2. Load Files for each folder
-      const filePromises = foldersResult.map(folder => 
-        fileMockService.listMyFiles(user.id, folder.id).catch(() => [])
-      );
-      
-      const filesResults = await Promise.all(filePromises);
-      const allFiles = filesResults.flat();
-      
-      setFiles(allFiles);
-
-    } catch (err) {
-      console.error('Failed to load content:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user?.id]);
-
-  useEffect(() => {
-    loadContent();
-  }, [loadContent]);
-
   // --- Handlers ---
 
   const handleCreateFolder = async () => {
     if (!user?.id || !folderFormName.trim()) return;
     setIsSubmitting(true);
     try {
-      await fileMockService.createFolder(user.id, {
+      await createFolder({
         name: folderFormName,
         parentId: createParentId,
       });
-      await loadContent();
       setIsCreateFolderOpen(false);
       setFolderFormName('');
       toast.success("Folder created successfully");
     } catch (err) {
-      console.error(err);
-      toast.error("Failed to create folder");
+      toast.error(err instanceof Error ? err.message : "Failed to create folder");
     } finally {
       setIsSubmitting(false);
     }
@@ -108,17 +86,15 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
     if (!user?.id || !folderToEdit || !folderFormName.trim()) return;
     setIsSubmitting(true);
     try {
-      await fileMockService.updateFolder(user.id, folderToEdit.id, {
+      await updateFolder(folderToEdit.id, {
         name: folderFormName
       });
-      await loadContent();
       setIsEditFolderOpen(false);
       setFolderFormName('');
       setFolderToEdit(null);
       toast.success("Folder updated");
     } catch (err) {
-      console.error(err);
-      toast.error("Failed to update folder");
+      toast.error(err instanceof Error ? err.message : "Failed to update folder");
     } finally {
       setIsSubmitting(false);
     }
@@ -129,15 +105,13 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
     if (!confirm("Are you sure you want to delete this folder? All files inside will be deleted.")) return;
     
     try {
-      await fileMockService.deleteFolder(user.id, folderId);
-      await loadContent();
+      await deleteFolder(folderId);
       if (selectedFolderId === folderId) {
         setSelectedFolderId(null);
       }
       toast.success("Folder deleted");
     } catch (err) {
-      console.error(err);
-      toast.error("Failed to delete folder");
+      toast.error(err instanceof Error ? err.message : "Failed to delete folder");
     }
   };
 
@@ -152,18 +126,23 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   };
 
   const handleDeleteFile = async (fileId: string) => {
-      // Since mock service doesn't have deleteFile yet, we simulate locally
       if (!confirm("Are you sure you want to delete this file?")) return;
       
-      // In real implementation: await fileMockService.deleteFile(user.id, fileId);
-      setFiles(prev => prev.filter(f => f.id !== fileId));
-      toast.success("File deleted");
+      try {
+        await deleteFile(fileId);
+        toast.success("File deleted");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to delete file');
+      }
   };
 
   const handleRenameFile = async (fileId: string, newName: string) => {
-      // In real implementation: await fileMockService.renameFile(...)
-      setFiles(prev => prev.map(f => f.id === fileId ? { ...f, originalName: newName } : f));
-      toast.success("File renamed");
+      try {
+        await renameFile(fileId, newName);
+        toast.success("File renamed");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to rename file');
+      }
   };
 
   // --- Modal Triggers ---
@@ -229,24 +208,10 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
       try {
           if (!user?.id) return;
 
-          const newFiles: FileItem[] = [];
-
-          for (const file of filesToUpload) {
-              const newFile = await fileMockService.uploadFile(user.id, {
-                  folderId: targetFolderId!,
-                  fileType: 'DOCUMENT',
-                  originalName: file.name,
-                  contentType: file.type,
-                  fileSize: file.size
-              });
-              newFiles.push(newFile);
-          }
-          
-          await loadContent();
+          await uploadFiles(filesToUpload, targetFolderId!);
           toast.success("Files uploaded");
       } catch(err) {
-          console.error(err);
-          toast.error("Upload failed");
+          toast.error(err instanceof Error ? err.message : "Upload failed");
       }
   };
 
@@ -340,6 +305,9 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
 
         {/* Content */}
         <div className={`flex-1 overflow-y-auto overflow-x-hidden ${isCompact ? 'p-1' : 'p-2'}`}>
+            {filesError && (
+              <p className="px-2 py-1 text-xs text-destructive">{filesError}</p>
+            )}
             {isLoading ? (
                 <div className="space-y-3 px-2 mt-4">
                     <div className="h-4 w-2/3 bg-muted rounded animate-pulse" />

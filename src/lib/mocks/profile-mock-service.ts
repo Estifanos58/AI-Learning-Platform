@@ -3,7 +3,7 @@
  * Simulates user profile operations
  */
 
-import { UpdateProfileRequest, UserProfile } from '@/lib/types';
+import { UpdateProfileRequest, UserProfile } from '@/src/lib/types';
 
 const MOCK_DELAY = 300;
 

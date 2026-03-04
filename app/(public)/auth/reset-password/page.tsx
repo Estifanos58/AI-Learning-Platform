@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { authMockService } from '@/src/lib/mocks';
+import { useGatewayAuth } from '@/src/hooks/use-gateway';
 
 import { DynamicBackground } from '@/components/dynamic-background';
 import { ArrowLeft, CheckCircle2, LockKeyhole } from 'lucide-react';
 
 export default function ResetPasswordPage() {
   const router = useRouter();
+  const { resetPassword } = useGatewayAuth();
   const [token, setToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -49,7 +50,7 @@ export default function ResetPasswordPage() {
 
     setIsLoading(true);
     try {
-      await authMockService.resetPassword({ token, newPassword });
+      await resetPassword({ token, newPassword });
       setSuccess(true);
       setTimeout(() => {
         router.push('/auth/login');

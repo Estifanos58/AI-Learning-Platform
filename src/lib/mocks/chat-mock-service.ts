@@ -3,7 +3,7 @@
  * Simulates chat and messaging operations
  */
 
-import { AIModel, Chatroom, ChatMessage, SendMessageRequest } from '@/lib/types';
+import { AIModel, Chatroom, ChatMessage, SendMessageRequest } from '@/src/lib/types';
 
 const MOCK_DELAY = 300;
 

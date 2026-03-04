@@ -5,12 +5,13 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { authMockService } from '@/src/lib/mocks';
+import { useGatewayAuth } from '@/src/hooks/use-gateway';
 import { DynamicBackground } from '@/components/dynamic-background';
 import { ArrowLeft, CheckCircle2, ShieldCheck } from 'lucide-react';
 
 export default function VerifyEmailPage() {
   const router = useRouter();
+  const { verifyEmail } = useGatewayAuth();
   const [token, setToken] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +28,7 @@ export default function VerifyEmailPage() {
 
     setIsLoading(true);
     try {
-      await authMockService.verifyEmail({ token });
+      await verifyEmail({ token });
       setSuccess(true);
       setTimeout(() => {
         router.push('/auth/login');
@@ -121,9 +122,6 @@ export default function VerifyEmailPage() {
             </Button>
           </form> 
           
-          <div className="mt-6 p-3 bg-blue-500/10 border border-blue-500/20 rounded text-xs text-blue-600 dark:text-blue-400">
-            <strong>Demo:</strong> Any token of 5+ characters will work.
-          </div>
         </div>
       </div>
     </main>

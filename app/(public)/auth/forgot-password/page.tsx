@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { authMockService } from '@/src/lib/mocks';
+import { useGatewayAuth } from '@/src/hooks/use-gateway';
 
 import { DynamicBackground } from '@/components/dynamic-background';
 import { ArrowLeft, Mail } from 'lucide-react';
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
+  const { forgotPassword } = useGatewayAuth();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +29,7 @@ export default function ForgotPasswordPage() {
 
     setIsLoading(true);
     try {
-      await authMockService.forgotPassword({ email });
+      await forgotPassword({ email });
       setSent(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send reset email');

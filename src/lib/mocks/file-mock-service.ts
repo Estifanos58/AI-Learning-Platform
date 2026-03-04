@@ -12,7 +12,7 @@ import {
   UpdateFileMetadataRequest,
   UpdateFolderRequest,
   UploadFileRequest,
-} from '@/lib/types';
+} from '@/src/lib/types';
 
 const MOCK_DELAY = 300;
 

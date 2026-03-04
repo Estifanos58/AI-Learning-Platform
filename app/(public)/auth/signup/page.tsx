@@ -105,7 +105,6 @@ export default function SignupPage() {
         <div className="absolute inset-0 bg-gradient-to-bl from-primary/5 via-transparent to-transparent pointer-events-none" />
         <Button 
             variant="ghost" 
-            className="absolute top-4 right-4 md:top-8 md:right-8 z-20"
             className="absolute top-4 right-4 md:top-8 md:right-8" 
             onClick={() => router.push('/')}
         >

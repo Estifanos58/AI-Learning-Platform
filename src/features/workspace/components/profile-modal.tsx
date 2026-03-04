@@ -22,8 +22,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { useWorkspace } from '../workspace-context';
 import { useAuth } from '@/src/contexts/auth';
-import { profileMockService } from '@/src/lib/mocks';
 import { UserProfile, ProfileVisibility } from '@/src/lib/types';
+import { useGatewayProfile } from '@/src/hooks/use-gateway';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { User, MapPin, Briefcase, Calendar, Award, Edit2, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
@@ -31,10 +31,17 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export function ProfileModal() {
   const { isProfileOpen, setProfileOpen } = useWorkspace();
-  const { user } = useAuth();
+    const { user, session } = useAuth();
+    const {
+        profile: serverProfile,
+        isLoading: isProfileLoading,
+        error: profileLoadError,
+        refresh,
+        updateProfile,
+        updateVisibility,
+    } = useGatewayProfile(session?.accessToken);
   const [activeTab, setActiveTab] = useState("view");
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+    const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -49,36 +56,27 @@ export function ProfileModal() {
     visibility: 'PRIVATE' as ProfileVisibility
   });
 
-  const loadProfile = async () => {
-    if (!user?.id) return;
-    setIsLoading(true);
-    try {
-      const userProfile = await profileMockService.getMyProfile(user.id);
-      setProfile(userProfile);
-      setFormData({
-        firstName: userProfile.firstName,
-        lastName: userProfile.lastName,
-        universityId: userProfile.universityId,
-        department: userProfile.department,
-        bio: userProfile.bio,
-        visibility: userProfile.visibility
-      });
-    } catch (err) {
-      console.error(err);
-      setError('Failed to load profile');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (isProfileOpen) {
-      loadProfile();
+            refresh();
       setActiveTab("view");
       setError(null);
       setSaveSuccess(false);
     }
-  }, [isProfileOpen, user?.id]);
+    }, [isProfileOpen, user?.id, refresh]);
+
+    useEffect(() => {
+        if (!serverProfile) return;
+        setProfile(serverProfile);
+        setFormData({
+            firstName: serverProfile.firstName,
+            lastName: serverProfile.lastName,
+            universityId: serverProfile.universityId,
+            department: serverProfile.department,
+            bio: serverProfile.bio,
+            visibility: serverProfile.visibility,
+        });
+    }, [serverProfile]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,12 +87,23 @@ export function ProfileModal() {
     setSaveSuccess(false);
 
     try {
-      const updatedProfile = await profileMockService.updateMyProfile(user.id, formData);
+            const updatedProfile = await updateProfile({
+                firstName: formData.firstName,
+                lastName: formData.lastName,
+                universityId: formData.universityId,
+                department: formData.department,
+                bio: formData.bio,
+            });
+
+            if (profile?.visibility !== formData.visibility) {
+                await updateVisibility(formData.visibility);
+            }
+
       setProfile(updatedProfile);
       setSaveSuccess(true);
       setTimeout(() => setActiveTab("view"), 1000); // Switch back to view after success
     } catch (err) {
-      setError('Failed to update profile');
+            setError(err instanceof Error ? err.message : 'Failed to update profile');
     } finally {
       setIsSaving(false);
     }
@@ -114,7 +123,7 @@ export function ProfileModal() {
             </DialogDescription>
         </DialogHeader>
 
-        {isLoading ? (
+          {isProfileLoading ? (
              <div className="flex-1 flex flex-col items-center justify-center p-8">
                 <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
                 <p className="text-sm text-muted-foreground">Loading profile...</p>
@@ -135,7 +144,7 @@ export function ProfileModal() {
                             {/* Header Section */}
                             <div className="flex items-start gap-4">
                                 <Avatar className="h-20 w-20 border-2 border-border shadow-sm">
-                                    <AvatarImage src={profile.avatarUrl} alt={profile.firstName} />
+                                    <AvatarImage alt={profile.firstName} />
                                     <AvatarFallback className="text-xl bg-primary/10 text-primary">{initials}</AvatarFallback>
                                 </Avatar>
                                 <div className="space-y-1 pt-1 flex-1">
@@ -220,6 +229,13 @@ export function ProfileModal() {
                              <AlertDescription>{error}</AlertDescription>
                         </Alert>
                     )}
+
+                                        {profileLoadError && !error && (
+                                            <Alert variant="destructive">
+                                                <AlertCircle className="h-4 w-4" />
+                                                <AlertDescription>{profileLoadError}</AlertDescription>
+                                            </Alert>
+                                        )}
 
                     <form id="profile-form" onSubmit={handleSave} className="space-y-4">
                         <div className="grid grid-cols-2 gap-4">

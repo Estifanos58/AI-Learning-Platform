@@ -1,14 +1,5 @@
-'use client';
-
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { redirect } from 'next/navigation';
 
 export default function AppPage() {
-  const router = useRouter();
-
-  useEffect(() => {
-    router.push('/app/workspace');
-  }, [router]);
-
-  return null;
+  redirect('/app/workspace');
 }

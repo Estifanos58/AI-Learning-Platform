@@ -7,7 +7,7 @@
 
 import { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
 import { AuthSession, AuthUserSummary } from '@/src/lib/types';
-import { authMockService } from '@/src/lib/mocks';
+import { gatewayApi } from '@/src/lib/api/gateway';
 
 interface AuthContextType {
   session: AuthSession | null;
@@ -22,6 +22,23 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const SESSION_STORAGE_KEY = 'app_session';
+
+function setAuthCookies(session: AuthSession | null) {
+  if (typeof document === 'undefined') return;
+
+  if (!session) {
+    document.cookie = 'app_access_token=; Max-Age=0; Path=/; SameSite=Strict';
+    document.cookie = 'app_refresh_token=; Max-Age=0; Path=/; SameSite=Strict';
+    return;
+  }
+
+  const isSecure = window.location.protocol === 'https:';
+  const secureFlag = isSecure ? '; Secure' : '';
+  const accessMaxAge = Math.max(60, session.accessTokenExpiresInSeconds);
+
+  document.cookie = `app_access_token=${encodeURIComponent(session.accessToken)}; Max-Age=${accessMaxAge}; Path=/; SameSite=Strict${secureFlag}`;
+  document.cookie = `app_refresh_token=${encodeURIComponent(session.refreshToken)}; Max-Age=${60 * 60 * 24 * 7}; Path=/; SameSite=Strict${secureFlag}`;
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -48,9 +65,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await authMockService.signup({ email, username, password, role: role as any });
+      const result = await gatewayApi.auth.signup({ email, username, password, role: role as any });
       setSession(result);
       localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(result));
+      setAuthCookies(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed');
       throw err;
@@ -63,9 +81,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await authMockService.login({ email, password });
+      const result = await gatewayApi.auth.login({ email, password });
       setSession(result);
       localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(result));
+      setAuthCookies(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
       throw err;
@@ -77,11 +96,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     setIsLoading(true);
     try {
-      if (session?.user.id) {
-        await authMockService.logout(session.user.id);
+      if (session?.refreshToken) {
+        await gatewayApi.auth.logout(session.refreshToken);
       }
       setSession(null);
       localStorage.removeItem(SESSION_STORAGE_KEY);
+      setAuthCookies(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Logout failed');
     } finally {

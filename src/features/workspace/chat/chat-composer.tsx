@@ -9,20 +9,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { AVAILABLE_AI_MODELS } from '@/src/lib/mocks';
+import { AIModel } from '@/src/lib/types';
 import { Sparkles, Send, Loader2, Paperclip } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ChatComposerProps {
   onSendMessage: (content: string, aiModelId?: string) => Promise<void>;
   isCompact?: boolean;
+  models?: AIModel[];
 }
 
-export function ChatComposer({ onSendMessage, isCompact }: ChatComposerProps) {
+const DEFAULT_MODELS: AIModel[] = [
+  {
+    id: 'gpt-4',
+    name: 'GPT-4',
+    provider: 'OpenAI',
+    description: 'Most capable model',
+  },
+];
+
+export function ChatComposer({ onSendMessage, isCompact, models = DEFAULT_MODELS }: ChatComposerProps) {
   const [content, setContent] = useState('');
-  const [aiModelId, setAiModelId] = useState(AVAILABLE_AI_MODELS[0].id);
+  const [aiModelId, setAiModelId] = useState(models[0]?.id ?? 'gpt-4');
   const [isLoading, setIsLoading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!models.some((model) => model.id === aiModelId)) {
+      setAiModelId(models[0]?.id ?? 'gpt-4');
+    }
+  }, [models, aiModelId]);
 
   const handleSend = async () => {
     if (!content.trim() || isLoading) return;
@@ -71,7 +87,7 @@ export function ChatComposer({ onSendMessage, isCompact }: ChatComposerProps) {
                 <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                {AVAILABLE_AI_MODELS.map((model) => (
+                {models.map((model) => (
                     <SelectItem key={model.id} value={model.id} className="text-xs">
                     {model.name}
                     </SelectItem>
