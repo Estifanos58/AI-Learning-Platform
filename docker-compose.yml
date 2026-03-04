@@ -36,25 +36,25 @@ services:
       timeout: 5s
       retries: 10
 
-  # auth-service:
-  #   build:
-  #     context: .
-  #     dockerfile: auth-service/Dockerfile
-  #   container_name: auth-service
-  #   depends_on:
-  #     kafka:
-  #       condition: service_started
-  #     postgres:
-  #       condition: service_healthy
-  #   environment:
-  #     SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/auth_db
-  #     SPRING_DATASOURCE_USERNAME: auth_user
-  #     SPRING_DATASOURCE_PASSWORD: auth_pass
-  #     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-  #     GRPC_SERVER_PORT: 9090
-  #     APP_GRPC_AUTH_SERVICE_SECRET: change-me-shared-secret
-  #     APP_KAFKA_TOPIC_USER_REGISTERED: user.registered.v1
-  #     APP_MAIL_ENABLED: "false"
+  auth-service:
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
+    container_name: auth-service
+    depends_on:
+      kafka:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/auth_db
+      SPRING_DATASOURCE_USERNAME: auth_user
+      SPRING_DATASOURCE_PASSWORD: auth_pass
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      GRPC_SERVER_PORT: 9090
+      APP_GRPC_AUTH_SERVICE_SECRET: change-me-shared-secret
+      APP_KAFKA_TOPIC_USER_REGISTERED: user.registered.v1
+      APP_MAIL_ENABLED: "false"
 
   profile-postgres:
     image: postgres:15-alpine
@@ -90,50 +90,50 @@ services:
       timeout: 5s
       retries: 10
 
-  # user-profile-service:
-  #   build:
-  #     context: .
-  #     dockerfile: user-profile-service/Dockerfile
-  #   container_name: user-profile-service
-  #   depends_on:
-  #     kafka:
-  #       condition: service_started
-  #     profile-postgres:
-  #       condition: service_healthy
-  #   environment:
-  #     SPRING_DATASOURCE_URL: jdbc:postgresql://profile-postgres:5432/user_profile_db
-  #     SPRING_DATASOURCE_USERNAME: postgres
-  #     SPRING_DATASOURCE_PASSWORD: postgres
-  #     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-  #     GRPC_SERVER_PORT: 9091
-  #     APP_GRPC_PROFILE_SERVICE_SECRET: change-me-shared-secret
-  #     APP_KAFKA_TOPIC_USER_REGISTERED: user.registered.v1
-  #     APP_KAFKA_TOPIC_USER_REGISTERED_DLT: user.registered.dlt
-  #   ports:
-  #     - "9091:9091"
+  user-profile-service:
+    build:
+      context: .
+      dockerfile: user-profile-service/Dockerfile
+    container_name: user-profile-service
+    depends_on:
+      kafka:
+        condition: service_started
+      profile-postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://profile-postgres:5432/user_profile_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      GRPC_SERVER_PORT: 9091
+      APP_GRPC_PROFILE_SERVICE_SECRET: change-me-shared-secret
+      APP_KAFKA_TOPIC_USER_REGISTERED: user.registered.v1
+      APP_KAFKA_TOPIC_USER_REGISTERED_DLT: user.registered.dlt
+    ports:
+      - "9091:9091"
 
-  # file-service:
-  #   build:
-  #     context: .
-  #     dockerfile: file-service/Dockerfile
-  #   container_name: file-service
-  #   depends_on:
-  #     kafka:
-  #       condition: service_started
-  #     file-postgres:
-  #       condition: service_healthy
-  #   environment:
-  #     SPRING_DATASOURCE_URL: jdbc:postgresql://file-postgres:5432/file_service_db
-  #     SPRING_DATASOURCE_USERNAME: postgres
-  #     SPRING_DATASOURCE_PASSWORD: postgres
-  #     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-  #     GRPC_SERVER_PORT: 9092
-  #     FILE_STORAGE_ROOT_PATH: /data
-  #     APP_GRPC_FILE_SERVICE_SECRET: change-me-shared-secret
-  #   volumes:
-  #     - file-storage:/data
-  #   ports:
-  #     - "9092:9092"
+  file-service:
+    build:
+      context: .
+      dockerfile: file-service/Dockerfile
+    container_name: file-service
+    depends_on:
+      kafka:
+        condition: service_started
+      file-postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://file-postgres:5432/file_service_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      GRPC_SERVER_PORT: 9092
+      FILE_STORAGE_ROOT_PATH: /data
+      APP_GRPC_FILE_SERVICE_SECRET: change-me-shared-secret
+    volumes:
+      - file-storage:/data
+    ports:
+      - "9092:9092"
 
   redis:
     image: redis:7.2-alpine3.19
@@ -164,57 +164,73 @@ services:
     ports:
       - "6380:6379"
 
-  # chat-service:
-  #   build:
-  #     context: .
-  #     dockerfile: chat-service/Dockerfile
-  #   container_name: chat-service
-  #   depends_on:
-  #     kafka:
-  #       condition: service_started
-  #     chat-postgres:
-  #       condition: service_healthy
-  #     chat-redis:
-  #       condition: service_started
-  #   environment:
-  #     SPRING_DATASOURCE_URL: jdbc:postgresql://chat-postgres:5432/chat_service_db
-  #     SPRING_DATASOURCE_USERNAME: postgres
-  #     SPRING_DATASOURCE_PASSWORD: postgres
-  #     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-  #     SPRING_DATA_REDIS_HOST: chat-redis
-  #     SPRING_DATA_REDIS_PORT: 6379
-  #     GRPC_SERVER_PORT: 9095
-  #     GRPC_FILE_ADDRESS: static://file-service:9093
-  #     APP_GRPC_CHAT_SERVICE_SECRET: change-me-shared-secret
-  #     APP_GRPC_FILE_SERVICE_SECRET: change-me-shared-secret
-  #     APP_KAFKA_TOPIC_AI_MESSAGE: ai.message.requested
-  #   ports:
-  #     - "9095:9095"
+  chat-service:
+    build:
+      context: .
+      dockerfile: chat-service/Dockerfile
+    container_name: chat-service
+    depends_on:
+      kafka:
+        condition: service_started
+      chat-postgres:
+        condition: service_healthy
+      chat-redis:
+        condition: service_started
+      file-service:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://chat-postgres:5432/chat_service_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_DATA_REDIS_HOST: chat-redis
+      SPRING_DATA_REDIS_PORT: 6379
+      GRPC_SERVER_PORT: 9095
+      GRPC_FILE_ADDRESS: static://file-service:9092
+      APP_GRPC_CHAT_SERVICE_SECRET: change-me-shared-secret
+      APP_GRPC_FILE_SERVICE_SECRET: change-me-shared-secret
+      APP_KAFKA_TOPIC_AI_MESSAGE: ai.message.requested
+    ports:
+      - "9095:9095"
 
-  # api-gateway:
-  #   build:
-  #     context: .
-  #     dockerfile: api-gateway/Dockerfile
-  #   container_name: api-gateway
-  #   depends_on:
-  #     - auth-service
-  #     - redis
-  #   environment:
-  #     SERVER_PORT: 8080
-  #     SPRING_DATA_REDIS_HOST: redis
-  #     SPRING_DATA_REDIS_PORT: 6379
-  #     GRPC_AUTH_ADDRESS: static://auth-service:9090
-  #     GRPC_PROFILE_ADDRESS: static://user-profile-service:9091
-  #     GRPC_FILE_ADDRESS: static://file-service:9092
-  #     APP_GRPC_AUTH_SERVICE_SECRET: change-me-shared-secret
-  #     APP_GRPC_PROFILE_SERVICE_SECRET: change-me-shared-secret
-  #     APP_GRPC_FILE_SERVICE_SECRET: change-me-shared-secret
-  #   ports:
-  #     - "8080:8080"
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: api-gateway
+    depends_on:
+      auth-service:
+        condition: service_started
+      user-profile-service:
+        condition: service_started
+      file-service:
+        condition: service_started
+      chat-service:
+        condition: service_started
+      redis:
+        condition: service_started
+    environment:
+      SERVER_PORT: 8080
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      GRPC_AUTH_ADDRESS: static://auth-service:9090
+      GRPC_PROFILE_ADDRESS: static://user-profile-service:9091
+      GRPC_FILE_ADDRESS: static://file-service:9092
+      GRPC_CHAT_ADDRESS: static://chat-service:9095
+      APP_GRPC_AUTH_SERVICE_SECRET: change-me-shared-secret
+      APP_GRPC_PROFILE_SERVICE_SECRET: change-me-shared-secret
+      APP_GRPC_FILE_SERVICE_SECRET: change-me-shared-secret
+      APP_GRPC_CHAT_SERVICE_SECRET: change-me-shared-secret
+    ports:
+      - "8080:8080"
 
-  # rag-service:
-  #   volumes:
-  #     - file-storage:/data:ro
+  rag-service:
+    image: alpine:3.20
+    container_name: rag-service
+    command: ["sh", "-c", "sleep infinity"]
+    profiles: ["rag"]
+    volumes:
+      - file-storage:/data:ro
 
 volumes:
   auth_postgres_data:
