@@ -10,6 +10,7 @@
 .venv/
 venv/
 env/
+source/
 
 # Python cache and compiled files
 **/__pycache__/
@@ -28,6 +29,8 @@ logs/
 # Environment and local config
 .env
 .env.*
+**/.env
+**/.env.*
 *.local
 
 # IDE/editor files

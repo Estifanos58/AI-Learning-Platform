@@ -1,7 +1,6 @@
 services:
   kafka:
     image: confluentinc/cp-kafka:7.5.0
-    container_name: platform-kafka
     environment:
       - CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk
       - KAFKA_NODE_ID=0
@@ -18,10 +17,15 @@ services:
       - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
     ports:
       - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/9092'"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
 
   postgres:
     image: postgres:15
-    container_name: auth-postgres
     environment:
       POSTGRES_DB: auth_db
       POSTGRES_USER: auth_user
@@ -40,10 +44,9 @@ services:
     build:
       context: .
       dockerfile: auth-service/Dockerfile
-    container_name: auth-service
     depends_on:
       kafka:
-        condition: service_started
+        condition: service_healthy
       postgres:
         condition: service_healthy
     environment:
@@ -58,7 +61,6 @@ services:
 
   profile-postgres:
     image: postgres:15-alpine
-    container_name: profile-postgres
     environment:
       POSTGRES_DB: user_profile_db
       POSTGRES_USER: postgres
@@ -75,7 +77,6 @@ services:
 
   file-postgres:
     image: postgres:15-alpine
-    container_name: file-postgres
     environment:
       POSTGRES_DB: file_service_db
       POSTGRES_USER: postgres
@@ -94,10 +95,9 @@ services:
     build:
       context: .
       dockerfile: user-profile-service/Dockerfile
-    container_name: user-profile-service
     depends_on:
       kafka:
-        condition: service_started
+        condition: service_healthy
       profile-postgres:
         condition: service_healthy
     environment:
@@ -116,10 +116,9 @@ services:
     build:
       context: .
       dockerfile: file-service/Dockerfile
-    container_name: file-service
     depends_on:
       kafka:
-        condition: service_started
+        condition: service_healthy
       file-postgres:
         condition: service_healthy
     environment:
@@ -137,13 +136,11 @@ services:
 
   redis:
     image: redis:7.2-alpine3.19
-    container_name: auth-redis
     ports:
       - "6379:6379"
 
   chat-postgres:
     image: postgres:15-alpine
-    container_name: chat-postgres
     environment:
       POSTGRES_DB: chat_service_db
       POSTGRES_USER: postgres
@@ -160,7 +157,6 @@ services:
 
   chat-redis:
     image: redis:7.2-alpine3.19
-    container_name: chat-redis
     ports:
       - "6380:6379"
 
@@ -168,10 +164,9 @@ services:
     build:
       context: .
       dockerfile: chat-service/Dockerfile
-    container_name: chat-service
     depends_on:
       kafka:
-        condition: service_started
+        condition: service_healthy
       chat-postgres:
         condition: service_healthy
       chat-redis:
@@ -197,7 +192,6 @@ services:
     build:
       context: .
       dockerfile: api-gateway/Dockerfile
-    container_name: api-gateway
     depends_on:
       auth-service:
         condition: service_started
@@ -228,26 +222,24 @@ services:
     build:
       context: .
       dockerfile: notification-service/Dockerfile
-    container_name: notification-service
     depends_on:
       kafka:
-        condition: service_started
+        condition: service_healthy
+    env_file:
+      - ./notification-service/.env
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      KAFKA_GROUP_ID: notification-service-v1
-      KAFKA_TOPIC_EMAIL_VERIFICATION: user.email.verification.v1
-      KAFKA_TOPIC_EMAIL_FAILED: notification.email.failed.v1
-      SMTP_HOST: smtp.gmail.com
-      SMTP_PORT: 587
-      SMTP_USERNAME: ${SMTP_USERNAME:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-no-reply@aiplatform.local}
+      kafka_bootstrap_servers: kafka:29092
+      kafka_group_id: notification-service-v1
+      kafka_topic_email_verification: user.email.verification.v1
+      kafka_topic_email_failed: notification.email.failed.v1
+      smtp_host: smtp.gmail.com
+      smtp_port: 587
+      smtp_from: no-reply@aiplatform.local
     ports:
       - "8086:8086"
 
   rag-service:
     image: alpine:3.20
-    container_name: rag-service
     command: ["sh", "-c", "sleep infinity"]
     profiles: ["rag"]
     volumes:
