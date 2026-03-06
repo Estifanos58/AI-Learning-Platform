@@ -28,9 +28,10 @@ def startup_event() -> None:
         logging.getLogger(__name__).info('Kafka consumer started successfully')
     except Exception as exc:
         logging.getLogger(__name__).exception(
-            'Kafka consumer failed to start; service will continue without consuming messages: %s',
+            'Kafka consumer failed to start; notification service startup aborted: %s',
             exc,
         )
+        raise RuntimeError('Failed to initialize Kafka verification consumer') from exc
 
 
 @app.on_event('shutdown')

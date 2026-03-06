@@ -13,11 +13,11 @@ class VerificationHandler:
         self._email_sender = email_sender
 
     def handle(self, payload: dict[str, Any], correlation_id: str) -> None:
-        event_id = str(payload.get('eventId', ''))
-        user_id = str(payload.get('userId', ''))
-        email = str(payload.get('email', '')).strip().lower()
-        username = str(payload.get('username', '')).strip() or 'User'
-        verification_code = str(payload.get('verificationCode', '')).strip()
+        event_id = self._field(payload, 'eventId', 'event_id')
+        user_id = self._field(payload, 'userId', 'user_id')
+        email = self._field(payload, 'email').strip().lower()
+        username = self._field(payload, 'username').strip() or 'User'
+        verification_code = self._field(payload, 'verificationCode', 'verification_code', 'code').strip()
 
         if not event_id or not user_id or not email or not verification_code:
             raise ValueError('Event payload is missing required fields')
@@ -38,3 +38,10 @@ class VerificationHandler:
                 }
             )
         )
+
+    def _field(self, payload: dict[str, Any], *names: str) -> str:
+        for name in names:
+            value = payload.get(name)
+            if value is not None:
+                return str(value)
+        return ''

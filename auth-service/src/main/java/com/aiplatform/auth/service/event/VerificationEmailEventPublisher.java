@@ -13,6 +13,9 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.UUID;
 
 @Slf4j
@@ -44,10 +47,16 @@ public class VerificationEmailEventPublisher {
             record.headers().add(new RecordHeader("correlationId", safeHeaderValue(correlationId)));
             record.headers().add(new RecordHeader("eventVersion", "v1".getBytes(StandardCharsets.UTF_8)));
 
-            kafkaTemplate.send(record);
+            // Wait for broker ack so publish failures are not silently ignored.
+            kafkaTemplate.send(record).get(10, TimeUnit.SECONDS);
             log.info("Published verification email event. userId={}, eventId={}", userId, event.eventId());
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Failed to serialize verification email event", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Verification email event publish was interrupted", exception);
+        } catch (ExecutionException | TimeoutException exception) {
+            throw new IllegalStateException("Failed to publish verification email event", exception);
         }
     }
 

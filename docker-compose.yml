@@ -234,7 +234,6 @@ services:
       kafka_topic_email_failed: notification.email.failed.v1
       smtp_host: smtp.gmail.com
       smtp_port: 587
-      smtp_from: no-reply@aiplatform.local
     ports:
       - "8086:8086"
 
