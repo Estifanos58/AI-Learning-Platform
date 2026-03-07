@@ -29,6 +29,10 @@ export const uploadFileSchema = z.object({
   isShareable: z.boolean().optional(),
 });
 
+export const updateFileMetadataSchema = z.object({
+  isShareable: z.boolean(),
+}).strict();
+
 export const sendMessageSchema = z.object({
   otherUserId: z.string().optional(), chatroomId: z.string().optional(), aiModelId: z.string().optional(),
   content: z.string().optional(), fileId: z.string().optional(), fileBase64: z.string().optional(),

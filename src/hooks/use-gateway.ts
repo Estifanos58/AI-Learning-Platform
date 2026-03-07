@@ -118,9 +118,9 @@ export function useGatewayFiles(token?: string | null) {
       await gatewayApi.files.deleteFile(token, fileId);
       await refreshAll();
     },
-    renameFile: async (fileId: string, newName: string) => {
+    updateFileMetadata: async (fileId: string, input: { isShareable: boolean }) => {
       if (!token) throw new Error('Not authenticated');
-      await gatewayApi.files.renameFile(token, fileId, newName);
+      await gatewayApi.files.updateFileMetadata(token, fileId, input);
       await refreshAll();
     },
     uploadFiles: async (filesToUpload: File[], folderId: string) => {

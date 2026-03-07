@@ -1,6 +1,6 @@
 import { FileItem, Folder } from '@/src/lib/types';
 import { apiRequest } from './gateway-core';
-import { createFolderSchema, updateFolderSchema, uploadFileSchema } from './gateway-schemas';
+import { createFolderSchema, updateFileMetadataSchema, updateFolderSchema, uploadFileSchema } from './gateway-schemas';
 
 export const filesApi = {
   async listFolders(token: string, page = 0, size = 50): Promise<Folder[]> {
@@ -24,5 +24,5 @@ export const filesApi = {
     contentBase64: string;
     isShareable?: boolean;
   }) => apiRequest<FileItem>('/files', { method: 'POST', token, body: uploadFileSchema.parse(input), cache: 'no-store' }),
-  renameFile: (token: string, fileId: string, newName: string) => apiRequest<FileItem>(`/files/${fileId}/metadata`, { method: 'PATCH', token, body: { originalName: newName }, cache: 'no-store' }),
+  updateFileMetadata: (token: string, fileId: string, input: { isShareable: boolean }) => apiRequest<FileItem>(`/files/${fileId}/metadata`, { method: 'PATCH', token, body: updateFileMetadataSchema.parse(input), cache: 'no-store' }),
 };

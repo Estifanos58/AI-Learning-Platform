@@ -41,7 +41,7 @@ interface FolderTreeProps {
   onCreateSubfolder?: (parentId: string) => void;
   onSelectFile?: (file: FTFileItem) => void;
   onDeleteFile?: (fileId: string) => void;
-  onRenameFile?: (fileId: string, newName: string) => void;
+  onEditFile?: (file: FTFileItem) => void;
   isCompact?: boolean;
 }
 
@@ -57,7 +57,7 @@ interface TreeItemProps {
   onCreateSub?: (parentId: string) => void;
   onSelectFile?: (file: FTFileItem) => void;
   onDeleteFile?: (fileId: string) => void;
-  onRenameFile?: (fileId: string, newName: string) => void;
+  onEditFile?: (file: FTFileItem) => void;
   isCompact?: boolean;
 }
 
@@ -80,7 +80,7 @@ function FolderTreeItem({
   onCreateSub,
   onSelectFile,
   onDeleteFile,
-  onRenameFile,
+  onEditFile,
   isCompact
 }: TreeItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -94,7 +94,7 @@ function FolderTreeItem({
   const content = (
     <div 
       className={cn(
-        "group flex items-center gap-1.5 rounded-md py-1 px-2 text-sm hover:bg-accent/50 cursor-pointer transition-colors relative min-h-[36px]",
+        "group flex items-center gap-1.5 rounded-md py-1 px-2 text-sm hover:bg-accent/50 cursor-pointer transition-colors relative min-h-9",
         isSelected && "bg-accent text-accent-foreground",
         isCompact && "justify-center px-0 mx-1"
       )}
@@ -223,7 +223,7 @@ function FolderTreeItem({
               onCreateSub={onCreateSub}
               onSelectFile={onSelectFile}
               onDeleteFile={onDeleteFile}
-              onRenameFile={onRenameFile}
+              onEditFile={onEditFile}
               isCompact={isCompact}
             />
           ))}
@@ -234,7 +234,7 @@ function FolderTreeItem({
               <div
                   key={file.id}
                   className={cn(
-                      "group flex items-center gap-2 py-1 px-2 text-sm hover:bg-accent/50 cursor-pointer transition-colors min-h-[32px] relative rounded-md",
+                      "group flex items-center gap-2 py-1 px-2 text-sm hover:bg-accent/50 cursor-pointer transition-colors min-h-8 relative rounded-md",
                       isCompact && "justify-center px-0 mx-1 flex-col h-auto py-2 gap-1 mb-1"
                   )}
                   style={{ paddingLeft: isCompact ? '0px' : `${Math.max(8, (level + 1) * 16 + 28)}px` }}
@@ -262,6 +262,14 @@ function FolderTreeItem({
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={(e) => {
+                                e.stopPropagation();
+                                onEditFile?.(file);
+                              }}>
+                                <Pencil className="mr-2 h-3 w-3" />
+                                Update File
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
                                 <DropdownMenuItem onClick={(e) => {
                                     e.stopPropagation();
                                     onDeleteFile?.(file.id);
@@ -293,12 +301,6 @@ function FolderTreeItem({
   );
 }
 
-// Helper to prevent event bubbling issues
-const displaySubfolder = (id: string, callback?: (id: string) => void) => {
-    if (callback) callback(id);
-};
-
-
 export function FolderTree({
   folders,
   files,
@@ -309,7 +311,7 @@ export function FolderTree({
   onCreateSubfolder,
   onSelectFile,
   onDeleteFile,
-  onRenameFile,
+  onEditFile,
   isCompact
 }: FolderTreeProps) {
   // Filter root folders only
@@ -331,7 +333,7 @@ export function FolderTree({
           onCreateSub={onCreateSubfolder}
           onSelectFile={onSelectFile}
           onDeleteFile={onDeleteFile}
-          onRenameFile={onRenameFile}
+          onEditFile={onEditFile}
           isCompact={isCompact}
         />
       ))}

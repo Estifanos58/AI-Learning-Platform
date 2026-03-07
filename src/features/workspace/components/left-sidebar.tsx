@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -9,7 +9,7 @@ import { useAuth } from '@/src/contexts/auth';
 import { useWorkspace } from '../workspace-context';
 import { useGatewayFiles } from '@/src/hooks/use-gateway';
 import { FolderTree } from './folder-tree';
-import { LoadingState, EmptyState } from '@/src/components/common/states';
+import { EmptyState } from '@/src/components/common/states';
 import { 
   Dialog,
   DialogContent,
@@ -19,13 +19,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { FolderPlus, UploadCloud, Plus } from 'lucide-react';
+import { FolderPlus, UploadCloud } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { Switch } from '@/components/ui/switch';
 
 interface LeftSidebarProps {
   isOpen: boolean;
@@ -43,7 +44,7 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
     updateFolder,
     deleteFolder,
     deleteFile,
-    renameFile,
+    updateFileMetadata,
     uploadFiles,
   } = useGatewayFiles(session?.accessToken);
 
@@ -53,9 +54,12 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   // Modal States
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [isEditFolderOpen, setIsEditFolderOpen] = useState(false);
+  const [isEditFileOpen, setIsEditFileOpen] = useState(false);
   const [folderToEdit, setFolderToEdit] = useState<Folder | null>(null);
+  const [fileToEdit, setFileToEdit] = useState<FileItem | null>(null);
   const [folderFormName, setFolderFormName] = useState('');
   const [createParentId, setCreateParentId] = useState<string | undefined>(undefined);
+  const [isShareable, setIsShareable] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -136,12 +140,19 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
       }
   };
 
-  const handleRenameFile = async (fileId: string, newName: string) => {
+  const handleUpdateFile = async () => {
+      if (!fileToEdit) return;
+
       try {
-        await renameFile(fileId, newName);
-        toast.success("File renamed");
+        setIsSubmitting(true);
+        await updateFileMetadata(fileToEdit.id, { isShareable });
+        setIsEditFileOpen(false);
+        setFileToEdit(null);
+        toast.success("File updated");
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to rename file');
+        toast.error(err instanceof Error ? err.message : 'Failed to update file');
+      } finally {
+        setIsSubmitting(false);
       }
   };
 
@@ -158,6 +169,12 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
       setFolderFormName(folder.name);
       setIsEditFolderOpen(true);
   };
+
+    const openEditFileModal = (file: FileItem) => {
+      setFileToEdit(file);
+      setIsShareable(file.isShareable);
+      setIsEditFileOpen(true);
+    };
 
   // --- Drag and Drop ---
   
@@ -198,8 +215,8 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
           if (folders.length > 0) {
              targetFolderId = folders[0].id;
           } else {
-             toast.error("Please create or select a folder to upload files into.");
-             return;
+           const createdFolder = await createFolder({ name: 'Uploads' });
+           targetFolderId = createdFolder.id;
           }
       }
 
@@ -337,7 +354,7 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
                     onCreateSubfolder={openCreateModal}
                     onSelectFile={handleSelectFile}
                     onDeleteFile={handleDeleteFile}
-                    onRenameFile={handleRenameFile}
+                  onEditFile={openEditFileModal}
                     isCompact={isCompact}
                 />
             )}
@@ -399,6 +416,34 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
             </DialogFooter>
         </DialogContent>
       </Dialog>
+
+          <Dialog open={isEditFileOpen} onOpenChange={setIsEditFileOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Update File</DialogTitle>
+              <DialogDescription>
+                Update file metadata using the API gateway contract.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-1">
+                <Label>File Name</Label>
+                <p className="text-sm text-muted-foreground break-all">{fileToEdit?.originalName}</p>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border px-3 py-3">
+                <div className="space-y-1 pr-4">
+                  <Label htmlFor="file-shareable">Shareable</Label>
+                  <p className="text-xs text-muted-foreground">Allow this file to be shared with other users.</p>
+                </div>
+                <Switch id="file-shareable" checked={isShareable} onCheckedChange={setIsShareable} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsEditFileOpen(false)}>Cancel</Button>
+              <Button onClick={handleUpdateFile} disabled={isSubmitting || !fileToEdit}>Save Changes</Button>
+            </DialogFooter>
+          </DialogContent>
+          </Dialog>
     </aside>
   );
 }

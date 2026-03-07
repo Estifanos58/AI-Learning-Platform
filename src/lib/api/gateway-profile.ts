@@ -5,7 +5,7 @@ import { updateProfileSchema } from './gateway-schemas';
 export const profileApi = {
   async getMe(token: string, options?: { revalidateSeconds?: number }): Promise<UserProfile> {
     const next = options?.revalidateSeconds ? { revalidate: options.revalidateSeconds, tags: ['profile-me'] } : undefined;
-    return apiRequest<UserProfile>('/profile/me', { token, cache: 'force-cache', next });
+    return apiRequest<UserProfile>('/profile/me', { token, cache: 'no-store', next });
   },
 
   async updateMe(token: string, input: {

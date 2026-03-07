@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const PROTECTED_PREFIX = '/app';
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (!pathname.startsWith(PROTECTED_PREFIX)) {
@@ -10,13 +10,18 @@ export function middleware(request: NextRequest) {
   }
 
   const accessToken = request.cookies.get('app_access_token')?.value;
-  if (accessToken) {
-    return NextResponse.next();
+  const refreshToken = request.cookies.get('app_refresh_token')?.value;
+
+  // Only redirect if both tokens are missing.
+  // If access token is missing or expired, the client-side API
+  // will catch the 401 and attempt a refresh using the refresh token.
+  if (!accessToken && !refreshToken) {
+    const loginUrl = new URL('/auth/login', request.url);
+    loginUrl.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
-  const loginUrl = new URL('/auth/login', request.url);
-  loginUrl.searchParams.set('redirect', pathname);
-  return NextResponse.redirect(loginUrl);
+  return NextResponse.next();
 }
 
 export const config = {

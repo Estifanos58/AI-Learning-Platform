@@ -23,6 +23,25 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const SESSION_STORAGE_KEY = 'app_session';
 
+function getCookie(name: string) {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]+)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function persistSession(nextSession: AuthSession | null) {
+  if (typeof window === 'undefined') return;
+
+  if (!nextSession) {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    setAuthCookies(null);
+    return;
+  }
+
+  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(nextSession));
+  setAuthCookies(nextSession);
+}
+
 function setAuthCookies(session: AuthSession | null) {
   if (typeof document === 'undefined') return;
 
@@ -34,10 +53,11 @@ function setAuthCookies(session: AuthSession | null) {
 
   const isSecure = window.location.protocol === 'https:';
   const secureFlag = isSecure ? '; Secure' : '';
-  const accessMaxAge = Math.max(60, session.accessTokenExpiresInSeconds);
+  const expires = session.accessTokenExpiresInSeconds ? session.accessTokenExpiresInSeconds : 3600;
+  const accessMaxAge = Math.max(60, expires);
 
-  document.cookie = `app_access_token=${encodeURIComponent(session.accessToken)}; Max-Age=${accessMaxAge}; Path=/; SameSite=Strict${secureFlag}`;
-  document.cookie = `app_refresh_token=${encodeURIComponent(session.refreshToken)}; Max-Age=${60 * 60 * 24 * 7}; Path=/; SameSite=Strict${secureFlag}`;
+  document.cookie = `app_access_token=${encodeURIComponent(session.accessToken)}; Max-Age=${accessMaxAge}; Path=/; SameSite=Lax${secureFlag}`;
+  document.cookie = `app_refresh_token=${encodeURIComponent(session.refreshToken)}; Max-Age=${60 * 60 * 24 * 7}; Path=/; SameSite=Lax${secureFlag}`;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -45,18 +65,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize session from localStorage on mount
   useEffect(() => {
-    try {
-      const savedSession = localStorage.getItem(SESSION_STORAGE_KEY);
-      if (savedSession) {
-        setSession(JSON.parse(savedSession));
+    let isMounted = true;
+
+    const restoreSession = async () => {
+      try {
+        const savedSession = localStorage.getItem(SESSION_STORAGE_KEY);
+        if (savedSession) {
+          const parsedSession = JSON.parse(savedSession) as AuthSession;
+          if (!isMounted) return;
+          setSession(parsedSession);
+          setAuthCookies(parsedSession);
+          return;
+        }
+
+        const refreshToken = getCookie('app_refresh_token');
+        if (!refreshToken) {
+          if (isMounted) {
+            setSession(null);
+          }
+          return;
+        }
+
+        const refreshedSession = await gatewayApi.auth.refresh({ refreshToken });
+        if (!isMounted) return;
+
+        setSession(refreshedSession);
+        persistSession(refreshedSession);
+      } catch (err) {
+        console.error('[v0] Failed to restore session:', err);
+        if (isMounted) {
+          setSession(null);
+          persistSession(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
-    } catch (err) {
-      console.error('[v0] Failed to restore session:', err);
-    } finally {
-      setIsLoading(false);
-    }
+    };
+
+    const handleAuthTokenRefreshed = (event: Event) => {
+      const refreshedSession = (event as CustomEvent<AuthSession | null>).detail;
+      if (!refreshedSession) return;
+      setSession(refreshedSession);
+    };
+
+    void restoreSession();
+    window.addEventListener('auth_token_refreshed', handleAuthTokenRefreshed as EventListener);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('auth_token_refreshed', handleAuthTokenRefreshed as EventListener);
+    };
   }, []);
 
   const clearError = useCallback(() => setError(null), []);
@@ -67,8 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const result = await gatewayApi.auth.signup({ email, username, password, role: role as any });
       setSession(result);
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(result));
-      setAuthCookies(result);
+      persistSession(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed');
       throw err;
@@ -83,8 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const result = await gatewayApi.auth.login({ email, password });
       setSession(result);
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(result));
-      setAuthCookies(result);
+      persistSession(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
       throw err;
@@ -100,8 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await gatewayApi.auth.logout(session.refreshToken);
       }
       setSession(null);
-      localStorage.removeItem(SESSION_STORAGE_KEY);
-      setAuthCookies(null);
+      persistSession(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Logout failed');
     } finally {

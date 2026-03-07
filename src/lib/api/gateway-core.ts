@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { GatewayApiError } from './gateway-errors';
+import type { AuthSession } from '@/src/lib/types';
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8080/api/internal';
 
@@ -37,21 +38,103 @@ export function mapErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+let isRefreshing = false;
+let refreshPromise: Promise<string | null> | null = null;
+
+function getCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+  return match ? decodeURIComponent(match[2]) : null;
+}
+
+function setAuthCookies(accessToken: string, refreshToken: string, expiresIn: number) {
+  if (typeof document === 'undefined') return;
+  const isSecure = window.location.protocol === 'https:';
+  const secureFlag = isSecure ? '; Secure' : '';
+  const accessMaxAge = Math.max(60, expiresIn || 3600);
+  
+  document.cookie = `app_access_token=${encodeURIComponent(accessToken)}; Max-Age=${accessMaxAge}; Path=/; SameSite=Lax${secureFlag}`;
+  document.cookie = `app_refresh_token=${encodeURIComponent(refreshToken)}; Max-Age=${60 * 60 * 24 * 7}; Path=/; SameSite=Lax${secureFlag}`;
+}
+
+function persistRefreshedSession(session: AuthSession) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem('app_session', JSON.stringify(session));
+  window.dispatchEvent(new CustomEvent<AuthSession>('auth_token_refreshed', { detail: session }));
+}
+
+async function attemptRefresh(): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+  const refreshToken = getCookie('app_refresh_token');
+  if (!refreshToken) return null;
+
+  if (isRefreshing && refreshPromise) return refreshPromise;
+
+  isRefreshing = true;
+  refreshPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Correlation-ID': createCorrelationId(),
+        },
+        body: JSON.stringify({ refreshToken })
+      });
+      if (!res.ok) throw new Error('Refresh failed');
+      const data = (await res.json()) as AuthSession;
+
+      setAuthCookies(data.accessToken, data.refreshToken, data.accessTokenExpiresInSeconds);
+      persistRefreshedSession(data);
+      return data.accessToken;
+    } catch (err) {
+      document.cookie = 'app_access_token=; Max-Age=0; Path=/; SameSite=Lax';
+      document.cookie = 'app_refresh_token=; Max-Age=0; Path=/; SameSite=Lax';
+      localStorage.removeItem('app_session');
+      window.location.href = '/auth/login';
+      return null;
+    } finally {
+      isRefreshing = false;
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', token, body, cache = 'no-store', next, signal } = options;
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'X-Correlation-ID': createCorrelationId(),
+    ...(body ? { 'Content-Type': 'application/json' } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+
+  let response = await fetch(`${API_BASE_URL}${path}`, {
     method,
-    headers: {
-      Accept: 'application/json',
-      'X-Correlation-ID': createCorrelationId(),
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
     cache,
     next,
     signal,
   });
+
+  if (response.status === 401 && path !== '/auth/refresh' && typeof window !== 'undefined') {
+    const newToken = await attemptRefresh();
+    if (newToken) {
+      headers.Authorization = `Bearer ${newToken}`;
+      response = await fetch(`${API_BASE_URL}${path}`, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+        cache,
+        next,
+        signal,
+      });
+    }
+  }
 
   if (!response.ok) {
     let payload: any = null;
