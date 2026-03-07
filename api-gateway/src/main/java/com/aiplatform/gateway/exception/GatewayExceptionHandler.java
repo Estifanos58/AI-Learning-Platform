@@ -1,6 +1,7 @@
 package com.aiplatform.gateway.exception;
 
 import com.aiplatform.gateway.dto.ApiErrorResponse;
+import io.jsonwebtoken.JwtException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -91,6 +92,21 @@ public class GatewayExceptionHandler {
                 HttpStatus.FORBIDDEN,
                 "FORBIDDEN",
                 "Insufficient permissions",
+                exchange,
+                Map.of(),
+                exception
+        );
+    }
+
+    @ExceptionHandler(JwtException.class)
+    public ResponseEntity<ApiErrorResponse> handleJwtException(
+            JwtException exception,
+            ServerWebExchange exchange
+    ) {
+        return build(
+                HttpStatus.UNAUTHORIZED,
+                "UNAUTHORIZED",
+                "Authentication required",
                 exchange,
                 Map.of(),
                 exception

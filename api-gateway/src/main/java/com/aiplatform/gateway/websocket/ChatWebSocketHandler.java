@@ -5,6 +5,8 @@ import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.reactive.socket.CloseStatus;
 import org.springframework.web.reactive.socket.WebSocketHandler;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
@@ -41,14 +43,14 @@ public class ChatWebSocketHandler implements WebSocketHandler {
         try {
             Claims claims = jwtValidationService.parseClaims(token);
             userId = claims.getSubject();
-        } catch (Exception e) {
-            log.warn("WebSocket authentication failed: {}", e.getMessage());
-            return session.close();
+        } catch (ResponseStatusException exception) {
+            log.warn("WebSocket authentication failed");
+            return session.close(CloseStatus.POLICY_VIOLATION);
         }
 
         if (userId == null || userId.isBlank()) {
             log.warn("WebSocket connection rejected: missing userId in token");
-            return session.close();
+            return session.close(CloseStatus.POLICY_VIOLATION);
         }
 
         final String finalUserId = userId;

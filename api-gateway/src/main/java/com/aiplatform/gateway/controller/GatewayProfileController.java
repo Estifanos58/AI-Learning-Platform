@@ -67,7 +67,7 @@ public class GatewayProfileController {
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
     ) {
-        log.info("Getting user information, ={}", authorization);
+        log.info("Getting user information");
         return Mono.fromCallable(() -> {
                     GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
                     var response = withMetadata(principal).getMyProfile(GetMyProfileRequest.newBuilder().build());
