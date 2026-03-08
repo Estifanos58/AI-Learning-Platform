@@ -15,7 +15,7 @@ This document is the frontend/client contract for communicating with the API Gat
   - `/api/profile/**`
   - `/api/files/**`
   - `/api/chat/**`
-- Do **not** call `/api/internal/**` directly (internal rewrite target only).
+`/api/internal/**` 
 
 ---
 

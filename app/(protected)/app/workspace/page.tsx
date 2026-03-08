@@ -49,6 +49,7 @@ function EmptyStateWithUpload() {
   };
 
   const handleFileUpload = async (file: File) => {
+    console.log("User Id , ", user?.id)
     if (!user?.id) return;
     
     setIsUploading(true);
