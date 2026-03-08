@@ -49,7 +49,6 @@ function EmptyStateWithUpload() {
   };
 
   const handleFileUpload = async (file: File) => {
-    console.log("User Id , ", user?.id)
     if (!user?.id) return;
     
     setIsUploading(true);
@@ -166,6 +165,8 @@ function WorkspaceContent() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     const loadFile = async () => {
       if (!user?.id || !selectedFileId) {
         setSelectedFile(null);
@@ -175,16 +176,26 @@ function WorkspaceContent() {
       setIsLoading(true);
       try {
         const file = await getFile(selectedFileId);
-        setSelectedFile(file);
+        if (!cancelled) {
+          setSelectedFile(file);
+        }
       } catch (err) {
         console.error('Failed to load file:', err);
-        setSelectedFile(null);
+        if (!cancelled) {
+          setSelectedFile(null);
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     };
 
     loadFile();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id, selectedFileId, getFile]);
 
   return (

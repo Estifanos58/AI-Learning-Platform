@@ -1,7 +1,7 @@
 'use client';
 
 import useSWR from 'swr';
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { gatewayApi, fileToBase64 } from '@/src/lib/api/gateway';
 import { AuthSession, FileItem, Folder, ProfileVisibility, Role, UserProfile } from '@/src/lib/types';
 
@@ -53,7 +53,7 @@ export function useGatewayFiles(token?: string | null) {
     shouldFetch ? ['folders', token] : null,
     () => gatewayApi.files.listFolders(token as string),
     {
-      revalidateOnFocus: true,
+      revalidateOnFocus: false,
       dedupingInterval: 10_000,
     }
   );
@@ -62,7 +62,7 @@ export function useGatewayFiles(token?: string | null) {
     shouldFetch ? ['files', token] : null,
     () => gatewayApi.files.listMyFiles(token as string),
     {
-      revalidateOnFocus: true,
+      revalidateOnFocus: false,
       dedupingInterval: 10_000,
     }
   );
@@ -78,9 +78,68 @@ export function useGatewayFiles(token?: string | null) {
     return mapping;
   }, [filesQuery.data]);
 
-  const refreshAll = async () => {
-    await Promise.all([foldersQuery.mutate(), filesQuery.mutate()]);
-  };
+  // Destructure mutate functions so useCallback deps are stable SWR references
+  const { mutate: mutateFolders } = foldersQuery;
+  const { mutate: mutateFiles } = filesQuery;
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([mutateFolders(), mutateFiles()]);
+  }, [mutateFolders, mutateFiles]);
+
+  const getFile = useCallback(async (fileId: string) => {
+    if (!token) throw new Error('Not authenticated');
+    return gatewayApi.files.getFile(token, fileId);
+  }, [token]);
+
+  const createFolder = useCallback(async (input: { name: string; parentId?: string }) => {
+    if (!token) throw new Error('Not authenticated');
+    const created = await gatewayApi.files.createFolder(token, input);
+    await refreshAll();
+    return created;
+  }, [token, refreshAll]);
+
+  const updateFolder = useCallback(async (folderId: string, input: { name: string }) => {
+    if (!token) throw new Error('Not authenticated');
+    const updated = await gatewayApi.files.updateFolder(token, folderId, input);
+    await refreshAll();
+    return updated;
+  }, [token, refreshAll]);
+
+  const deleteFolder = useCallback(async (folderId: string) => {
+    if (!token) throw new Error('Not authenticated');
+    await gatewayApi.files.deleteFolder(token, folderId);
+    await refreshAll();
+  }, [token, refreshAll]);
+
+  const deleteFile = useCallback(async (fileId: string) => {
+    if (!token) throw new Error('Not authenticated');
+    await gatewayApi.files.deleteFile(token, fileId);
+    await refreshAll();
+  }, [token, refreshAll]);
+
+  const updateFileMetadata = useCallback(async (fileId: string, input: { isShareable: boolean }) => {
+    if (!token) throw new Error('Not authenticated');
+    await gatewayApi.files.updateFileMetadata(token, fileId, input);
+    await refreshAll();
+  }, [token, refreshAll]);
+
+  const uploadFiles = useCallback(async (filesToUpload: File[], folderId: string) => {
+    if (!token) throw new Error('Not authenticated');
+
+    for (const file of filesToUpload) {
+      const contentBase64 = await fileToBase64(file);
+      await gatewayApi.files.uploadFile(token, {
+        fileType: 'DOCUMENT',
+        folderId,
+        originalName: file.name,
+        contentType: file.type || 'application/octet-stream',
+        contentBase64,
+        isShareable: true,
+      });
+    }
+
+    await refreshAll();
+  }, [token, refreshAll]);
 
   return {
     folders: foldersQuery.data ?? EMPTY_FOLDERS,
@@ -92,54 +151,13 @@ export function useGatewayFiles(token?: string | null) {
       (filesQuery.error instanceof Error && filesQuery.error.message) ||
       null,
     refreshAll,
-    getFile: async (fileId: string) => {
-      if (!token) throw new Error('Not authenticated');
-      return gatewayApi.files.getFile(token, fileId);
-    },
-    createFolder: async (input: { name: string; parentId?: string }) => {
-      if (!token) throw new Error('Not authenticated');
-      const created = await gatewayApi.files.createFolder(token, input);
-      await refreshAll();
-      return created;
-    },
-    updateFolder: async (folderId: string, input: { name: string }) => {
-      if (!token) throw new Error('Not authenticated');
-      const updated = await gatewayApi.files.updateFolder(token, folderId, input);
-      await refreshAll();
-      return updated;
-    },
-    deleteFolder: async (folderId: string) => {
-      if (!token) throw new Error('Not authenticated');
-      await gatewayApi.files.deleteFolder(token, folderId);
-      await refreshAll();
-    },
-    deleteFile: async (fileId: string) => {
-      if (!token) throw new Error('Not authenticated');
-      await gatewayApi.files.deleteFile(token, fileId);
-      await refreshAll();
-    },
-    updateFileMetadata: async (fileId: string, input: { isShareable: boolean }) => {
-      if (!token) throw new Error('Not authenticated');
-      await gatewayApi.files.updateFileMetadata(token, fileId, input);
-      await refreshAll();
-    },
-    uploadFiles: async (filesToUpload: File[], folderId: string) => {
-      if (!token) throw new Error('Not authenticated');
-
-      for (const file of filesToUpload) {
-        const contentBase64 = await fileToBase64(file);
-        await gatewayApi.files.uploadFile(token, {
-          fileType: 'DOCUMENT',
-          folderId,
-          originalName: file.name,
-          contentType: file.type || 'application/octet-stream',
-          contentBase64,
-          isShareable: true,
-        });
-      }
-
-      await refreshAll();
-    },
+    getFile,
+    createFolder,
+    updateFolder,
+    deleteFolder,
+    deleteFile,
+    updateFileMetadata,
+    uploadFiles,
   };
 }
 

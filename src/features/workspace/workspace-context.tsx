@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useState, ReactNode, useCallback, useMemo } from 'react';
 import { WorkspaceState } from './types';
 
 interface WorkspaceContextType extends WorkspaceState {
@@ -32,7 +32,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), []);
   const toggleChatPanel = useCallback(() => setChatPanelOpen((prev) => !prev), []);
 
-  const value: WorkspaceContextType = {
+  const value = useMemo<WorkspaceContextType>(() => ({
     selectedFolderId,
     selectedFileId,
     sidebarOpen,
@@ -49,7 +49,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setRightSidebarWidth,
     isProfileOpen,
     setProfileOpen,
-  };
+  }), [
+    selectedFolderId,
+    selectedFileId,
+    sidebarOpen,
+    chatPanelOpen,
+    chatroomId,
+    setSelectedFolderId,
+    setSelectedFileId,
+    toggleSidebar,
+    toggleChatPanel,
+    setChatroomId,
+    leftSidebarWidth,
+    rightSidebarWidth,
+    setLeftSidebarWidth,
+    setRightSidebarWidth,
+    isProfileOpen,
+    setProfileOpen,
+  ]);
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }

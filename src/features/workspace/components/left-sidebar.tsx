@@ -61,6 +61,7 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   const [createParentId, setCreateParentId] = useState<string | undefined>(undefined);
   const [isShareable, setIsShareable] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Drag and Drop State
@@ -192,6 +193,7 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
       e.preventDefault();
       setIsDragging(false);
       
+      if (isUploading) return;
       const droppedFiles = Array.from(e.dataTransfer.files);
       if (droppedFiles.length === 0) return;
       
@@ -209,6 +211,8 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   };
 
   const handleUploadFiles = async (filesToUpload: File[]) => {
+      if (isUploading) return;
+
       // Determine target folder: default to selectedFolderId, or first folder
       let targetFolderId = selectedFolderId;
       if (!targetFolderId) {
@@ -220,15 +224,23 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
           }
       }
 
+      if (!targetFolderId) {
+          toast.error("No folder available to upload files into");
+          return;
+      }
+
+      setIsUploading(true);
       toast.info(`Uploading ${filesToUpload.length} file(s)...`);
       
       try {
           if (!user?.id) return;
 
-          await uploadFiles(filesToUpload, targetFolderId!);
+          await uploadFiles(filesToUpload, targetFolderId);
           toast.success("Files uploaded");
       } catch(err) {
           toast.error(err instanceof Error ? err.message : "Upload failed");
+      } finally {
+          setIsUploading(false);
       }
   };
 
@@ -242,10 +254,16 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
     >
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         {/* Drag Overlay */}
-        {isDragging && (
+        {isDragging && !isUploading && (
             <div className="absolute inset-0 z-50 bg-primary/10 backdrop-blur-sm border-2 border-primary border-dashed m-2 rounded-lg flex flex-col items-center justify-center pointer-events-none animate-in fade-in duration-200">
                 <UploadCloud className="h-12 w-12 text-primary mb-2" />
                 <p className="font-semibold text-primary">Drop files to upload</p>
+            </div>
+        )}
+        {isUploading && (
+            <div className="absolute inset-0 z-50 bg-background/60 backdrop-blur-sm m-2 rounded-lg flex flex-col items-center justify-center pointer-events-none animate-in fade-in duration-200">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-2" />
+                <p className="text-sm font-medium text-primary">Uploading...</p>
             </div>
         )}
 
@@ -269,13 +287,18 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
                         variant="ghost" 
                         size="icon" 
                         className="h-9 w-9 hover:bg-accent hover:text-accent-foreground rounded-md transition-colors"
-                        onClick={() => fileInputRef.current?.click()}
+                        onClick={() => !isUploading && fileInputRef.current?.click()}
+                        disabled={isUploading}
                     >
-                        <UploadCloud className="h-5 w-5" />
+                        {isUploading ? (
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary" />
+                        ) : (
+                            <UploadCloud className="h-5 w-5" />
+                        )}
                     </Button>
                  </TooltipTrigger>
                  <TooltipContent side="right" sideOffset={10}>
-                    <p>Upload Files</p>
+                    <p>{isUploading ? 'Uploading...' : 'Upload Files'}</p>
                  </TooltipContent>
                </Tooltip>
                
@@ -301,10 +324,15 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
                     variant="ghost" 
                     size="icon" 
                     className="h-8 w-8 hover:bg-accent hover:text-accent-foreground text-muted-foreground transition-colors"
-                    onClick={() => fileInputRef.current?.click()}
-                    title="Upload Files"
+                    onClick={() => !isUploading && fileInputRef.current?.click()}
+                    title={isUploading ? 'Uploading...' : 'Upload Files'}
+                    disabled={isUploading}
                 >
-                    <UploadCloud className="h-4 w-4" />
+                    {isUploading ? (
+                        <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-primary" />
+                    ) : (
+                        <UploadCloud className="h-4 w-4" />
+                    )}
                 </Button>
                 <Button 
                     variant="ghost" 
@@ -385,8 +413,12 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
                 />
             </div>
             <DialogFooter>
-                <Button variant="outline" onClick={() => setIsCreateFolderOpen(false)}>Cancel</Button>
-                <Button onClick={handleCreateFolder} disabled={isSubmitting || !folderFormName.trim()}>Create</Button>
+                <Button variant="outline" onClick={() => setIsCreateFolderOpen(false)} disabled={isSubmitting}>Cancel</Button>
+                <Button onClick={handleCreateFolder} disabled={isSubmitting || !folderFormName.trim()}>
+                    {isSubmitting ? (
+                        <><div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-current mr-2" />Creating...</>
+                    ) : 'Create'}
+                </Button>
             </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -411,8 +443,12 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
                 />
             </div>
             <DialogFooter>
-                <Button variant="outline" onClick={() => setIsEditFolderOpen(false)}>Cancel</Button>
-                <Button onClick={handleEditFolder} disabled={isSubmitting || !folderFormName.trim()}>Save Changes</Button>
+                <Button variant="outline" onClick={() => setIsEditFolderOpen(false)} disabled={isSubmitting}>Cancel</Button>
+                <Button onClick={handleEditFolder} disabled={isSubmitting || !folderFormName.trim()}>
+                    {isSubmitting ? (
+                        <><div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-current mr-2" />Saving...</>
+                    ) : 'Save Changes'}
+                </Button>
             </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -439,8 +475,12 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEditFileOpen(false)}>Cancel</Button>
-              <Button onClick={handleUpdateFile} disabled={isSubmitting || !fileToEdit}>Save Changes</Button>
+              <Button variant="outline" onClick={() => setIsEditFileOpen(false)} disabled={isSubmitting}>Cancel</Button>
+              <Button onClick={handleUpdateFile} disabled={isSubmitting || !fileToEdit}>
+                  {isSubmitting ? (
+                      <><div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-current mr-2" />Saving...</>
+                  ) : 'Save Changes'}
+              </Button>
             </DialogFooter>
           </DialogContent>
           </Dialog>
