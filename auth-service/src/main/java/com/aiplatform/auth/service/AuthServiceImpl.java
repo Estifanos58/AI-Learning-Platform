@@ -78,7 +78,7 @@ public class AuthServiceImpl implements AuthService {
                 .ipAddress(metadata.ipAddress())
                 .userAgent(metadata.userAgent())
                 .build());
-        log.info("User signed up successfully. userId={}", savedUser.getId());
+        log.info("User signed up successfully. userId={} , userName={} , userEmail={}", savedUser.getId(), savedUser.getUsername(), savedUser.getEmail());
 
         return new SignupResponse("Signup successful. Please verify your email.", accessToken, refreshRawToken, userMapper.toSummary(savedUser));
     }
@@ -166,7 +166,8 @@ public class AuthServiceImpl implements AuthService {
                 accessToken,
                 refreshRawToken,
                 "Bearer",
-                jwtProperties.getAccessTokenExpirationMinutes() * 60
+            jwtProperties.getAccessTokenExpirationMinutes() * 60,
+            userMapper.toSummary(user)
         );
     }
 
@@ -220,7 +221,8 @@ public class AuthServiceImpl implements AuthService {
                 newAccessToken,
                 newRefreshRawToken,
                 "Bearer",
-                jwtProperties.getAccessTokenExpirationMinutes() * 60
+            jwtProperties.getAccessTokenExpirationMinutes() * 60,
+            userMapper.toSummary(user)
         );
     }
 

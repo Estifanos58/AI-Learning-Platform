@@ -71,6 +71,7 @@ public class AuthGrpcService extends AuthServiceGrpc.AuthServiceImplBase {
                     .setRefreshToken(tokenResponse.refreshToken())
                     .setTokenType(tokenResponse.tokenType())
                     .setAccessTokenExpiresInSeconds(tokenResponse.accessTokenExpiresInSeconds())
+                    .setUser(AuthGrpcProtoMapper.toProtoUser(tokenResponse.user()))
                     .build());
             responseObserver.onCompleted();
         } catch (Exception exception) {
@@ -125,6 +126,7 @@ public class AuthGrpcService extends AuthServiceGrpc.AuthServiceImplBase {
                     .setRefreshToken(tokenResponse.refreshToken())
                     .setTokenType(tokenResponse.tokenType())
                     .setAccessTokenExpiresInSeconds(tokenResponse.accessTokenExpiresInSeconds())
+                    .setUser(AuthGrpcProtoMapper.toProtoUser(tokenResponse.user()))
                     .build());
             responseObserver.onCompleted();
         } catch (Exception exception) {

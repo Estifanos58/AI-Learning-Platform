@@ -1,5 +1,6 @@
 package com.aiplatform.gateway.util.mapper;
 
+import com.aiplatform.auth.proto.UserSummary;
 import com.aiplatform.gateway.dto.AuthResponse;
 import com.aiplatform.gateway.dto.UserSummaryResponse;
 
@@ -10,7 +11,7 @@ public final class AuthResponseMapper {
 
     public static AuthResponse toDto(com.aiplatform.auth.proto.AuthResponse response) {
         UserSummaryResponse user = null;
-        if (response.hasUser()) {
+        if (response.hasUser() && !response.getUser().equals(UserSummary.getDefaultInstance())) {
             user = new UserSummaryResponse(
                     response.getUser().getId(),
                     response.getUser().getEmail(),
