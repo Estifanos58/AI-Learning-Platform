@@ -16,6 +16,7 @@ import {
   File, 
   FileCode, 
   FileImage,
+  UploadCloud,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -43,6 +44,8 @@ interface FolderTreeProps {
   onDeleteFile?: (fileId: string) => void;
   onEditFile?: (file: FTFileItem) => void;
   isCompact?: boolean;
+  /** Called when files are dropped onto a specific folder */
+  onFolderDrop?: (folderId: string, files: File[]) => void;
 }
 
 interface TreeItemProps {
@@ -59,6 +62,8 @@ interface TreeItemProps {
   onDeleteFile?: (fileId: string) => void;
   onEditFile?: (file: FTFileItem) => void;
   isCompact?: boolean;
+  /** Called when files are dropped onto this folder */
+  onFolderDrop?: (folderId: string, files: File[]) => void;
 }
 
 const getFileIcon = (contentType: string) => {
@@ -81,9 +86,11 @@ function FolderTreeItem({
   onSelectFile,
   onDeleteFile,
   onEditFile,
-  isCompact
+  isCompact,
+  onFolderDrop,
 }: TreeItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   
   const subFolders = allFolders.filter(f => f.parentId === folder.id);
   const folderFiles = files.filter(f => f.folderId === folder.id);
@@ -91,14 +98,51 @@ function FolderTreeItem({
   
   const isSelected = selectedFolderId === folder.id;
 
+  // --- Folder-level drag & drop handlers ---
+
+  const handleDragOver = (e: React.DragEvent) => {
+    // Only handle external file drags (from OS), not internal tree reorders
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    setIsDragOver(true);
+    // Auto-expand so users can drop into sub-folders
+    if (!isExpanded && hasContent) setIsExpanded(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only clear when leaving the folder row itself, not its children
+    if (e.relatedTarget === null || !e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (droppedFiles.length > 0 && onFolderDrop) {
+      onFolderDrop(folder.id, droppedFiles);
+    }
+  };
+
   const content = (
     <div 
       className={cn(
-        "group flex items-center gap-1.5 rounded-md py-1 px-2 text-sm hover:bg-accent/50 cursor-pointer transition-colors relative min-h-9",
+        "group flex items-center gap-1.5 rounded-md py-1 px-2 text-sm hover:bg-accent/50 cursor-pointer transition-all relative min-h-9",
         isSelected && "bg-accent text-accent-foreground",
+        isDragOver && "bg-primary/10 ring-2 ring-primary ring-inset scale-[1.01]",
         isCompact && "justify-center px-0 mx-1"
       )}
       style={{ paddingLeft: isCompact ? '0px' : `${Math.max(8, level * 16 + 8)}px` }}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       onClick={(e) => {
         e.stopPropagation();
         onSelect(folder.id);
@@ -124,14 +168,22 @@ function FolderTreeItem({
         )}
       </button>
 
-      {isExpanded ? (
+      {isDragOver ? (
+        <UploadCloud className={cn("h-4 w-4 text-primary shrink-0 animate-bounce", isCompact && "h-5 w-5")} />
+      ) : isExpanded ? (
         <FolderOpen className={cn("h-4 w-4 text-blue-500 shrink-0 transition-transform duration-200", isSelected && "text-foreground", isCompact && "h-5 w-5")} />
       ) : (
         <FolderIcon className={cn("h-4 w-4 text-blue-500 shrink-0 transition-transform duration-200", isSelected && "text-foreground", isCompact && "h-5 w-5")} />
       )}
       
       {!isCompact && (
-          <span className="truncate flex-1 font-medium ml-1 transition-all duration-300">{folder.name}</span>
+        <span className={cn(
+          "truncate flex-1 font-medium ml-1 transition-all duration-300",
+          isDragOver && "text-primary font-semibold"
+        )}>
+          {folder.name}
+          {isDragOver && <span className="ml-1.5 text-xs font-normal opacity-70">Drop here</span>}
+        </span>
       )}
       
       {/* Actions Dropdown */}
@@ -192,7 +244,7 @@ function FolderTreeItem({
             {content}
           </TooltipTrigger>
           <TooltipContent side="right">
-            <p>{folder.name}</p>
+            <p>{folder.name}{isDragOver ? ' — Drop here' : ''}</p>
           </TooltipContent>
         </Tooltip>
       ) : content}
@@ -225,6 +277,7 @@ function FolderTreeItem({
               onDeleteFile={onDeleteFile}
               onEditFile={onEditFile}
               isCompact={isCompact}
+              onFolderDrop={onFolderDrop}
             />
           ))}
 
@@ -312,7 +365,8 @@ export function FolderTree({
   onSelectFile,
   onDeleteFile,
   onEditFile,
-  isCompact
+  isCompact,
+  onFolderDrop,
 }: FolderTreeProps) {
   // Filter root folders only
   const rootFolders = folders.filter((f) => !f.parentId);
@@ -335,6 +389,7 @@ export function FolderTree({
           onDeleteFile={onDeleteFile}
           onEditFile={onEditFile}
           isCompact={isCompact}
+          onFolderDrop={onFolderDrop}
         />
       ))}
     </div>

@@ -5,7 +5,7 @@ import { useAuth } from '@/src/contexts/auth';
 import { useWorkspace } from '@/src/features/workspace/workspace-context';
 import { AppShell } from '@/src/features/workspace/components/app-shell';
 import { useGatewayFile, useGatewayFiles } from '@/src/hooks/use-gateway';
-import { PdfViewerShell } from '@/src/features/pdf-viewer/pdf-viewer-shell';
+import { FileViewerShell } from '@/src/features/file-viewer';
 import { ArrowRight, UploadCloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -105,7 +105,7 @@ function EmptyStateWithUpload() {
           <p className="text-muted-foreground">
             {isDragging
               ? 'Release to upload your document'
-              : 'Select a PDF from the sidebar, or drag and drop a file to upload.'}
+              : 'Select a file from the sidebar, or drag and drop a file to upload.'}
           </p>
         </div>
 
@@ -157,7 +157,7 @@ function WorkspaceContent() {
           </div>
         </div>
       ) : selectedFile ? (
-        <PdfViewerShell file={selectedFile} />
+        <FileViewerShell file={selectedFile} />
       ) : (
         <EmptyStateWithUpload />
       )}
