@@ -21,6 +21,7 @@ service FileService {
   rpc ListSharedFolders(ListSharedFoldersRequest) returns (ListFoldersResponse);
 
   rpc UploadFile(UploadFileRequest) returns (FileResponse);
+  rpc UploadFileStream(stream UploadFileChunk) returns (FileResponse);
   rpc GetFileMetadata(GetFileRequest) returns (FileResponse);
   rpc DeleteFile(DeleteFileRequest) returns (SimpleResponse);
   rpc ShareFile(ShareFileRequest) returns (SimpleResponse);
@@ -29,6 +30,7 @@ service FileService {
   rpc ListMyFiles(ListMyFilesRequest) returns (ListFilesResponse);
   rpc ListSharedWithMe(ListSharedWithMeRequest) returns (ListFilesResponse);
   rpc GetFilePath(GetFilePathRequest) returns (FilePathResponse);
+  rpc GetFileContent(GetFileContentRequest) returns (FileContentResponse);
 }
 
 message CreateFolderRequest {
@@ -89,6 +91,18 @@ message UploadFileRequest {
   string folder_id = 6;
 }
 
+message UploadFileChunk {
+  string upload_id = 1;
+  string file_name = 2;
+  string content_type = 3;
+  FileType file_type = 4;
+  string folder_id = 5;
+  bool is_shareable = 6;
+  bytes chunk_data = 7;
+  int64 chunk_index = 8;
+  bool last_chunk = 9;
+}
+
 message GetFileRequest {
   string file_id = 1;
 }
@@ -129,6 +143,10 @@ message GetFilePathRequest {
   string file_id = 1;
 }
 
+message GetFileContentRequest {
+  string file_id = 1;
+}
+
 message FileResponse {
   string id = 1;
   string owner_id = 2;
@@ -153,6 +171,15 @@ message ListFilesResponse {
 message FilePathResponse {
   string file_id = 1;
   string absolute_path = 2;
+}
+
+message FileContentResponse {
+  string file_id = 1;
+  string original_name = 2;
+  string stored_name = 3;
+  string content_type = 4;
+  int64 file_size = 5;
+  bytes content = 6;
 }
 
 message SimpleResponse {

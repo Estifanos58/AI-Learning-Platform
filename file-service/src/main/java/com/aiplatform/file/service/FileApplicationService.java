@@ -22,9 +22,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -62,6 +64,31 @@ public class FileApplicationService {
                                  boolean isShareable,
                                  UUID folderId,
                                  String internalSource) {
+        UploadPreparation preparation = prepareUpload(
+                principal,
+                fileType,
+                originalName,
+                contentType,
+                isShareable,
+                folderId,
+                internalSource,
+                UUID.randomUUID().toString()
+        );
+
+        long bytesWritten = content == null ? 0 : content.length;
+        appendUploadChunk(preparation, content, bytesWritten, principal);
+        return completeUpload(preparation, bytesWritten, principal);
+    }
+
+    @Transactional
+    public UploadPreparation prepareUpload(AuthenticatedPrincipal principal,
+                                           FileType fileType,
+                                           String originalName,
+                                           String contentType,
+                                           boolean isShareable,
+                                           UUID folderId,
+                                           String internalSource,
+                                           String uploadId) {
         requireAuthenticated(principal);
 
         UUID resolvedFolderId = folderId;
@@ -74,43 +101,105 @@ public class FileApplicationService {
         }
 
         FolderEntity folder = folderApplicationService.requireActiveFolderForUpload(resolvedFolderId, principal);
-
-        if (content == null || content.length == 0) {
-            throw new InvalidFileOperationException("Uploaded file content is empty");
-        }
-
-        long maxSizeBytes = storageProperties.maxSizeMb() * 1024L * 1024L;
-        if (content.length > maxSizeBytes) {
-            throw new InvalidFileOperationException("File size exceeds configured limit");
+        boolean resolvedShareable = isShareable;
+        if (fileType == FileType.PROFILE_IMAGE) {
+            if (!principal.userId().equals(folder.getOwnerId())) {
+                throw new UnauthorizedFileAccessException("Profile image can only be uploaded to your own folder");
+            }
+            resolvedShareable = false;
         }
 
         UUID fileId = UUID.randomUUID();
         String extension = extension(originalName);
         String storedName = storedNameFor(fileId, extension);
+        Path tempPath = tempUploadPath(uploadId);
         Path targetPath = targetPath(folder.getOwnerId(), folder.getId(), storedName);
 
-        writeFile(targetPath, content, principal);
+        try {
+            Files.createDirectories(tempPath.getParent());
+        } catch (IOException exception) {
+            log.error("Temp upload directory creation failed. path={}, ownerId={}, correlationId={}",
+                    tempPath, principal.userId(), principal.correlationId(), exception);
+            throw new InvalidFileOperationException("Failed to initialize upload session");
+        }
 
-        if (fileType == FileType.PROFILE_IMAGE) {
-            if (!principal.userId().equals(folder.getOwnerId())) {
-                throw new UnauthorizedFileAccessException("Profile image can only be uploaded to your own folder");
-            }
-            fileRepository.findActiveProfileImageByOwnerId(folder.getOwnerId(), FileType.PROFILE_IMAGE)
+        return new UploadPreparation(
+                fileId,
+                folder.getOwnerId(),
+                folder.getId(),
+                fileType,
+                safeOriginalName(originalName, storedName),
+                blankToNull(contentType),
+                resolvedShareable,
+                storedName,
+                tempPath,
+                targetPath
+        );
+    }
+
+    public void appendUploadChunk(UploadPreparation preparation,
+                                  byte[] chunk,
+                                  long bytesWritten,
+                                  AuthenticatedPrincipal principal) {
+        requireAuthenticated(principal);
+        if (preparation == null) {
+            throw new InvalidFileOperationException("Upload session is not initialized");
+        }
+        if (chunk == null || chunk.length == 0) {
+            return;
+        }
+        if (bytesWritten > maxSizeBytes()) {
+            throw new InvalidFileOperationException("File size exceeds configured limit");
+        }
+
+        try {
+            Files.write(
+                    preparation.tempPath(),
+                    chunk,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.APPEND
+            );
+        } catch (IOException exception) {
+            log.error("Temp file write failed. path={}, ownerId={}, correlationId={}",
+                    preparation.tempPath(), principal.userId(), principal.correlationId(), exception);
+            throw new InvalidFileOperationException("Failed to persist upload chunk");
+        }
+    }
+
+    @Transactional
+    public FileEntity completeUpload(UploadPreparation preparation,
+                                     long bytesWritten,
+                                     AuthenticatedPrincipal principal) {
+        requireAuthenticated(principal);
+        if (preparation == null) {
+            throw new InvalidFileOperationException("Upload session is not initialized");
+        }
+        if (bytesWritten <= 0) {
+            throw new InvalidFileOperationException("Uploaded file content is empty");
+        }
+        if (bytesWritten > maxSizeBytes()) {
+            throw new InvalidFileOperationException("File size exceeds configured limit");
+        }
+
+        moveTempFile(preparation, principal);
+
+        if (preparation.fileType() == FileType.PROFILE_IMAGE) {
+            fileRepository.findActiveProfileImageByOwnerId(preparation.ownerId(), FileType.PROFILE_IMAGE)
                     .ifPresent(existing -> existing.setDeleted(Boolean.TRUE));
-            isShareable = false;
         }
 
         FileEntity entity = FileEntity.builder()
-                .id(fileId)
-                .ownerId(folder.getOwnerId())
-                .folderId(folder.getId())
-                .fileType(fileType)
-                .originalName(safeOriginalName(originalName, storedName))
-                .storedName(storedName)
-                .contentType(blankToNull(contentType))
-                .fileSize((long) content.length)
-                .storagePath(targetPath.toAbsolutePath().toString())
-                .isShareable(isShareable)
+                .id(preparation.fileId())
+                .ownerId(preparation.ownerId())
+                .folderId(preparation.folderId())
+                .fileType(preparation.fileType())
+                .originalName(preparation.originalName())
+                .storedName(preparation.storedName())
+                .contentType(preparation.contentType())
+                .fileSize(bytesWritten)
+                .storagePath(preparation.targetPath().toAbsolutePath().toString())
+                .isShareable(preparation.isShareable())
                 .deleted(Boolean.FALSE)
                 .build();
 
@@ -119,8 +208,23 @@ public class FileApplicationService {
         meterRegistry.counter("file.upload.count").increment();
 
         log.info("File uploaded. fileId={}, folderId={}, ownerId={}, correlationId={}",
-            saved.getId(), saved.getFolderId(), saved.getOwnerId(), principal.correlationId());
+                saved.getId(), saved.getFolderId(), saved.getOwnerId(), principal.correlationId());
         return saved;
+    }
+
+    public void markUploadFailed(UploadPreparation preparation,
+                                 AuthenticatedPrincipal principal,
+                                 String reason) {
+        if (preparation == null || principal == null || principal.userId() == null) {
+            return;
+        }
+        log.warn("Upload failed. fileId={}, folderId={}, tempPath={}, ownerId={}, correlationId={}, reason={}",
+                preparation.fileId(),
+                preparation.folderId(),
+                preparation.tempPath(),
+                principal.userId(),
+                principal.correlationId(),
+                reason);
     }
 
     @Transactional(readOnly = true)
@@ -220,15 +324,55 @@ public class FileApplicationService {
         return file.getStoragePath();
     }
 
-    private void writeFile(Path targetPath, byte[] content, AuthenticatedPrincipal principal) {
+    @Transactional(readOnly = true)
+    public FileContentResult getFileContent(UUID fileId, AuthenticatedPrincipal principal) {
+        FileEntity file = findActiveFile(fileId);
+        validateCanAccess(file, principal);
+
+        String storagePath = blankToNull(file.getStoragePath());
+        if (storagePath == null) {
+            throw new InvalidFileOperationException("Stored file path is missing");
+        }
+
+        Path path = Paths.get(storagePath);
         try {
-            Files.createDirectories(targetPath.getParent());
-            Files.write(targetPath, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            if (!Files.exists(path) || !Files.isRegularFile(path)) {
+                throw new FileNotFoundException("Stored file content not found");
+            }
+            return new FileContentResult(file, Files.readAllBytes(path));
+        } catch (IOException exception) {
+            log.error("Physical file read failed. path={}, ownerId={}, correlationId={}",
+                    path, principal.userId(), principal.correlationId(), exception);
+            throw new InvalidFileOperationException("Failed to read physical file");
+        }
+    }
+
+    private void moveTempFile(UploadPreparation preparation, AuthenticatedPrincipal principal) {
+        try {
+            if (!Files.exists(preparation.tempPath()) || !Files.isRegularFile(preparation.tempPath())) {
+                throw new InvalidFileOperationException("Uploaded file content is empty");
+            }
+
+            Files.createDirectories(preparation.targetPath().getParent());
+            try {
+                Files.move(
+                        preparation.tempPath(),
+                        preparation.targetPath(),
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE
+                );
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(preparation.tempPath(), preparation.targetPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException exception) {
             log.error("Physical file write failed. path={}, ownerId={}, correlationId={}",
-                    targetPath, principal.userId(), principal.correlationId(), exception);
+                    preparation.targetPath(), principal.userId(), principal.correlationId(), exception);
             throw new InvalidFileOperationException("Failed to persist physical file");
         }
+    }
+
+    private long maxSizeBytes() {
+        return storageProperties.maxSizeMb() * 1024L * 1024L;
     }
 
     private FileEntity findActiveFile(UUID fileId) {
@@ -297,5 +441,32 @@ public class FileApplicationService {
     private Path targetPath(UUID ownerId, UUID folderId, String storedName) {
         Path root = Paths.get(storageProperties.rootPath());
         return root.resolve(ownerId.toString()).resolve(folderId.toString()).resolve(storedName);
+    }
+
+    private Path tempUploadPath(String uploadId) {
+        Path root = Paths.get(storageProperties.rootPath());
+        return root.resolve("tmp-uploads").resolve(sanitizeUploadId(uploadId) + ".part");
+    }
+
+    private String sanitizeUploadId(String uploadId) {
+        if (uploadId == null || uploadId.isBlank()) {
+            return UUID.randomUUID().toString();
+        }
+        String sanitized = uploadId.replaceAll("[^A-Za-z0-9-]", "");
+        return sanitized.isBlank() ? UUID.randomUUID().toString() : sanitized;
+    }
+
+    public record UploadPreparation(
+            UUID fileId,
+            UUID ownerId,
+            UUID folderId,
+            FileType fileType,
+            String originalName,
+            String contentType,
+            boolean isShareable,
+            String storedName,
+            Path tempPath,
+            Path targetPath
+    ) {
     }
 }

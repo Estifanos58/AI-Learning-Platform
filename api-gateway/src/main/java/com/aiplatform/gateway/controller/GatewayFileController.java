@@ -4,6 +4,7 @@ import com.aiplatform.file.proto.DeleteFileRequest;
 import com.aiplatform.file.proto.DeleteFolderRequest;
 import com.aiplatform.file.proto.CreateFolderRequest;
 import com.aiplatform.file.proto.FileServiceGrpc;
+import com.aiplatform.file.proto.GetFileContentRequest;
 import com.aiplatform.file.proto.GetFilePathRequest;
 import com.aiplatform.file.proto.GetFileRequest;
 import com.aiplatform.file.proto.ListMyFoldersRequest;
@@ -16,6 +17,7 @@ import com.aiplatform.file.proto.UnshareFolderRequest;
 import com.aiplatform.file.proto.UnshareFileRequest;
 import com.aiplatform.file.proto.UpdateFolderRequest;
 import com.aiplatform.file.proto.UpdateFileMetadataRequest;
+import com.aiplatform.file.proto.UploadFileChunk;
 import com.aiplatform.file.proto.UploadFileRequest;
 import com.aiplatform.gateway.config.GrpcFileProperties;
 import com.aiplatform.gateway.dto.ApiMessageResponse;
@@ -38,13 +40,21 @@ import com.aiplatform.gateway.util.mapper.FileResponseMapper;
 import com.aiplatform.gateway.util.mapper.FolderResponseMapper;
 import com.google.protobuf.ByteString;
 import io.grpc.Metadata;
+import io.grpc.Status;
+import io.grpc.stub.StreamObserver;
 import io.grpc.stub.MetadataUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import net.devh.boot.grpc.client.inject.GrpcClient;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.MediaTypeFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -54,19 +64,29 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import reactor.core.Disposable;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.SynchronousSink;
 import reactor.core.scheduler.Schedulers;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 @RestController
 @RequestMapping("/api/internal/files")
 @RequiredArgsConstructor
 public class GatewayFileController {
+
+        private static final int GRPC_UPLOAD_CHUNK_SIZE = 64 * 1024;
 
     private static final Metadata.Key<String> CORRELATION_ID_KEY = Metadata.Key.of("x-correlation-id", Metadata.ASCII_STRING_MARSHALLER);
     private static final Metadata.Key<String> SERVICE_SECRET_KEY = Metadata.Key.of("x-service-secret", Metadata.ASCII_STRING_MARSHALLER);
@@ -77,39 +97,63 @@ public class GatewayFileController {
     @GrpcClient("file-service")
     private FileServiceGrpc.FileServiceBlockingStub fileStub;
 
+        @GrpcClient("file-service")
+        private FileServiceGrpc.FileServiceStub fileAsyncStub;
+
     private final GrpcFileProperties grpcFileProperties;
     private final JwtValidationService jwtValidationService;
 
-    @PostMapping
+        @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Mono<ResponseEntity<FileResponse>> uploadFile(
-            @Valid @RequestBody FileUploadRequest request,
+                        @RequestPart("file") FilePart file,
+                        @RequestPart("fileType") String fileType,
+                        @RequestPart("folderId") String folderId,
+                        @RequestPart(value = "isShareable", required = false) String isShareable,
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
     ) {
-        return Mono.fromCallable(() -> {
-                    GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
-                    byte[] content;
-                    try {
-                        content = Base64.getDecoder().decode(request.contentBase64());
-                    } catch (IllegalArgumentException exception) {
-                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "contentBase64 must be valid Base64", exception);
-                    }
-
-                    UploadFileRequest grpcRequest = UploadFileRequest.newBuilder()
-                            .setFileType(request.fileType())
-                            .setFolderId(request.folderId())
-                            .setOriginalName(request.originalName())
-                            .setContentType(GatewayRequestUtils.defaultString(request.contentType()))
-                            .setContent(ByteString.copyFrom(content))
-                            .setIsShareable(request.isShareable())
-                            .build();
-
-                    var response = withMetadata(principal).uploadFile(grpcRequest);
-                    return ResponseEntity.ok(FileResponseMapper.toDto(response));
-                })
-                .subscribeOn(Schedulers.boundedElastic())
+                return Mono.defer(() -> {
+                                        GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
+                                        com.aiplatform.file.proto.FileType resolvedFileType = parseFileType(fileType);
+                                        String resolvedFolderId = requireFolderId(folderId);
+                                        boolean resolvedShareable = parseIsShareable(isShareable);
+                                        return streamUpload(file, resolvedFileType, resolvedFolderId, resolvedShareable, principal)
+                                                        .map(response -> ResponseEntity.ok(FileResponseMapper.toDto(response)));
+                                })
                 .onErrorMap(GrpcExceptionMapper::toResponseStatus);
     }
+
+        @Deprecated
+        @PostMapping(path = "/base64-upload")
+        public Mono<ResponseEntity<FileResponse>> uploadFileBase64(
+                        @Valid @RequestBody FileUploadRequest request,
+                        @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+                        @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
+        ) {
+                return Mono.fromCallable(() -> {
+                                        GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
+                                        byte[] content;
+                                        try {
+                                                content = Base64.getDecoder().decode(request.contentBase64());
+                                        } catch (IllegalArgumentException exception) {
+                                                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "contentBase64 must be valid Base64", exception);
+                                        }
+
+                                        UploadFileRequest grpcRequest = UploadFileRequest.newBuilder()
+                                                        .setFileType(request.fileType())
+                                                        .setFolderId(request.folderId())
+                                                        .setOriginalName(request.originalName())
+                                                        .setContentType(GatewayRequestUtils.defaultString(request.contentType()))
+                                                        .setContent(ByteString.copyFrom(content))
+                                                        .setIsShareable(request.isShareable())
+                                                        .build();
+
+                                        var response = withMetadata(principal).uploadFile(grpcRequest);
+                                        return ResponseEntity.ok(FileResponseMapper.toDto(response));
+                                })
+                                .subscribeOn(Schedulers.boundedElastic())
+                                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+        }
 
     @PostMapping("/folders")
     public Mono<ResponseEntity<FolderResponse>> createFolder(
@@ -404,6 +448,37 @@ public class GatewayFileController {
                 .onErrorMap(GrpcExceptionMapper::toResponseStatus);
     }
 
+    @GetMapping("/{fileId}/preview")
+    public Mono<ResponseEntity<byte[]>> previewFile(
+            @PathVariable String fileId,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
+    ) {
+        return Mono.<ResponseEntity<byte[]>>fromCallable(() -> {
+                    GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
+                    var response = withMetadata(principal)
+                            .getFileContent(GetFileContentRequest.newBuilder().setFileId(fileId).build());
+
+                    String fileName = preferredFileName(response.getOriginalName(), response.getStoredName(), fileId);
+                    MediaType mediaType = resolveMediaType(response.getContentType(), fileName);
+                    byte[] content = response.getContent().toByteArray();
+
+                    return ResponseEntity.ok()
+                            .contentType(mediaType)
+                            .contentLength(content.length)
+                            .header(HttpHeaders.CONTENT_DISPOSITION,
+                                    ContentDisposition.builder("inline")
+                                            .filename(fileName, StandardCharsets.UTF_8)
+                                            .build()
+                                            .toString())
+                            .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                            .header("X-Content-Type-Options", "nosniff")
+                            .body(content);
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
     private FileServiceGrpc.FileServiceBlockingStub withMetadata(GatewayPrincipal principal) {
         Metadata metadata = new Metadata();
         metadata.put(CORRELATION_ID_KEY, principal.correlationId());
@@ -418,7 +493,212 @@ public class GatewayFileController {
         return fileStub.withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata));
     }
 
+        private FileServiceGrpc.FileServiceStub withMetadata(GatewayPrincipal principal, FileServiceGrpc.FileServiceStub stub) {
+                Metadata metadata = new Metadata();
+                metadata.put(CORRELATION_ID_KEY, principal.correlationId());
+                metadata.put(SERVICE_SECRET_KEY, grpcFileProperties.getServiceSecret());
+                metadata.put(USER_ID_KEY, principal.userId());
+                if (!principal.roles().isBlank()) {
+                        metadata.put(USER_ROLES_KEY, principal.roles());
+                }
+                if (!principal.universityId().isBlank()) {
+                        metadata.put(UNIVERSITY_ID_KEY, principal.universityId());
+                }
+                return stub.withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata));
+        }
+
     private GatewayPrincipal resolvePrincipal(String authorization, String correlationHeader) {
         return GatewayPrincipalResolver.resolve(authorization, correlationHeader, jwtValidationService);
     }
+
+        private Mono<com.aiplatform.file.proto.FileResponse> streamUpload(FilePart file,
+                                                                                                                                          com.aiplatform.file.proto.FileType fileType,
+                                                                                                                                          String folderId,
+                                                                                                                                          boolean isShareable,
+                                                                                                                                          GatewayPrincipal principal) {
+                String uploadId = UUID.randomUUID().toString();
+                String fileName = preferredFileName(file.filename(), null, uploadId);
+                MediaType partContentType = file.headers().getContentType();
+                String contentType = partContentType != null ? partContentType.toString() : null;
+
+                return Mono.create(sink -> {
+                        AtomicLong chunkIndex = new AtomicLong();
+                        AtomicBoolean terminal = new AtomicBoolean();
+
+                        StreamObserver<UploadFileChunk> requestObserver = withMetadata(principal, fileAsyncStub)
+                                        .uploadFileStream(new StreamObserver<>() {
+                                                @Override
+                                                public void onNext(com.aiplatform.file.proto.FileResponse value) {
+                                                        if (terminal.compareAndSet(false, true)) {
+                                                                sink.success(value);
+                                                        }
+                                                }
+
+                                                @Override
+                                                public void onError(Throwable throwable) {
+                                                        if (terminal.compareAndSet(false, true)) {
+                                                                sink.error(throwable);
+                                                        }
+                                                }
+
+                                                @Override
+                                                public void onCompleted() {
+                                                }
+                                        });
+
+                        Disposable subscription = file.content()
+                                        .handle((DataBuffer dataBuffer, SynchronousSink<byte[]> downstream) -> emitUploadChunks(dataBuffer, downstream))
+                                        .doOnNext(bytes -> {
+                                                long nextIndex = chunkIndex.getAndIncrement();
+                                                requestObserver.onNext(buildUploadChunk(
+                                                                uploadId,
+                                                                fileName,
+                                                                contentType,
+                                                                fileType,
+                                                                folderId,
+                                                                isShareable,
+                                                                bytes,
+                                                                nextIndex,
+                                                                false
+                                                ));
+                                        })
+                                        .doOnComplete(() -> {
+                                                if (chunkIndex.get() == 0) {
+                                                        Throwable error = Status.INVALID_ARGUMENT
+                                                                        .withDescription("Uploaded file content is empty")
+                                                                        .asRuntimeException();
+                                                        requestObserver.onError(error);
+                                                        if (terminal.compareAndSet(false, true)) {
+                                                                sink.error(error);
+                                                        }
+                                                        return;
+                                                }
+
+                                                requestObserver.onNext(buildUploadChunk(
+                                                                uploadId,
+                                                                fileName,
+                                                                contentType,
+                                                                fileType,
+                                                                folderId,
+                                                                isShareable,
+                                                                new byte[0],
+                                                                chunkIndex.getAndIncrement(),
+                                                                true
+                                                ));
+                                                requestObserver.onCompleted();
+                                        })
+                                        .doOnError(throwable -> {
+                                                Throwable transportError = throwable instanceof RuntimeException
+                                                                ? throwable
+                                                                : new RuntimeException(throwable);
+                                                requestObserver.onError(transportError);
+                                                if (terminal.compareAndSet(false, true)) {
+                                                        sink.error(transportError);
+                                                }
+                                        })
+                                        .subscribe();
+
+                        sink.onCancel(() -> {
+                                subscription.dispose();
+                                requestObserver.onError(Status.CANCELLED.withDescription("Client cancelled upload").asRuntimeException());
+                        });
+                        sink.onDispose(subscription::dispose);
+                });
+        }
+
+        private void emitUploadChunks(DataBuffer dataBuffer, SynchronousSink<byte[]> downstream) {
+                try {
+                        while (dataBuffer.readableByteCount() > 0) {
+                                int chunkSize = Math.min(dataBuffer.readableByteCount(), GRPC_UPLOAD_CHUNK_SIZE);
+                                byte[] chunk = new byte[chunkSize];
+                                dataBuffer.read(chunk);
+                                downstream.next(chunk);
+                        }
+                } finally {
+                        DataBufferUtils.release(dataBuffer);
+                }
+        }
+
+        private UploadFileChunk buildUploadChunk(String uploadId,
+                                                                                         String fileName,
+                                                                                         String contentType,
+                                                                                         com.aiplatform.file.proto.FileType fileType,
+                                                                                         String folderId,
+                                                                                         boolean isShareable,
+                                                                                         byte[] chunkData,
+                                                                                         long chunkIndex,
+                                                                                         boolean lastChunk) {
+                UploadFileChunk.Builder builder = UploadFileChunk.newBuilder()
+                                .setUploadId(uploadId)
+                                .setChunkIndex(chunkIndex)
+                                .setLastChunk(lastChunk);
+
+                if (chunkData.length > 0) {
+                        builder.setChunkData(ByteString.copyFrom(chunkData));
+                }
+
+                if (chunkIndex == 0) {
+                        builder.setFileName(fileName)
+                                        .setFileType(fileType)
+                                        .setFolderId(folderId)
+                                        .setIsShareable(isShareable);
+                        if (contentType != null && !contentType.isBlank()) {
+                                builder.setContentType(contentType);
+                        }
+                }
+
+                return builder.build();
+        }
+
+        private com.aiplatform.file.proto.FileType parseFileType(String rawFileType) {
+                if (rawFileType == null || rawFileType.isBlank()) {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "fileType is required");
+                }
+                try {
+                        return com.aiplatform.file.proto.FileType.valueOf(rawFileType.trim().toUpperCase(Locale.ROOT));
+                } catch (IllegalArgumentException exception) {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "fileType is invalid", exception);
+                }
+        }
+
+        private String requireFolderId(String folderId) {
+                if (folderId == null || folderId.isBlank()) {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "folderId is required");
+                }
+                return folderId.trim();
+        }
+
+        private boolean parseIsShareable(String isShareable) {
+                if (isShareable == null || isShareable.isBlank()) {
+                        return false;
+                }
+                String normalized = isShareable.trim().toLowerCase(Locale.ROOT);
+                if ("true".equals(normalized)) {
+                        return true;
+                }
+                if ("false".equals(normalized)) {
+                        return false;
+                }
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "isShareable must be true or false");
+        }
+
+        private MediaType resolveMediaType(String contentType, String fileName) {
+                if (contentType != null && !contentType.isBlank()) {
+                        try {
+                                return MediaType.parseMediaType(contentType);
+                        } catch (IllegalArgumentException ignored) {
+                        }
+                }
+                return MediaTypeFactory.getMediaType(fileName).orElse(MediaType.APPLICATION_OCTET_STREAM);
+        }
+
+        private String preferredFileName(String originalName, String storedName, String fallback) {
+                if (originalName != null && !originalName.isBlank()) {
+                        return originalName;
+                }
+                if (storedName != null && !storedName.isBlank()) {
+                        return storedName;
+                }
+                return fallback;
+        }
 }
