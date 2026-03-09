@@ -187,8 +187,10 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragging(false);
+      // Only clear when leaving the sidebar entirely
+      if (e.relatedTarget === null || !e.currentTarget.contains(e.relatedTarget as Node)) {
+          setIsDragging(false);
+      }
   };
 
   const handleDrop = async (e: React.DragEvent) => {
@@ -199,7 +201,27 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
       const droppedFiles = Array.from(e.dataTransfer.files);
       if (droppedFiles.length === 0) return;
       
+      // Folder-specific drop is handled by FolderTreeItem; this is the sidebar fallback
       await handleUploadFiles(droppedFiles);
+  };
+
+  /** Called by FolderTreeItem when files are dropped onto a specific folder */
+  const handleFolderDrop = async (folderId: string, droppedFiles: File[]) => {
+      if (isUploading || droppedFiles.length === 0) return;
+      setIsDragging(false);
+
+      setIsUploading(true);
+      toast.info(`Uploading ${droppedFiles.length} file(s) to folder…`);
+
+      try {
+          if (!user?.id) return;
+          await uploadFiles(droppedFiles, folderId);
+          toast.success('Files uploaded');
+      } catch (err) {
+          toast.error(err instanceof Error ? err.message : 'Upload failed');
+      } finally {
+          setIsUploading(false);
+      }
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -384,8 +406,9 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
                     onCreateSubfolder={openCreateModal}
                     onSelectFile={handleSelectFile}
                     onDeleteFile={handleDeleteFile}
-                  onEditFile={openEditFileModal}
+                    onEditFile={openEditFileModal}
                     isCompact={isCompact}
+                    onFolderDrop={handleFolderDrop}
                 />
             )}
         </div>
