@@ -2,9 +2,9 @@
 
 import useSWR from 'swr';
 import { useMemo, useCallback } from 'react';
-import { gatewayApi, fileToBase64 } from '@/src/lib/api/gateway';
-import { getFileContentType } from '@/src/lib/api/gateway-file-utils';
-import { AuthSession, FileItem, Folder, ProfileVisibility, Role, UserProfile } from '@/src/lib/types';
+import { gatewayApi } from '@/src/lib/api/gateway';
+import { assertUploadFileSize } from '@/src/lib/api/gateway-file-utils';
+import { AuthSession, FileItem, FileUploadStatus, Folder, ProfileVisibility, Role, UserProfile } from '@/src/lib/types';
 
 const EMPTY_FOLDERS: Folder[] = [];
 const EMPTY_FILES: FileItem[] = [];
@@ -124,23 +124,56 @@ export function useGatewayFiles(token?: string | null) {
     await refreshAll();
   }, [token, refreshAll]);
 
-  const uploadFiles = useCallback(async (filesToUpload: File[], folderId: string) => {
+  const uploadFiles = useCallback(async (
+    filesToUpload: File[],
+    folderId: string,
+    options?: { onStatusChange?: (status: FileUploadStatus) => void }
+  ) => {
     if (!token) throw new Error('Not authenticated');
+    if (filesToUpload.length === 0) return [];
 
     const uploadedFiles: FileItem[] = [];
+    const totalFiles = filesToUpload.length;
 
-    for (const file of filesToUpload) {
-      const contentBase64 = await fileToBase64(file);
+    for (const [index, file] of filesToUpload.entries()) {
+      assertUploadFileSize(file);
+
+      options?.onStatusChange?.({
+        phase: 'uploading',
+        totalFiles,
+        completedFiles: index,
+        currentFileName: file.name,
+        currentFileProgress: 0,
+        overallProgress: Math.round((index / totalFiles) * 100),
+      });
+
       const uploadedFile = await gatewayApi.files.uploadFile(token, {
+        file,
         fileType: 'DOCUMENT',
         folderId,
-        originalName: file.name,
-        contentType: getFileContentType(file),
-        contentBase64,
         isShareable: true,
+        onProgress: ({ percent }) => {
+          options?.onStatusChange?.({
+            phase: 'uploading',
+            totalFiles,
+            completedFiles: index,
+            currentFileName: file.name,
+            currentFileProgress: percent,
+            overallProgress: Math.min(100, Math.round(((index + percent / 100) / totalFiles) * 100)),
+          });
+        },
       });
       uploadedFiles.push(uploadedFile);
     }
+
+    options?.onStatusChange?.({
+      phase: 'syncing',
+      totalFiles,
+      completedFiles: uploadedFiles.length,
+      currentFileName: uploadedFiles[uploadedFiles.length - 1]?.originalName,
+      currentFileProgress: 100,
+      overallProgress: 100,
+    });
 
     await refreshAll();
     return uploadedFiles;

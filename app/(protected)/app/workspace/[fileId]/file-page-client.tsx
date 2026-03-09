@@ -2,13 +2,35 @@
 
 import { useEffect, useState } from 'react';
 import { FileItem } from '@/src/lib/types';
-import { FileViewerShell, base64ToObjectUrl, getFileCategory } from '@/src/features/file-viewer';
+import { FileViewerShell, getFileCategory } from '@/src/features/file-viewer';
+import { useAuth } from '@/src/contexts/auth';
 import { useWorkspace } from '@/src/features/workspace/workspace-context';
 
 interface FilePageClientProps {
   file: FileItem;
-  textContent?: string;
-  base64Content?: string;
+}
+
+async function fetchPreviewBlob(fileId: string, accessToken: string, accept: string): Promise<Blob> {
+  const gatewayBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim().replace(/\/+$/, '') || 'http://localhost:8080';
+  const response = await fetch(`${gatewayBaseUrl}/files/${fileId}/preview`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: accept || '*/*',
+    },
+  });
+
+  if (!response.ok) {
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const apiError = await response.json();
+      throw new Error(apiError?.message || `Preview request failed with status ${response.status}`);
+    }
+
+    throw new Error(`Preview request failed with status ${response.status}`);
+  }
+
+  return response.blob();
 }
 
 function triggerDownload(url: string, filename: string) {
@@ -20,9 +42,12 @@ function triggerDownload(url: string, filename: string) {
   document.body.removeChild(link);
 }
 
-export function FilePageClient({ file, textContent, base64Content }: FilePageClientProps) {
+export function FilePageClient({ file }: FilePageClientProps) {
+  const { session } = useAuth();
   const { setSelectedFileId } = useWorkspace();
   const [objectUrl, setObjectUrl] = useState<string | undefined>(undefined);
+  const [textContent, setTextContent] = useState<string | undefined>(undefined);
+  const [downloadBlob, setDownloadBlob] = useState<Blob | null>(null);
 
   // Sync selectedFileId in context so the sidebar highlights the correct file
   useEffect(() => {
@@ -32,22 +57,69 @@ export function FilePageClient({ file, textContent, base64Content }: FilePageCli
     };
   }, [file.id, setSelectedFileId]);
 
-  // Build an object URL from the server-provided base64 content for binary files
   useEffect(() => {
     const category = getFileCategory(file.contentType);
-    if ((category === 'pdf' || category === 'image') && base64Content) {
-      const url = base64ToObjectUrl(base64Content, file.contentType) ?? undefined;
-      setObjectUrl(url);
-      return () => {
-        if (url) URL.revokeObjectURL(url);
-      };
-    }
-    setObjectUrl(undefined);
-  }, [file.id, file.contentType, base64Content]);
+    const accessToken = session?.accessToken;
 
-  const handleDownload = () => {
-    if (objectUrl) {
-      triggerDownload(objectUrl, file.originalName);
+    setTextContent(undefined);
+    setObjectUrl(undefined);
+    setDownloadBlob(null);
+
+    if (!accessToken) {
+      return;
+    }
+
+    if (category !== 'pdf' && category !== 'image' && category !== 'code' && category !== 'video' && category !== 'audio') {
+      return;
+    }
+
+    let cancelled = false;
+    let nextObjectUrl: string | null = null;
+
+    const loadPreview = async () => {
+      try {
+        const blob = await fetchPreviewBlob(file.id, accessToken, file.contentType || '*/*');
+
+        if (cancelled) {
+          return;
+        }
+
+        setDownloadBlob(blob);
+
+        if (blob.type.startsWith('text/') || ['application/json', 'application/xml'].includes(blob.type)) {
+          setTextContent(await blob.text());
+          setObjectUrl(undefined);
+          return;
+        }
+
+        nextObjectUrl = URL.createObjectURL(blob);
+        setTextContent(undefined);
+        setObjectUrl(nextObjectUrl);
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to load file preview', error);
+          setTextContent(undefined);
+          setObjectUrl(undefined);
+          setDownloadBlob(null);
+        }
+      }
+    };
+
+    void loadPreview();
+
+    return () => {
+      cancelled = true;
+      if (nextObjectUrl) {
+        URL.revokeObjectURL(nextObjectUrl);
+      }
+    };
+  }, [file.contentType, file.id, session?.accessToken]);
+
+  const handleDownload = async () => {
+    if (downloadBlob) {
+      const url = URL.createObjectURL(downloadBlob);
+      triggerDownload(url, file.originalName);
+      URL.revokeObjectURL(url);
       return;
     }
 
@@ -56,6 +128,20 @@ export function FilePageClient({ file, textContent, base64Content }: FilePageCli
       const url = URL.createObjectURL(blob);
       triggerDownload(url, file.originalName);
       URL.revokeObjectURL(url);
+      return;
+    }
+
+    if (!session?.accessToken) {
+      return;
+    }
+
+    try {
+      const blob = await fetchPreviewBlob(file.id, session.accessToken, file.contentType || '*/*');
+      const url = URL.createObjectURL(blob);
+      triggerDownload(url, file.originalName);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to download file', error);
     }
   };
 

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const MAX_UPLOAD_FILE_SIZE_BYTES = 200 * 1024 * 1024;
+
 const emailSchema = z.string().trim().email('Please enter a valid email address');
 const passwordSchema = z.string().min(8, 'Password must be at least 8 characters').max(128, 'Password is too long');
 const usernameSchema = z.string().trim().min(1, 'Username is required').max(100, 'Username must be 100 characters or less');
@@ -23,11 +25,8 @@ export const updateFolderSchema = z.object({ name: z.string().trim().min(1, 'Fol
 export const uploadFileSchema = z.object({
   fileType: z.enum(['PROFILE_IMAGE', 'DOCUMENT']),
   folderId: z.string().trim().min(1, 'Folder is required'),
-  originalName: z.string().trim().min(1, 'File name is required'),
-  contentType: z.string().trim().optional(),
-  contentBase64: z.string().trim().min(1, 'File content is required'),
   isShareable: z.boolean().optional(),
-});
+}).strict();
 
 export const updateFileMetadataSchema = z.object({
   isShareable: z.boolean(),

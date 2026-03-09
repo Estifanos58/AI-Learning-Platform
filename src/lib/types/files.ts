@@ -47,11 +47,19 @@ export interface UpdateFileMetadataRequest {
 }
 
 export interface UploadFileRequest {
+  file: File;
   fileType: FileType;
   folderId: string;
-  originalName: string;
-  contentType: string;
-  fileSize: number;
+  isShareable?: boolean;
+}
+
+export interface FileUploadStatus {
+  phase: 'preparing' | 'uploading' | 'syncing';
+  totalFiles: number;
+  completedFiles: number;
+  currentFileName?: string;
+  currentFileProgress: number;
+  overallProgress: number;
 }
 
 export interface ShareFileRequest {

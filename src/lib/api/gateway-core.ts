@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { GatewayApiError } from './gateway-errors';
 import type { AuthSession } from '@/src/lib/types';
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8080/api/internal';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim().replace(/\/+$/, '') || 'http://localhost:8080/api/internal';
 
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -11,6 +11,18 @@ export interface RequestOptions {
   cache?: RequestCache;
   next?: NextFetchRequestConfig;
   signal?: AbortSignal;
+}
+
+export interface FormDataRequestOptions {
+  method?: 'POST' | 'PUT' | 'PATCH';
+  token?: string;
+  formData: FormData;
+  signal?: AbortSignal;
+  onUploadProgress?: (progress: {
+    loaded: number;
+    total: number;
+    percent: number | null;
+  }) => void;
 }
 
 function createCorrelationId(): string {
@@ -29,6 +41,14 @@ function parseApiError(raw: any, fallbackStatus: number): GatewayApiError {
     correlationId: typeof raw.correlationId === 'string' ? raw.correlationId : undefined,
     details: typeof raw.details === 'object' ? raw.details : undefined,
   });
+}
+
+function parseSuccessResponse<T>(status: number, contentType: string, responseText: string): T {
+  if (status === 204) return undefined as T;
+  if (contentType.includes('application/json')) {
+    return responseText ? (JSON.parse(responseText) as T) : (undefined as T);
+  }
+  return responseText as T;
 }
 
 export function mapErrorMessage(error: unknown, fallback: string): string {
@@ -145,4 +165,104 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (response.status === 204) return undefined as T;
   const contentType = response.headers.get('content-type') || '';
   return contentType.includes('application/json') ? ((await response.json()) as T) : ((await response.text()) as T);
+}
+
+function sendFormDataRequest(
+  path: string,
+  options: FormDataRequestOptions,
+  overrideToken?: string,
+): Promise<{
+  status: number;
+  ok: boolean;
+  contentType: string;
+  responseText: string;
+}> {
+  const { method = 'POST', token, formData, signal, onUploadProgress } = options;
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const requestUrl = `${API_BASE_URL}${path}`;
+    const activeToken = overrideToken ?? token;
+
+    xhr.open(method, requestUrl, true);
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.setRequestHeader('X-Correlation-ID', createCorrelationId());
+    if (activeToken) {
+      xhr.setRequestHeader('Authorization', `Bearer ${activeToken}`);
+    }
+
+    const handleAbort = () => {
+      xhr.abort();
+      reject(new Error('Upload aborted'));
+    };
+
+    if (signal) {
+      if (signal.aborted) {
+        handleAbort();
+        return;
+      }
+
+      signal.addEventListener('abort', handleAbort, { once: true });
+    }
+
+    xhr.upload.addEventListener('progress', (event) => {
+      onUploadProgress?.({
+        loaded: event.loaded,
+        total: event.lengthComputable ? event.total : 0,
+        percent: event.lengthComputable && event.total > 0
+          ? Math.round((event.loaded / event.total) * 100)
+          : null,
+      });
+    });
+
+    xhr.onerror = () => {
+      reject(new Error('Network request failed'));
+    };
+
+    xhr.onabort = () => {
+      reject(new Error('Upload aborted'));
+    };
+
+    xhr.onload = () => {
+      resolve({
+        status: xhr.status,
+        ok: xhr.status >= 200 && xhr.status < 300,
+        contentType: xhr.getResponseHeader('content-type') || '',
+        responseText: xhr.responseText ?? '',
+      });
+    };
+
+    xhr.onloadend = () => {
+      if (signal) {
+        signal.removeEventListener('abort', handleAbort);
+      }
+    };
+
+    xhr.send(formData);
+  });
+}
+
+export async function formDataRequest<T>(path: string, options: FormDataRequestOptions): Promise<T> {
+  let response = await sendFormDataRequest(path, options);
+
+  if (response.status === 401 && path !== '/auth/refresh' && typeof window !== 'undefined') {
+    const newToken = await attemptRefresh();
+    if (newToken) {
+      response = await sendFormDataRequest(path, options, newToken);
+    }
+  }
+
+  if (!response.ok) {
+    let payload: any = null;
+    if (response.contentType.includes('application/json') && response.responseText) {
+      try {
+        payload = JSON.parse(response.responseText);
+      } catch {
+        payload = null;
+      }
+    }
+    throw parseApiError(payload, response.status);
+  }
+
+  return parseSuccessResponse<T>(response.status, response.contentType, response.responseText);
 }

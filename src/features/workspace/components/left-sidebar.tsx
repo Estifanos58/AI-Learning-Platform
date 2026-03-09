@@ -4,8 +4,9 @@ import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
-import { Folder, FileItem } from '@/src/lib/types';
+import { Folder, FileItem, FileUploadStatus } from '@/src/lib/types';
 import { useAuth } from '@/src/contexts/auth';
 import { useWorkspace } from '../workspace-context';
 import { useGatewayFiles } from '@/src/hooks/use-gateway';
@@ -64,11 +65,13 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   const [createParentId, setCreateParentId] = useState<string | undefined>(undefined);
   const [isShareable, setIsShareable] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<FileUploadStatus | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Drag and Drop State
   const [isDragging, setIsDragging] = useState(false);
+
+  const isUploading = uploadStatus !== null;
 
   const { uploadIntoWorkspace } = useWorkspaceFileUpload({
     folders,
@@ -217,17 +220,24 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
       if (isUploading || droppedFiles.length === 0) return;
       setIsDragging(false);
 
-      setIsUploading(true);
-      toast.info(`Uploading ${droppedFiles.length} file(s) to folder…`);
+      setUploadStatus({
+      phase: 'preparing',
+      totalFiles: droppedFiles.length,
+      completedFiles: 0,
+      currentFileName: droppedFiles[0]?.name,
+      currentFileProgress: 0,
+      overallProgress: 0,
+      });
+      toast.info(`Uploading ${droppedFiles.length} file(s) to folder...`);
 
       try {
           if (!user?.id) return;
-          await uploadIntoWorkspace(droppedFiles, folderId);
+        await uploadIntoWorkspace(droppedFiles, folderId, { onStatusChange: setUploadStatus });
           toast.success('Files uploaded');
       } catch (err) {
           toast.error(err instanceof Error ? err.message : 'Upload failed');
       } finally {
-          setIsUploading(false);
+        setUploadStatus(null);
       }
   };
 
@@ -244,18 +254,25 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   const handleUploadFiles = async (filesToUpload: File[]) => {
       if (isUploading) return;
 
-      setIsUploading(true);
+      setUploadStatus({
+        phase: 'preparing',
+        totalFiles: filesToUpload.length,
+        completedFiles: 0,
+        currentFileName: filesToUpload[0]?.name,
+        currentFileProgress: 0,
+        overallProgress: 0,
+      });
       toast.info(`Uploading ${filesToUpload.length} file(s)...`);
       
       try {
           if (!user?.id) return;
 
-        await uploadIntoWorkspace(filesToUpload);
+        await uploadIntoWorkspace(filesToUpload, undefined, { onStatusChange: setUploadStatus });
           toast.success("Files uploaded");
       } catch(err) {
           toast.error(err instanceof Error ? err.message : "Upload failed");
       } finally {
-          setIsUploading(false);
+          setUploadStatus(null);
       }
   };
 
@@ -278,7 +295,27 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
         {isUploading && (
             <div className="absolute inset-0 z-50 bg-background/60 backdrop-blur-sm m-2 rounded-lg flex flex-col items-center justify-center pointer-events-none animate-in fade-in duration-200">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-2" />
-                <p className="text-sm font-medium text-primary">Uploading...</p>
+                <p className="text-sm font-medium text-primary">
+                  {uploadStatus?.phase === 'preparing' && 'Preparing upload...'}
+                  {uploadStatus?.phase === 'uploading' && 'Uploading files...'}
+                  {uploadStatus?.phase === 'syncing' && 'Refreshing workspace...'}
+                </p>
+                {uploadStatus && (
+                  <>
+                    <p className="mt-1 max-w-52 truncate text-center text-xs text-muted-foreground">
+                      {uploadStatus.currentFileName || 'Selected files'}
+                    </p>
+                    <div className="mt-3 w-56 space-y-2">
+                      <Progress value={uploadStatus.overallProgress} className="h-2" />
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span>
+                          {uploadStatus.completedFiles}/{uploadStatus.totalFiles} complete
+                        </span>
+                        <span>{uploadStatus.overallProgress}%</span>
+                      </div>
+                    </div>
+                  </>
+                )}
             </div>
         )}
 

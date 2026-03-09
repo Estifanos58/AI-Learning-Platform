@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { UserProfile } from '@/src/lib/types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8080/api/internal';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim().replace(/\/+$/, '') || 'http://localhost:8080/api/internal';
 
 export async function getServerAccessToken(): Promise<string | null> {
   const cookieStore = await cookies();
