@@ -70,6 +70,8 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   // --- Handlers ---
 
   const handleCreateFolder = async () => {
+    console.log("FOlDER NAme", folderFormName)
+    console.log("USERID", user?.id)
     if (!user?.id || !folderFormName.trim()) return;
     setIsSubmitting(true);
     try {

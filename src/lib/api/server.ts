@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
+import { UserProfile } from '@/src/lib/types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8081/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8080/api/internal';
 
 export async function getServerAccessToken(): Promise<string | null> {
   const cookieStore = await cookies();
@@ -31,4 +32,16 @@ export async function gatewayServerGet<T>(
   }
 
   return (await response.json()) as T;
+}
+
+export async function getServerProfile(token?: string | null): Promise<UserProfile | null> {
+  return gatewayServerGet<UserProfile>('/profile/me', {
+    token,
+    revalidateSeconds: 0,
+    tags: ['profile-me'],
+  });
+}
+
+export function isProfileComplete(profile: Pick<UserProfile, 'firstName' | 'lastName'> | null): boolean {
+  return Boolean(profile?.firstName?.trim() && profile?.lastName?.trim());
 }

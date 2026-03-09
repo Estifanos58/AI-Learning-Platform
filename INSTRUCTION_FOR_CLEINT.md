@@ -8,14 +8,13 @@ This document is the frontend/client contract for communicating with the API Gat
 
 ## 1) Base URL and Routing
 
-- Local base URL: `http://localhost:8081`
-- If deployed, replace host with gateway host: `http(s)://<gateway-host>:8081`
+- Local base URL: `http://localhost:8080`
+- If deployed, replace host with gateway host: `http(s)://<gateway-host>:8080/api/internal`
 - Client must call **public routes** only:
-  - `/api/auth/**`
-  - `/api/profile/**`
-  - `/api/files/**`
-  - `/api/chat/**`
-`/api/internal/**` 
+  - `/auth/**`
+  - `/profile/**`
+  - `/files/**`
+  - `/chat/**`
 
 ---
 
