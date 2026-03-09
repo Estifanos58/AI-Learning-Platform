@@ -3,6 +3,7 @@
 import useSWR from 'swr';
 import { useMemo, useCallback } from 'react';
 import { gatewayApi, fileToBase64 } from '@/src/lib/api/gateway';
+import { getFileContentType } from '@/src/lib/api/gateway-file-utils';
 import { AuthSession, FileItem, Folder, ProfileVisibility, Role, UserProfile } from '@/src/lib/types';
 
 const EMPTY_FOLDERS: Folder[] = [];
@@ -126,19 +127,23 @@ export function useGatewayFiles(token?: string | null) {
   const uploadFiles = useCallback(async (filesToUpload: File[], folderId: string) => {
     if (!token) throw new Error('Not authenticated');
 
+    const uploadedFiles: FileItem[] = [];
+
     for (const file of filesToUpload) {
       const contentBase64 = await fileToBase64(file);
-      await gatewayApi.files.uploadFile(token, {
+      const uploadedFile = await gatewayApi.files.uploadFile(token, {
         fileType: 'DOCUMENT',
         folderId,
         originalName: file.name,
-        contentType: file.type || 'application/octet-stream',
+        contentType: getFileContentType(file),
         contentBase64,
         isShareable: true,
       });
+      uploadedFiles.push(uploadedFile);
     }
 
     await refreshAll();
+    return uploadedFiles;
   }, [token, refreshAll]);
 
   return {

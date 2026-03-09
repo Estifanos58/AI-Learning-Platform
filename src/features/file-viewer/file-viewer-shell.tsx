@@ -16,6 +16,7 @@ import { PdfViewer } from './pdf/pdf-viewer';
 import { ImageViewer } from './image/image-viewer';
 import { DocumentViewer } from './document/document-viewer';
 import { GenericViewer } from './generic/generic-viewer';
+import { TextViewer } from './text/text-viewer';
 
 interface FileViewerShellProps {
   file: FileItem;
@@ -29,9 +30,11 @@ interface FileViewerShellProps {
    * Leave undefined if the file is private.
    */
   publicUrl?: string;
+  /** Optional plain-text content for text/code previews. */
+  textContent?: string;
 }
 
-export function FileViewerShell({ file, src, publicUrl }: FileViewerShellProps) {
+export function FileViewerShell({ file, src, publicUrl, textContent }: FileViewerShellProps) {
   const category = getFileCategory(file.contentType);
 
   switch (category) {
@@ -80,8 +83,7 @@ export function FileViewerShell({ file, src, publicUrl }: FileViewerShellProps) 
       );
 
     case 'code':
-      // Falls through to generic for now; replace with a code/text viewer later.
-      return <GenericViewer file={file} />;
+      return textContent ? <TextViewer file={file} textContent={textContent} /> : <GenericViewer file={file} />;
 
     default:
       return <GenericViewer file={file} />;
