@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FileItem } from '@/src/lib/types';
 import { FileViewerShell, getFileCategory } from '@/src/features/file-viewer';
 import { useAuth } from '@/src/contexts/auth';
@@ -10,27 +10,130 @@ interface FilePageClientProps {
   file: FileItem;
 }
 
-async function fetchPreviewBlob(fileId: string, accessToken: string, accept: string): Promise<Blob> {
-  const gatewayBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim().replace(/\/+$/, '') || 'http://localhost:8080';
-  const response = await fetch(`${gatewayBaseUrl}/files/${fileId}/preview`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: accept || '*/*',
-    },
-  });
+const EXTENSION_CONTENT_TYPE_MAP: Record<string, string> = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  txt: 'text/plain',
+  md: 'text/markdown',
+  csv: 'text/csv',
+  json: 'application/json',
+  xml: 'application/xml',
+  js: 'application/javascript',
+  ts: 'application/typescript',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  mov: 'video/quicktime',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+};
 
-  if (!response.ok) {
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const apiError = await response.json();
-      throw new Error(apiError?.message || `Preview request failed with status ${response.status}`);
-    }
+function getFileExtension(filename: string): string {
+  const parts = filename.split('.');
+  return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : '';
+}
 
-    throw new Error(`Preview request failed with status ${response.status}`);
+function resolveContentType(file: FileItem): string {
+  const contentType = file.contentType?.trim().toLowerCase();
+  if (contentType && contentType !== 'application/octet-stream' && contentType !== 'binary/octet-stream') {
+    return contentType;
   }
 
-  return response.blob();
+  return EXTENSION_CONTENT_TYPE_MAP[getFileExtension(file.originalName)] || file.contentType || 'application/octet-stream';
+}
+
+function resolveGatewayBaseUrl(): string {
+  const base = process.env.NEXT_PUBLIC_API_BASE_URL?.trim().replace(/\/+$/, '');
+  if (!base) return 'http://localhost:8080/api/internal';
+  // if (base.endsWith('/api/internal')) return base;
+  return `${base}/api/internal`;
+}
+
+function parseApiErrorMessage(payload: unknown, status: number): string {
+  if (typeof payload === 'object' && payload && 'message' in payload) {
+    const maybeMessage = (payload as { message?: unknown }).message;
+    if (typeof maybeMessage === 'string' && maybeMessage.trim()) {
+      return maybeMessage;
+    }
+  }
+
+  return `File request failed with status ${status}`;
+}
+
+async function fetchFileBlob(fileId: string, accessToken: string, accept: string): Promise<Blob> {
+  const gatewayBaseUrl = resolveGatewayBaseUrl();
+  const endpoints = [`/files/${fileId}/preview`];
+  let lastError: Error | null = null;
+
+  for (const endpoint of endpoints) {
+    const response = await fetch(`${gatewayBaseUrl}${endpoint}`, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: accept || '*/*',
+      },
+    });
+
+    if (response.ok) {
+      return response.blob();
+    }
+
+    if (response.status === 404) {
+      lastError = new Error(`File endpoint not found (${endpoint})`);
+      continue;
+    }
+
+    const responseContentType = response.headers.get('content-type') || '';
+    if (responseContentType.includes('application/json')) {
+      let apiErrorPayload: unknown;
+      try {
+        apiErrorPayload = await response.json();
+      } catch {
+        // If JSON parsing fails, fall back to a generic status message.
+        let fallbackMessage = `File request failed with status ${response.status}`;
+        try {
+          const textPayload = await response.text();
+          if (textPayload.trim()) {
+            fallbackMessage = textPayload;
+          }
+        } catch {
+          // ignore secondary parsing errors
+        }
+        throw new Error(fallbackMessage);
+      }
+
+      throw new Error(parseApiErrorMessage(apiErrorPayload, response.status));
+    }
+
+    throw new Error(`File request failed with status ${response.status}`);
+  }
+
+  throw lastError || new Error('Unable to fetch file content');
+}
+
+function resolvePublicUrl(file: FileItem): string | undefined {
+  if (!file.isShareable) return undefined;
+
+  const path = file.storagePath?.trim();
+  if (!path) return undefined;
+
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+
+  return undefined;
 }
 
 function triggerDownload(url: string, filename: string) {
@@ -48,6 +151,10 @@ export function FilePageClient({ file }: FilePageClientProps) {
   const [objectUrl, setObjectUrl] = useState<string | undefined>(undefined);
   const [textContent, setTextContent] = useState<string | undefined>(undefined);
   const [downloadBlob, setDownloadBlob] = useState<Blob | null>(null);
+  const resolvedContentType = useMemo(() => resolveContentType(file), [file]);
+  const resolvedFile = useMemo(() => ({ ...file, contentType: resolvedContentType }), [file, resolvedContentType]);
+  const publicUrl = useMemo(() => resolvePublicUrl(file), [file]);
+  const category = useMemo(() => getFileCategory(resolvedContentType), [resolvedContentType]);
 
   // Sync selectedFileId in context so the sidebar highlights the correct file
   useEffect(() => {
@@ -58,7 +165,6 @@ export function FilePageClient({ file }: FilePageClientProps) {
   }, [file.id, setSelectedFileId]);
 
   useEffect(() => {
-    const category = getFileCategory(file.contentType);
     const accessToken = session?.accessToken;
 
     setTextContent(undefined);
@@ -78,7 +184,7 @@ export function FilePageClient({ file }: FilePageClientProps) {
 
     const loadPreview = async () => {
       try {
-        const blob = await fetchPreviewBlob(file.id, accessToken, file.contentType || '*/*');
+        const blob = await fetchFileBlob(file.id, accessToken, resolvedContentType || '*/*');
 
         if (cancelled) {
           return;
@@ -86,7 +192,7 @@ export function FilePageClient({ file }: FilePageClientProps) {
 
         setDownloadBlob(blob);
 
-        if (blob.type.startsWith('text/') || ['application/json', 'application/xml'].includes(blob.type)) {
+        if (blob.type.startsWith('text/') || ['application/json', 'application/xml', 'application/javascript', 'application/typescript'].includes(blob.type)) {
           setTextContent(await blob.text());
           setObjectUrl(undefined);
           return;
@@ -113,7 +219,7 @@ export function FilePageClient({ file }: FilePageClientProps) {
         URL.revokeObjectURL(nextObjectUrl);
       }
     };
-  }, [file.contentType, file.id, session?.accessToken]);
+  }, [category, file.id, resolvedContentType, session?.accessToken]);
 
   const handleDownload = async () => {
     if (downloadBlob) {
@@ -136,7 +242,7 @@ export function FilePageClient({ file }: FilePageClientProps) {
     }
 
     try {
-      const blob = await fetchPreviewBlob(file.id, session.accessToken, file.contentType || '*/*');
+      const blob = await fetchFileBlob(file.id, session.accessToken, resolvedContentType || '*/*');
       const url = URL.createObjectURL(blob);
       triggerDownload(url, file.originalName);
       URL.revokeObjectURL(url);
@@ -147,8 +253,9 @@ export function FilePageClient({ file }: FilePageClientProps) {
 
   return (
     <FileViewerShell
-      file={file}
+      file={resolvedFile}
       src={objectUrl}
+      publicUrl={publicUrl}
       textContent={textContent}
       onDownload={handleDownload}
     />
