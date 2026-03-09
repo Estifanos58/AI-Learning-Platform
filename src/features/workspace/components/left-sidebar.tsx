@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -35,7 +36,8 @@ interface LeftSidebarProps {
 
 export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   const { user, session } = useAuth();
-  const { selectedFolderId, setSelectedFolderId, setSelectedFileId, leftSidebarWidth } = useWorkspace();
+  const { selectedFolderId, setSelectedFolderId, leftSidebarWidth } = useWorkspace();
+  const router = useRouter();
   const {
     folders,
     files,
@@ -131,11 +133,10 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   // --- File Handlers (Mock implementation) ---
 
   const handleSelectFile = (file: FileItem) => {
-      setSelectedFileId(file.id);
-      // Optional: Maybe select the folder too?
       if (file.folderId) {
           setSelectedFolderId(file.folderId);
       }
+      router.push(`/app/workspace/${file.id}`);
   };
 
   const handleDeleteFile = async (fileId: string) => {

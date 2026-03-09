@@ -23,9 +23,11 @@ interface ImageViewerProps {
   file: FileItem;
   /** Object URL or data URL for the image */
   src?: string;
+  /** Called when the user clicks the Download button */
+  onDownload?: () => void;
 }
 
-export function ImageViewer({ file, src }: ImageViewerProps) {
+export function ImageViewer({ file, src, onDownload }: ImageViewerProps) {
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [fitToScreen, setFitToScreen] = useState(true);
@@ -46,6 +48,7 @@ export function ImageViewer({ file, src }: ImageViewerProps) {
         file={file}
         badge={subType}
         icon={<FileImage className="h-4 w-4 text-purple-500" />}
+        onDownload={onDownload}
       >
         <TooltipProvider>
           {/* Zoom controls */}

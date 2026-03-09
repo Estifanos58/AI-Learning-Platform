@@ -1,10 +1,12 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { FileItem } from '@/src/lib/types';
 import { useWorkspace } from '../workspace-context';
-import { FileText, File, MoreVertical, Pencil, Trash2, FileCheck, FileCode, FileImage } from 'lucide-react';
+import { File, FileCode, FileImage, FileText, MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,7 +14,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
 
 interface FileListProps {
   files: FileItem[];
@@ -21,7 +22,8 @@ interface FileListProps {
 }
 
 export function FileList({ files, onRenameFile, onDeleteFile }: FileListProps) {
-  const { selectedFileId, setSelectedFileId } = useWorkspace();
+  const { selectedFileId } = useWorkspace();
+  const router = useRouter();
   const [editingFileId, setEditingFileId] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
 
@@ -63,7 +65,7 @@ export function FileList({ files, onRenameFile, onDeleteFile }: FileListProps) {
             hover:bg-accent/50 cursor-pointer transition-colors
             ${selectedFileId === file.id ? 'bg-accent text-accent-foreground' : ''}
           `}
-          onClick={() => setSelectedFileId(file.id)}
+          onClick={() => router.push(`/app/workspace/${file.id}`)}
         >
           {editingFileId === file.id ? (
             <div className="flex items-center flex-1 gap-2">

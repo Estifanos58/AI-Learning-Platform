@@ -30,6 +30,8 @@ interface DocumentViewerProps {
    * When absent the viewer shows a rich info card with a download prompt.
    */
   publicUrl?: string;
+  /** Called when the user clicks the Download button */
+  onDownload?: () => void;
 }
 
 /** Icon map per category */
@@ -53,7 +55,7 @@ const BG_COLOR: Record<string, string> = {
   presentation: 'bg-orange-500/10 border-orange-500/20',
 };
 
-export function DocumentViewer({ file, publicUrl }: DocumentViewerProps) {
+export function DocumentViewer({ file, publicUrl, onDownload }: DocumentViewerProps) {
   const meta = getFileCategoryMeta(file.contentType);
   const icon = CATEGORY_ICON[meta.category] ?? <FileText className="h-4 w-4 text-blue-500" />;
   const largeIcon = LARGE_ICON[meta.category] ?? <FileText className="h-16 w-16 text-blue-400" />;
@@ -61,7 +63,7 @@ export function DocumentViewer({ file, publicUrl }: DocumentViewerProps) {
 
   return (
     <div className="h-full flex flex-col bg-card">
-      <ViewerToolbar file={file} badge={meta.label} icon={icon} />
+      <ViewerToolbar file={file} badge={meta.label} icon={icon} onDownload={onDownload} />
 
       <div className="flex-1 overflow-auto flex items-center justify-center p-8">
         {publicUrl ? (
@@ -90,7 +92,7 @@ export function DocumentViewer({ file, publicUrl }: DocumentViewerProps) {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
-              <Button variant="default" className="gap-2" disabled>
+              <Button variant="default" className="gap-2" onClick={onDownload} disabled={!onDownload}>
                 <Download className="h-4 w-4" />
                 Download
               </Button>
