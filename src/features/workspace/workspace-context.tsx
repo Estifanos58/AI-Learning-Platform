@@ -1,7 +1,16 @@
 'use client';
 
-import { createContext, useContext, useState, ReactNode, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, ReactNode, useCallback, useMemo, useEffect, useRef } from 'react';
 import { WorkspaceState } from './types';
+import type { WorkspaceFilePreview } from './workspace-file-preview';
+
+export type { WorkspaceFilePreview } from './workspace-file-preview';
+
+function revokeObjectUrl(url?: string) {
+  if (url?.startsWith('blob:')) {
+    URL.revokeObjectURL(url);
+  }
+}
 
 interface WorkspaceContextType extends WorkspaceState {
   setSelectedFolderId: (id: string | null) => void;
@@ -15,6 +24,9 @@ interface WorkspaceContextType extends WorkspaceState {
   setRightSidebarWidth: (width: number) => void;
   isProfileOpen: boolean;
   setProfileOpen: (open: boolean) => void;
+  filePreviews: Record<string, WorkspaceFilePreview>;
+  setFilePreview: (fileId: string, preview: WorkspaceFilePreview) => void;
+  clearFilePreview: (fileId: string) => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
@@ -28,9 +40,46 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(320);
   const [isProfileOpen, setProfileOpen] = useState(false);
+  const [filePreviews, setFilePreviews] = useState<Record<string, WorkspaceFilePreview>>({});
+  const previewUrlsRef = useRef<Record<string, string | undefined>>({});
 
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), []);
   const toggleChatPanel = useCallback(() => setChatPanelOpen((prev) => !prev), []);
+
+  const setFilePreview = useCallback((fileId: string, preview: WorkspaceFilePreview) => {
+    setFilePreviews((prev) => {
+      const previousUrl = prev[fileId]?.src;
+      if (previousUrl && previousUrl !== preview.src) {
+        revokeObjectUrl(previousUrl);
+      }
+
+      previewUrlsRef.current[fileId] = preview.src;
+      return {
+        ...prev,
+        [fileId]: preview,
+      };
+    });
+  }, []);
+
+  const clearFilePreview = useCallback((fileId: string) => {
+    setFilePreviews((prev) => {
+      const existing = prev[fileId];
+      if (!existing) return prev;
+
+      revokeObjectUrl(existing.src);
+      delete previewUrlsRef.current[fileId];
+
+      const next = { ...prev };
+      delete next[fileId];
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(previewUrlsRef.current).forEach((url) => revokeObjectUrl(url));
+    };
+  }, []);
 
   const value = useMemo<WorkspaceContextType>(() => ({
     selectedFolderId,
@@ -49,6 +98,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setRightSidebarWidth,
     isProfileOpen,
     setProfileOpen,
+    filePreviews,
+    setFilePreview,
+    clearFilePreview,
   }), [
     selectedFolderId,
     selectedFileId,
@@ -66,6 +118,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setRightSidebarWidth,
     isProfileOpen,
     setProfileOpen,
+    filePreviews,
+    setFilePreview,
+    clearFilePreview,
   ]);
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

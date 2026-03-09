@@ -8,14 +8,23 @@ import { useGatewayFile, useGatewayFiles } from '@/src/hooks/use-gateway';
 import { FileViewerShell } from '@/src/features/file-viewer';
 import { ArrowRight, UploadCloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
+import { useWorkspaceFileUpload } from '@/src/features/workspace/use-workspace-file-upload';
+import { useSelectedFilePreview } from '@/src/features/workspace/use-selected-file-preview';
 
 function EmptyStateWithUpload() {
-  const { toggleSidebar, sidebarOpen, selectedFolderId, setSelectedFileId } = useWorkspace();
+  const { toggleSidebar, sidebarOpen, selectedFolderId } = useWorkspace();
   const { user, session } = useAuth();
   const { folders, createFolder, uploadFiles } = useGatewayFiles(session?.accessToken);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { uploadIntoWorkspace } = useWorkspaceFileUpload({
+    folders,
+    selectedFolderId,
+    createFolder,
+    uploadFiles,
+  });
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -49,25 +58,10 @@ function EmptyStateWithUpload() {
 
     setIsUploading(true);
     try {
-      let targetFolderId = selectedFolderId;
-
-      if (!targetFolderId) {
-        if (folders.length > 0) {
-          targetFolderId = folders[0].id;
-        } else {
-          const newFolder = await createFolder({ name: 'Uploads' });
-          targetFolderId = newFolder.id;
-        }
-      }
-
-      if (!targetFolderId) {
-        throw new Error('Could not determine target folder');
-      }
-
-      await uploadFiles([file], targetFolderId);
-      setSelectedFileId(null);
+      await uploadIntoWorkspace([file]);
     } catch (err) {
       console.error('Upload failed', err);
+      toast.error(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
@@ -122,7 +116,7 @@ function EmptyStateWithUpload() {
             ref={fileInputRef}
             onChange={handleFileSelect}
             className="hidden"
-            accept=".pdf,.ppt,.pptx,.doc,.docx,.png,.jpg,.jpeg"
+            accept=".txt,.md,.json,.pdf,.ppt,.pptx,.doc,.docx,.png,.jpg,.jpeg,.gif,.webp,.svg"
           />
 
           <Button
@@ -136,7 +130,7 @@ function EmptyStateWithUpload() {
           </Button>
         </div>
 
-        <p className="text-xs text-muted-foreground pt-8">Supported formats: PDF, PPTX, Images, DOCX</p>
+        <p className="text-xs text-muted-foreground pt-8">Supported formats: TXT, PDF, PPTX, Images, DOCX</p>
       </div>
     </div>
   );
@@ -146,6 +140,7 @@ function WorkspaceContent() {
   const { session } = useAuth();
   const { selectedFileId } = useWorkspace();
   const { file: selectedFile, isLoading } = useGatewayFile(session?.accessToken, selectedFileId);
+  const { preview } = useSelectedFilePreview(selectedFile);
 
   return (
     <AppShell>
@@ -157,7 +152,7 @@ function WorkspaceContent() {
           </div>
         </div>
       ) : selectedFile ? (
-        <FileViewerShell file={selectedFile} />
+        <FileViewerShell file={selectedFile} src={preview?.src} textContent={preview?.textContent} />
       ) : (
         <EmptyStateWithUpload />
       )}

@@ -11,6 +11,7 @@ export { FileViewerShell } from './file-viewer-shell';
 export { PdfViewer } from './pdf/pdf-viewer';
 export { ImageViewer } from './image/image-viewer';
 export { DocumentViewer } from './document/document-viewer';
+export { TextViewer } from './text/text-viewer';
 export { GenericViewer } from './generic/generic-viewer';
 
 // Shared toolbar – use in custom viewer layouts

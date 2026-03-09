@@ -27,6 +27,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Switch } from '@/components/ui/switch';
+import { useWorkspaceFileUpload } from '../use-workspace-file-upload';
 
 interface LeftSidebarProps {
   isOpen: boolean;
@@ -67,11 +68,16 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   // Drag and Drop State
   const [isDragging, setIsDragging] = useState(false);
 
+  const { uploadIntoWorkspace } = useWorkspaceFileUpload({
+    folders,
+    selectedFolderId,
+    createFolder,
+    uploadFiles,
+  });
+
   // --- Handlers ---
 
   const handleCreateFolder = async () => {
-    console.log("FOlDER NAme", folderFormName)
-    console.log("USERID", user?.id)
     if (!user?.id || !folderFormName.trim()) return;
     setIsSubmitting(true);
     try {
@@ -215,7 +221,7 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
 
       try {
           if (!user?.id) return;
-          await uploadFiles(droppedFiles, folderId);
+          await uploadIntoWorkspace(droppedFiles, folderId);
           toast.success('Files uploaded');
       } catch (err) {
           toast.error(err instanceof Error ? err.message : 'Upload failed');
@@ -237,29 +243,13 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   const handleUploadFiles = async (filesToUpload: File[]) => {
       if (isUploading) return;
 
-      // Determine target folder: default to selectedFolderId, or first folder
-      let targetFolderId = selectedFolderId;
-      if (!targetFolderId) {
-          if (folders.length > 0) {
-             targetFolderId = folders[0].id;
-          } else {
-           const createdFolder = await createFolder({ name: 'Uploads' });
-           targetFolderId = createdFolder.id;
-          }
-      }
-
-      if (!targetFolderId) {
-          toast.error("No folder available to upload files into");
-          return;
-      }
-
       setIsUploading(true);
       toast.info(`Uploading ${filesToUpload.length} file(s)...`);
       
       try {
           if (!user?.id) return;
 
-          await uploadFiles(filesToUpload, targetFolderId);
+        await uploadIntoWorkspace(filesToUpload);
           toast.success("Files uploaded");
       } catch(err) {
           toast.error(err instanceof Error ? err.message : "Upload failed");
