@@ -3,14 +3,11 @@
 import { useRef, useState } from 'react';
 import { useAuth } from '@/src/contexts/auth';
 import { useWorkspace } from '@/src/features/workspace/workspace-context';
-import { AppShell } from '@/src/features/workspace/components/app-shell';
-import { useGatewayFile, useGatewayFiles } from '@/src/hooks/use-gateway';
-import { FileViewerShell } from '@/src/features/file-viewer';
+import { useGatewayFiles } from '@/src/hooks/use-gateway';
 import { ArrowRight, UploadCloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useWorkspaceFileUpload } from '@/src/features/workspace/use-workspace-file-upload';
-import { useSelectedFilePreview } from '@/src/features/workspace/use-selected-file-preview';
 
 function EmptyStateWithUpload() {
   const { toggleSidebar, sidebarOpen, selectedFolderId } = useWorkspace();
@@ -136,30 +133,6 @@ function EmptyStateWithUpload() {
   );
 }
 
-function WorkspaceContent() {
-  const { session } = useAuth();
-  const { selectedFileId } = useWorkspace();
-  const { file: selectedFile, isLoading } = useGatewayFile(session?.accessToken, selectedFileId);
-  const { preview } = useSelectedFilePreview(selectedFile);
-
-  return (
-    <AppShell>
-      {isLoading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-3"></div>
-            <p className="text-sm text-muted-foreground">Loading file...</p>
-          </div>
-        </div>
-      ) : selectedFile ? (
-        <FileViewerShell file={selectedFile} src={preview?.src} textContent={preview?.textContent} />
-      ) : (
-        <EmptyStateWithUpload />
-      )}
-    </AppShell>
-  );
-}
-
 export function WorkspacePageClient() {
-  return <WorkspaceContent />;
+  return <EmptyStateWithUpload />;
 }

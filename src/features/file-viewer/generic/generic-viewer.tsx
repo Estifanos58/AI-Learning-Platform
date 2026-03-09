@@ -19,9 +19,11 @@ import { Badge } from '@/components/ui/badge';
 
 interface GenericViewerProps {
   file: FileItem;
+  /** Called when the user clicks the Download button */
+  onDownload?: () => void;
 }
 
-export function GenericViewer({ file }: GenericViewerProps) {
+export function GenericViewer({ file, onDownload }: GenericViewerProps) {
   const meta = getFileCategoryMeta(file.contentType);
 
   return (
@@ -30,6 +32,7 @@ export function GenericViewer({ file }: GenericViewerProps) {
         file={file}
         badge={meta.label}
         icon={<File className="h-4 w-4 text-muted-foreground" />}
+        onDownload={onDownload}
       />
 
       <div className="flex-1 overflow-auto flex items-center justify-center p-8">
@@ -57,7 +60,7 @@ export function GenericViewer({ file }: GenericViewerProps) {
 
           {/* Actions */}
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button variant="default" className="gap-2" disabled>
+            <Button variant="default" className="gap-2" onClick={onDownload} disabled={!onDownload}>
               <Download className="h-4 w-4" />
               Download
             </Button>

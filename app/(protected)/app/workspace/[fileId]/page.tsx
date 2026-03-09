@@ -1,7 +1,9 @@
 import { readFile } from 'node:fs/promises';
-import { NextResponse } from 'next/server';
+import { redirect } from 'next/navigation';
 import { getServerAccessToken, gatewayServerGet } from '@/src/lib/api/server';
 import { FileItem } from '@/src/lib/types';
+import { getFileCategory } from '@/src/features/file-viewer';
+import { FilePageClient } from './file-page-client';
 
 export const runtime = 'nodejs';
 
@@ -10,14 +12,12 @@ const GATEWAY_ORIGIN = new URL(API_BASE_URL).origin;
 
 function sanitizeResolvedPath(value: string): string {
   const trimmed = value.trim();
-
   if (
     (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
     (trimmed.startsWith("'") && trimmed.endsWith("'"))
   ) {
     return trimmed.slice(1, -1);
   }
-
   return trimmed;
 }
 
@@ -39,15 +39,10 @@ async function getGatewayFilePath(fileId: string, token: string): Promise<string
 }
 
 async function tryFetchBuffer(url: string): Promise<Buffer | null> {
-  const response = await fetch(url, {
-    method: 'GET',
-    cache: 'no-store',
-  });
-
+  const response = await fetch(url, { method: 'GET', cache: 'no-store' });
   if (!response.ok) {
     return null;
   }
-
   return Buffer.from(await response.arrayBuffer());
 }
 
@@ -76,24 +71,20 @@ async function loadBufferFromPath(candidate: string): Promise<Buffer | null> {
   }
 }
 
-export async function GET(_: Request, context: { params: Promise<{ fileId: string }> }) {
-  const token = await getServerAccessToken();
-  if (!token) {
-    return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+async function fetchFileContent(
+  fileId: string,
+  file: FileItem,
+  token: string,
+): Promise<{ textContent?: string; base64Content?: string }> {
+  const category = getFileCategory(file.contentType);
+
+  if (category !== 'pdf' && category !== 'image' && category !== 'code') {
+    return {};
   }
 
-  const { fileId } = await context.params;
-  const file = await gatewayServerGet<FileItem>(`/files/${fileId}`, {
-    token,
-    revalidateSeconds: 0,
-    tags: ['files', `file-${fileId}`],
-  });
-
-  if (!file) {
-    return NextResponse.json({ message: 'File not found' }, { status: 404 });
-  }
-
-  const candidates = [await getGatewayFilePath(fileId, token), file.storagePath].filter((value): value is string => Boolean(value));
+  const candidates = [await getGatewayFilePath(fileId, token), file.storagePath].filter(
+    (v): v is string => Boolean(v),
+  );
 
   for (const candidate of candidates) {
     const buffer = await loadBufferFromPath(candidate);
@@ -101,18 +92,39 @@ export async function GET(_: Request, context: { params: Promise<{ fileId: strin
       continue;
     }
 
-    const body = new Uint8Array(buffer);
+    if (category === 'code') {
+      return { textContent: buffer.toString('utf-8') };
+    }
 
-    return new NextResponse(body, {
-      status: 200,
-      headers: {
-        'Content-Type': file.contentType || 'application/octet-stream',
-        'Content-Length': buffer.byteLength.toString(),
-        'Content-Disposition': `inline; filename="${file.originalName.replace(/"/g, '')}"`,
-        'Cache-Control': 'private, max-age=60',
-      },
-    });
+    return { base64Content: buffer.toString('base64') };
   }
 
-  return NextResponse.json({ message: 'File content could not be resolved from the backend' }, { status: 404 });
+  return {};
+}
+
+export default async function FileViewPage({ params }: { params: Promise<{ fileId: string }> }) {
+  const { fileId } = await params;
+  const token = await getServerAccessToken();
+
+  if (!token) {
+    redirect('/auth/login');
+  }
+
+  const file = await gatewayServerGet<FileItem>(`/files/${fileId}`, {
+    token,
+    revalidateSeconds: 0,
+    tags: ['files', `file-${fileId}`],
+  });
+
+  if (!file) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-muted-foreground">
+        File not found
+      </div>
+    );
+  }
+
+  const content = await fetchFileContent(fileId, file, token);
+
+  return <FilePageClient file={file} {...content} />;
 }

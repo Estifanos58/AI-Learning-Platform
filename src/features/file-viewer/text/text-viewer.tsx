@@ -11,9 +11,11 @@ import { AlignLeft, WrapText, FileCode2 } from 'lucide-react';
 interface TextViewerProps {
   file: FileItem;
   textContent: string;
+  /** Called when the user clicks the Download button */
+  onDownload?: () => void;
 }
 
-export function TextViewer({ file, textContent }: TextViewerProps) {
+export function TextViewer({ file, textContent, onDownload }: TextViewerProps) {
   const [wrapLines, setWrapLines] = useState(true);
   const [showLineNumbers, setShowLineNumbers] = useState(true);
   const lines = textContent.split(/\r?\n/);
@@ -24,6 +26,7 @@ export function TextViewer({ file, textContent }: TextViewerProps) {
         file={file}
         badge="Text"
         icon={<FileCode2 className="h-4 w-4 text-yellow-500" />}
+        onDownload={onDownload}
       >
         <TooltipProvider>
           <Tooltip>

@@ -32,22 +32,24 @@ interface FileViewerShellProps {
   publicUrl?: string;
   /** Optional plain-text content for text/code previews. */
   textContent?: string;
+  /** Called when the user clicks the Download button in the toolbar. */
+  onDownload?: () => void;
 }
 
-export function FileViewerShell({ file, src, publicUrl, textContent }: FileViewerShellProps) {
+export function FileViewerShell({ file, src, publicUrl, textContent, onDownload }: FileViewerShellProps) {
   const category = getFileCategory(file.contentType);
 
   switch (category) {
     case 'pdf':
-      return <PdfViewer file={file} src={src} />;
+      return <PdfViewer file={file} src={src} onDownload={onDownload} />;
 
     case 'image':
-      return <ImageViewer file={file} src={src} />;
+      return <ImageViewer file={file} src={src} onDownload={onDownload} />;
 
     case 'document':
     case 'spreadsheet':
     case 'presentation':
-      return <DocumentViewer file={file} publicUrl={publicUrl} />;
+      return <DocumentViewer file={file} publicUrl={publicUrl} onDownload={onDownload} />;
 
     case 'video':
       return (
@@ -62,7 +64,7 @@ export function FileViewerShell({ file, src, publicUrl, textContent }: FileViewe
                 className="max-w-full max-h-full rounded shadow-2xl"
               />
             ) : (
-              <GenericViewer file={file} />
+              <GenericViewer file={file} onDownload={onDownload} />
             )}
           </div>
         </div>
@@ -76,16 +78,20 @@ export function FileViewerShell({ file, src, publicUrl, textContent }: FileViewe
               /* eslint-disable-next-line jsx-a11y/media-has-caption */
               <audio src={src} controls aria-label={file.originalName} className="w-full max-w-lg" />
             ) : (
-              <GenericViewer file={file} />
+              <GenericViewer file={file} onDownload={onDownload} />
             )}
           </div>
         </div>
       );
 
     case 'code':
-      return textContent ? <TextViewer file={file} textContent={textContent} /> : <GenericViewer file={file} />;
+      return textContent ? (
+        <TextViewer file={file} textContent={textContent} onDownload={onDownload} />
+      ) : (
+        <GenericViewer file={file} onDownload={onDownload} />
+      );
 
     default:
-      return <GenericViewer file={file} />;
+      return <GenericViewer file={file} onDownload={onDownload} />;
   }
 }

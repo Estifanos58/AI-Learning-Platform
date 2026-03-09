@@ -25,9 +25,11 @@ interface PdfViewerProps {
   file: FileItem;
   /** Optional pre-built object / data URL for the PDF content */
   src?: string;
+  /** Called when the user clicks the Download button */
+  onDownload?: () => void;
 }
 
-export function PdfViewer({ file, src }: PdfViewerProps) {
+export function PdfViewer({ file, src, onDownload }: PdfViewerProps) {
   const [zoom, setZoom] = useState(1);
   const [showSearch, setShowSearch] = useState(false);
 
@@ -41,6 +43,7 @@ export function PdfViewer({ file, src }: PdfViewerProps) {
         file={file}
         badge="PDF"
         icon={<FileText className="h-4 w-4 text-red-500" />}
+        onDownload={onDownload}
       >
         {/* PDF-specific controls */}
         <TooltipProvider>
