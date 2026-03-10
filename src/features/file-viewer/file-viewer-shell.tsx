@@ -11,12 +11,18 @@
  */
 
 import { FileItem } from '@/src/lib/types';
-import { getFileCategory } from './utils/file-type';
+import { getFileCategory, getFileSubtype } from './utils/file-type';
 import { PdfViewer } from './pdf/pdf-viewer';
 import { ImageViewer } from './image/image-viewer';
 import { DocumentViewer } from './document/document-viewer';
 import { GenericViewer } from './generic/generic-viewer';
 import { TextViewer } from './text/text-viewer';
+import { VideoViewer } from './video/video-viewer';
+import { AudioViewer } from './audio/audio-viewer';
+import { MarkdownViewer } from './text/markdown-viewer';
+import { CsvViewer } from './text/csv-viewer';
+import { JsonViewer } from './text/json-viewer';
+import { XmlViewer } from './text/xml-viewer';
 
 interface FileViewerShellProps {
   file: FileItem;
@@ -38,6 +44,23 @@ interface FileViewerShellProps {
 
 export function FileViewerShell({ file, src, publicUrl, textContent, onDownload }: FileViewerShellProps) {
   const category = getFileCategory(file.contentType);
+  const subtype = getFileSubtype(file.contentType);
+
+  if (subtype === 'md' && textContent) {
+    return <MarkdownViewer file={file} textContent={textContent} onDownload={onDownload} />;
+  }
+
+  if (subtype === 'csv' && textContent) {
+    return <CsvViewer file={file} textContent={textContent} onDownload={onDownload} />;
+  }
+
+  if (subtype === 'json' && textContent) {
+    return <JsonViewer file={file} textContent={textContent} onDownload={onDownload} />;
+  }
+
+  if (subtype === 'xml' && textContent) {
+    return <XmlViewer file={file} textContent={textContent} onDownload={onDownload} />;
+  }
 
   switch (category) {
     case 'pdf':
@@ -52,37 +75,10 @@ export function FileViewerShell({ file, src, publicUrl, textContent, onDownload 
       return <DocumentViewer file={file} publicUrl={publicUrl} onDownload={onDownload} />;
 
     case 'video':
-      return (
-        <div className="h-full flex flex-col bg-card">
-          <div className="flex-1 overflow-auto flex items-center justify-center p-8">
-            {src ? (
-              /* eslint-disable-next-line jsx-a11y/media-has-caption */
-              <video
-                src={src}
-                controls
-                aria-label={file.originalName}
-                className="max-w-full max-h-full rounded shadow-2xl"
-              />
-            ) : (
-              <GenericViewer file={file} onDownload={onDownload} />
-            )}
-          </div>
-        </div>
-      );
+      return <VideoViewer file={file} src={src} onDownload={onDownload} />;
 
     case 'audio':
-      return (
-        <div className="h-full flex flex-col bg-card">
-          <div className="flex-1 overflow-auto flex items-center justify-center p-8">
-            {src ? (
-              /* eslint-disable-next-line jsx-a11y/media-has-caption */
-              <audio src={src} controls aria-label={file.originalName} className="w-full max-w-lg" />
-            ) : (
-              <GenericViewer file={file} onDownload={onDownload} />
-            )}
-          </div>
-        </div>
-      );
+      return <AudioViewer file={file} src={src} onDownload={onDownload} />;
 
     case 'code':
       return textContent ? (
