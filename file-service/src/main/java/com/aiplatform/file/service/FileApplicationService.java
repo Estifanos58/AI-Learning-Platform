@@ -347,6 +347,32 @@ public class FileApplicationService {
         }
     }
 
+    @Transactional(readOnly = true)
+    public void streamFileContent(UUID fileId, AuthenticatedPrincipal principal,
+                                  java.util.function.BiConsumer<FileEntity, java.io.InputStream> consumer) {
+        FileEntity file = findActiveFile(fileId);
+        validateCanAccess(file, principal);
+
+        String storagePath = blankToNull(file.getStoragePath());
+        if (storagePath == null) {
+            throw new InvalidFileOperationException("Stored file path is missing");
+        }
+
+        Path path = Paths.get(storagePath);
+        try {
+            if (!Files.exists(path) || !Files.isRegularFile(path)) {
+                throw new FileNotFoundException("Stored file content not found");
+            }
+            try (java.io.InputStream inputStream = Files.newInputStream(path)) {
+                consumer.accept(file, inputStream);
+            }
+        } catch (IOException exception) {
+            log.error("Physical file stream failed. path={}, ownerId={}, correlationId={}",
+                    path, principal.userId(), principal.correlationId(), exception);
+            throw new InvalidFileOperationException("Failed to stream physical file");
+        }
+    }
+
     private void moveTempFile(UploadPreparation preparation, AuthenticatedPrincipal principal) {
         try {
             if (!Files.exists(preparation.tempPath()) || !Files.isRegularFile(preparation.tempPath())) {

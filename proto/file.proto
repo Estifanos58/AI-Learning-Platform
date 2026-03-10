@@ -31,6 +31,7 @@ service FileService {
   rpc ListSharedWithMe(ListSharedWithMeRequest) returns (ListFilesResponse);
   rpc GetFilePath(GetFilePathRequest) returns (FilePathResponse);
   rpc GetFileContent(GetFileContentRequest) returns (FileContentResponse);
+  rpc GetFileContentStream(GetFileContentRequest) returns (stream FileContentChunk);
 }
 
 message CreateFolderRequest {
@@ -180,6 +181,17 @@ message FileContentResponse {
   string content_type = 4;
   int64 file_size = 5;
   bytes content = 6;
+}
+
+message FileContentChunk {
+  string file_id = 1;
+  string original_name = 2;
+  string stored_name = 3;
+  string content_type = 4;
+  int64 file_size = 5;
+  bytes chunk_data = 6;
+  int64 chunk_index = 7;
+  bool last_chunk = 8;
 }
 
 message SimpleResponse {

@@ -4,6 +4,7 @@ server:
 grpc:
   server:
     port: ${GRPC_SERVER_PORT:9093}
+    max-inbound-message-size: ${GRPC_SERVER_MAX_INBOUND_MESSAGE_SIZE:6291456}
 
 spring:
   application:
@@ -35,7 +36,8 @@ management:
 file:
   storage:
     root-path: ${FILE_STORAGE_ROOT_PATH:/data}
-    max-size-mb: ${FILE_STORAGE_MAX_SIZE_MB:50}
+    max-size-mb: ${FILE_STORAGE_MAX_SIZE_MB:300}
+    chunk-size-bytes: ${FILE_STORAGE_CHUNK_SIZE_BYTES:262144}
 
 app:
   grpc:
