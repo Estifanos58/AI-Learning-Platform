@@ -7,6 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "file.storage")
 public record FileStorageProperties(
         @NotBlank String rootPath,
-        @Positive int maxSizeMb
+        @Positive int maxSizeMb,
+        @Positive int chunkSizeBytes
 ) {
 }

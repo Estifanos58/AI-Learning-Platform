@@ -3,6 +3,7 @@ package com.aiplatform.gateway.controller;
 import com.aiplatform.file.proto.DeleteFileRequest;
 import com.aiplatform.file.proto.DeleteFolderRequest;
 import com.aiplatform.file.proto.CreateFolderRequest;
+import com.aiplatform.file.proto.FileContentChunk;
 import com.aiplatform.file.proto.FileServiceGrpc;
 import com.aiplatform.file.proto.GetFileContentRequest;
 import com.aiplatform.file.proto.GetFilePathRequest;
@@ -73,6 +74,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.SynchronousSink;
 import reactor.core.scheduler.Schedulers;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
@@ -456,12 +458,30 @@ public class GatewayFileController {
     ) {
         return Mono.<ResponseEntity<byte[]>>fromCallable(() -> {
                     GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
-                    var response = withMetadata(principal)
-                            .getFileContent(GetFileContentRequest.newBuilder().setFileId(fileId).build());
+                    GetFileContentRequest grpcRequest = GetFileContentRequest.newBuilder().setFileId(fileId).build();
+                    java.util.Iterator<FileContentChunk> chunkIterator = withMetadata(principal)
+                            .getFileContentStream(grpcRequest);
 
-                    String fileName = preferredFileName(response.getOriginalName(), response.getStoredName(), fileId);
-                    MediaType mediaType = resolveMediaType(response.getContentType(), fileName);
-                    byte[] content = response.getContent().toByteArray();
+                    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+                    String originalName = null;
+                    String storedName = null;
+                    String contentType = null;
+                    while (chunkIterator.hasNext()) {
+                        FileContentChunk chunk = chunkIterator.next();
+                        if (chunk.getChunkIndex() == 0) {
+                            originalName = chunk.getOriginalName();
+                            storedName = chunk.getStoredName();
+                            contentType = chunk.getContentType();
+                        }
+                        byte[] data = chunk.getChunkData().toByteArray();
+                        if (data.length > 0) {
+                            buffer.write(data);
+                        }
+                    }
+
+                    String fileName = preferredFileName(originalName, storedName, fileId);
+                    MediaType mediaType = resolveMediaType(contentType, fileName);
+                    byte[] content = buffer.toByteArray();
 
                     return ResponseEntity.ok()
                             .contentType(mediaType)

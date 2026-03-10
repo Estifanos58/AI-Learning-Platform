@@ -35,6 +35,7 @@ import com.aiplatform.file.grpc.util.FolderGrpcResponseMapper;
 import com.aiplatform.file.service.AuthenticatedPrincipal;
 import com.aiplatform.file.service.FileApplicationService;
 import com.aiplatform.file.service.FolderApplicationService;
+import com.aiplatform.file.config.FileStorageProperties;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.grpc.stub.StreamObserver;
@@ -49,6 +50,7 @@ public class FileGrpcService extends FileServiceGrpc.FileServiceImplBase {
 
     private final FileApplicationService fileApplicationService;
     private final FolderApplicationService folderApplicationService;
+    private final FileStorageProperties storageProperties;
     private final MeterRegistry meterRegistry;
 
     @Override
@@ -428,6 +430,60 @@ public class FileGrpcService extends FileServiceGrpc.FileServiceImplBase {
 
             responseObserver.onNext(response.build());
             responseObserver.onCompleted();
+        } catch (Exception exception) {
+            responseObserver.onError(FileGrpcExceptionMapper.toStatusException(exception));
+        }
+    }
+
+    @Override
+    public void getFileContentStream(GetFileContentRequest request, StreamObserver<com.aiplatform.file.proto.FileContentChunk> responseObserver) {
+        try {
+            AuthenticatedPrincipal principal = FileGrpcPrincipalResolver.requirePrincipal();
+            UUID fileId = UUID.fromString(request.getFileId());
+            int chunkSize = storageProperties.chunkSizeBytes();
+
+            fileApplicationService.streamFileContent(fileId, principal, (file, inputStream) -> {
+                try {
+                    long chunkIndex = 0;
+                    byte[] buffer = new byte[chunkSize];
+                    int bytesRead = inputStream.read(buffer);
+                    while (bytesRead > 0) {
+                        byte[] chunkData = java.util.Arrays.copyOf(buffer, bytesRead);
+                        int nextRead = inputStream.read(buffer);
+                        boolean isLast = nextRead <= 0;
+                        com.aiplatform.file.proto.FileContentChunk.Builder chunk = com.aiplatform.file.proto.FileContentChunk.newBuilder()
+                                .setChunkData(ByteString.copyFrom(chunkData))
+                                .setChunkIndex(chunkIndex)
+                                .setLastChunk(isLast);
+                        if (chunkIndex == 0) {
+                            chunk.setFileId(file.getId().toString())
+                                    .setOriginalName(file.getOriginalName())
+                                    .setStoredName(file.getStoredName())
+                                    .setFileSize(file.getFileSize());
+                            if (file.getContentType() != null) {
+                                chunk.setContentType(file.getContentType());
+                            }
+                        }
+                        responseObserver.onNext(chunk.build());
+                        chunkIndex++;
+                        bytesRead = nextRead;
+                    }
+                    if (chunkIndex == 0) {
+                        responseObserver.onNext(com.aiplatform.file.proto.FileContentChunk.newBuilder()
+                                .setFileId(file.getId().toString())
+                                .setOriginalName(file.getOriginalName())
+                                .setStoredName(file.getStoredName())
+                                .setFileSize(file.getFileSize())
+                                .setChunkData(ByteString.EMPTY)
+                                .setChunkIndex(0)
+                                .setLastChunk(true)
+                                .build());
+                    }
+                    responseObserver.onCompleted();
+                } catch (Exception e) {
+                    responseObserver.onError(FileGrpcExceptionMapper.toStatusException(e));
+                }
+            });
         } catch (Exception exception) {
             responseObserver.onError(FileGrpcExceptionMapper.toStatusException(exception));
         }

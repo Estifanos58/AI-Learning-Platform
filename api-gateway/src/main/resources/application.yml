@@ -115,6 +115,12 @@ spring:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6379}
+  codec:
+    max-in-memory-size: ${SPRING_CODEC_MAX_IN_MEMORY_SIZE:314572800}
+  servlet:
+    multipart:
+      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:300MB}
+      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:300MB}
 
 grpc:
   client:
@@ -127,6 +133,7 @@ grpc:
     file-service:
       address: ${GRPC_FILE_ADDRESS:static://localhost:9093}
       negotiationType: ${GRPC_FILE_NEGOTIATION:PLAINTEXT}
+      max-inbound-message-size: ${GRPC_FILE_MAX_INBOUND_MESSAGE_SIZE:6291456}
     chat-service:
       address: ${GRPC_CHAT_ADDRESS:static://localhost:9095}
       negotiationType: ${GRPC_CHAT_NEGOTIATION:PLAINTEXT}
