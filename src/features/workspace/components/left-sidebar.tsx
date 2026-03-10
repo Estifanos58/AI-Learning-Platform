@@ -69,8 +69,8 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Drag and Drop State
-  const [isDragging, setIsDragging] = useState(false);
-
+  // Removed `isDragging` since we now rely on isolated folder drag indicators.
+  
   const isUploading = uploadStatus !== null;
 
   const { uploadIntoWorkspace } = useWorkspaceFileUpload({
@@ -192,33 +192,26 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   // --- Drag and Drop ---
   
   const handleDragOver = (e: React.DragEvent) => {
+      // Prevent default to allow drop on the sidebar root,
+      // but we do NOT set a global `isDragging` state 
+      // to avoid the large overlay.
       e.preventDefault();
-      setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-      // Only clear when leaving the sidebar entirely
-      if (e.relatedTarget === null || !e.currentTarget.contains(e.relatedTarget as Node)) {
-          setIsDragging(false);
-      }
   };
 
   const handleDrop = async (e: React.DragEvent) => {
       e.preventDefault();
-      setIsDragging(false);
       
       if (isUploading) return;
       const droppedFiles = Array.from(e.dataTransfer.files);
       if (droppedFiles.length === 0) return;
       
-      // Folder-specific drop is handled by FolderTreeItem; this is the sidebar fallback
+      // Fallback: upload to current selected folder or root
       await handleUploadFiles(droppedFiles);
   };
 
   /** Called by FolderTreeItem when files are dropped onto a specific folder */
   const handleFolderDrop = async (folderId: string, droppedFiles: File[]) => {
       if (isUploading || droppedFiles.length === 0) return;
-      setIsDragging(false);
 
       setUploadStatus({
       phase: 'preparing',
@@ -281,17 +274,9 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
     <aside
       className="bg-card/50 backdrop-blur-xl border-r border-border flex flex-col overflow-hidden w-full h-full"
       onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-        {/* Drag Overlay */}
-        {isDragging && !isUploading && (
-            <div className="absolute inset-0 z-50 bg-primary/10 backdrop-blur-sm border-2 border-primary border-dashed m-2 rounded-lg flex flex-col items-center justify-center pointer-events-none animate-in fade-in duration-200">
-                <UploadCloud className="h-12 w-12 text-primary mb-2" />
-                <p className="font-semibold text-primary">Drop files to upload</p>
-            </div>
-        )}
         {isUploading && (
             <div className="absolute inset-0 z-50 bg-background/60 backdrop-blur-sm m-2 rounded-lg flex flex-col items-center justify-center pointer-events-none animate-in fade-in duration-200">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-2" />

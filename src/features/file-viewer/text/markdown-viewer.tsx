@@ -7,7 +7,6 @@ import rehypeRaw from 'rehype-raw';
 import { FileItem } from '@/src/lib/types';
 import { ViewerToolbar } from '../viewer-toolbar';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { FileCode2 } from 'lucide-react';
 
 interface MarkdownViewerProps {
@@ -49,7 +48,7 @@ export function MarkdownViewer({ file, textContent, onDownload }: MarkdownViewer
         </div>
       </ViewerToolbar>
 
-      <ScrollArea className="flex-1 bg-muted/20">
+      <div className="flex-1 bg-muted/20 overflow-y-auto h-full w-full">
         {mode === 'source' ? (
           <div className="p-6">
             <pre className="font-mono text-sm whitespace-pre-wrap wrap-break-word">{textContent}</pre>
@@ -119,7 +118,7 @@ export function MarkdownViewer({ file, textContent, onDownload }: MarkdownViewer
             </ReactMarkdown>
           </div>
         )}
-      </ScrollArea>
+      </div>
     </div>
   );
 }
