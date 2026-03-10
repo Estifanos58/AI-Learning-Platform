@@ -191,8 +191,10 @@ async function parsePptx(arrayBuffer: ArrayBuffer): Promise<Slide[]> {
     const bullets = extractSlideBullets(xmlDoc, title);
     const imageDataUrls = await extractSlideImages(zip, path);
 
-    // Notes slide
-    const notesPath = path.replace('ppt/slides/', 'ppt/notesSlides/notes').replace('slide', 'notesSlide');
+    // Speaker notes: PPTX stores notes in ppt/notesSlides/notesSlide{N}.xml
+    // The slide number is the same numeric index as the slide file.
+    const slideNum = path.match(/(\d+)\.xml$/)?.[1] ?? String(i + 1);
+    const notesPath = `ppt/notesSlides/notesSlide${slideNum}.xml`;
     let notes = '';
     const notesFile = zip.file(notesPath);
     if (notesFile) {

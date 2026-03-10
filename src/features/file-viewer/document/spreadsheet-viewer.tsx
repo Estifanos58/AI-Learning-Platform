@@ -214,7 +214,7 @@ export function SpreadsheetViewer({ file, src, onDownload }: SpreadsheetViewerPr
               )}
             </div>
             <div className="px-4 py-2 text-xs text-muted-foreground border-t border-border/50 bg-background/60">
-              {dataRows.length} rows · {header.length} columns
+              {dataRows.length} rows · {header.length} {header.length === 1 ? 'column' : 'columns'}
               {sheets.length > 1 && ` · Sheet ${activeSheet + 1} of ${sheets.length}`}
             </div>
           </ScrollArea>

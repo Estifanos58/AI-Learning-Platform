@@ -68,8 +68,8 @@ export function DocxViewer({ file, src, onDownload }: DocxViewerProps) {
     };
   }, [src]);
 
-  const isDocx = file.originalName.toLowerCase().endsWith('.docx') || file.originalName.toLowerCase().endsWith('.doc');
-  const label = isDocx ? 'DOCX' : 'DOC';
+  const ext = file.originalName.split('.').pop()?.toLowerCase() ?? '';
+  const label = ext === 'docx' ? 'DOCX' : ext === 'doc' ? 'DOC' : 'Document';
 
   return (
     <div className="h-full flex flex-col bg-card">
