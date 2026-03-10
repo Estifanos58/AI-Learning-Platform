@@ -15,6 +15,9 @@ import { getFileCategory, getFileSubtype } from './utils/file-type';
 import { PdfViewer } from './pdf/pdf-viewer';
 import { ImageViewer } from './image/image-viewer';
 import { DocumentViewer } from './document/document-viewer';
+import { DocxViewer } from './document/docx-viewer';
+import { SpreadsheetViewer } from './document/spreadsheet-viewer';
+import { PptxViewer } from './document/pptx-viewer';
 import { GenericViewer } from './generic/generic-viewer';
 import { TextViewer } from './text/text-viewer';
 import { VideoViewer } from './video/video-viewer';
@@ -28,7 +31,7 @@ interface FileViewerShellProps {
   file: FileItem;
   /**
    * Optional pre-built object / data URL for the file content.
-   * When provided, viewers that can embed content (PDF, image) will use it.
+   * When provided, viewers that can embed content (PDF, image, office docs) will use it.
    */
   src?: string;
   /**
@@ -46,6 +49,7 @@ export function FileViewerShell({ file, src, publicUrl, textContent, onDownload 
   const category = getFileCategory(file.contentType);
   const subtype = getFileSubtype(file.contentType);
 
+  // ── Text subtypes ─────────────────────────────────────────────────────────
   if (subtype === 'md' && textContent) {
     return <MarkdownViewer file={file} textContent={textContent} onDownload={onDownload} />;
   }
@@ -62,6 +66,20 @@ export function FileViewerShell({ file, src, publicUrl, textContent, onDownload 
     return <XmlViewer file={file} textContent={textContent} onDownload={onDownload} />;
   }
 
+  // ── Office document subtypes (binary rendering with specialized viewers) ──
+  if (subtype === 'docx' || subtype === 'doc') {
+    return <DocxViewer file={file} src={src} onDownload={onDownload} />;
+  }
+
+  if (subtype === 'xlsx' || subtype === 'xls') {
+    return <SpreadsheetViewer file={file} src={src} onDownload={onDownload} />;
+  }
+
+  if (subtype === 'pptx' || subtype === 'ppt') {
+    return <PptxViewer file={file} src={src} publicUrl={publicUrl} onDownload={onDownload} />;
+  }
+
+  // ── Category-based routing ─────────────────────────────────────────────────
   switch (category) {
     case 'pdf':
       return <PdfViewer file={file} src={src} onDownload={onDownload} />;
@@ -72,6 +90,7 @@ export function FileViewerShell({ file, src, publicUrl, textContent, onDownload 
     case 'document':
     case 'spreadsheet':
     case 'presentation':
+      // Fallback for any document types not matched above
       return <DocumentViewer file={file} publicUrl={publicUrl} onDownload={onDownload} />;
 
     case 'video':
