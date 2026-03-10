@@ -11,7 +11,7 @@ export async function buildLocalFilePreview(file: File): Promise<WorkspaceFilePr
   const contentType = getFileContentType(file);
   const category = getFileCategory(contentType);
 
-  if (category === 'pdf' || category === 'image') {
+  if (category === 'pdf' || category === 'image' || category === 'document' || category === 'spreadsheet' || category === 'presentation') {
     return { src: URL.createObjectURL(file) };
   }
 
@@ -42,7 +42,7 @@ async function buildFilePreviewFromResponse(file: FileItem, response: Response):
     return { textContent: await response.text() };
   }
 
-  if (category === 'pdf' || category === 'image') {
+  if (category === 'pdf' || category === 'image' || category === 'document' || category === 'spreadsheet' || category === 'presentation') {
     const blob = await response.blob();
     if (!blob.size) {
       return {};

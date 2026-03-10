@@ -19,7 +19,7 @@ export function useSelectedFilePreview(file: FileItem | null) {
 
   const preview = file ? filePreviews[file.id] : undefined;
   const category = file ? getFileCategory(file.contentType) : null;
-  const needsRemotePreview = category === 'pdf' || category === 'image' || category === 'code';
+  const needsRemotePreview = category === 'pdf' || category === 'image' || category === 'code' || category === 'document' || category === 'spreadsheet' || category === 'presentation';
 
   useEffect(() => {
     if (!file || !needsRemotePreview) {

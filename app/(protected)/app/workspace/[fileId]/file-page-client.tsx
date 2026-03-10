@@ -175,7 +175,7 @@ export function FilePageClient({ file }: FilePageClientProps) {
       return;
     }
 
-    if (category !== 'pdf' && category !== 'image' && category !== 'code' && category !== 'video' && category !== 'audio') {
+    if (category !== 'pdf' && category !== 'image' && category !== 'code' && category !== 'video' && category !== 'audio' && category !== 'document' && category !== 'spreadsheet' && category !== 'presentation') {
       return;
     }
 

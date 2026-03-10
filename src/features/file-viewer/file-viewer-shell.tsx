@@ -11,18 +11,27 @@
  */
 
 import { FileItem } from '@/src/lib/types';
-import { getFileCategory } from './utils/file-type';
+import { getFileCategory, getFileSubtype } from './utils/file-type';
 import { PdfViewer } from './pdf/pdf-viewer';
 import { ImageViewer } from './image/image-viewer';
 import { DocumentViewer } from './document/document-viewer';
+import { DocxViewer } from './document/docx-viewer';
+import { SpreadsheetViewer } from './document/spreadsheet-viewer';
+import { PptxViewer } from './document/pptx-viewer';
 import { GenericViewer } from './generic/generic-viewer';
 import { TextViewer } from './text/text-viewer';
+import { VideoViewer } from './video/video-viewer';
+import { AudioViewer } from './audio/audio-viewer';
+import { MarkdownViewer } from './text/markdown-viewer';
+import { CsvViewer } from './text/csv-viewer';
+import { JsonViewer } from './text/json-viewer';
+import { XmlViewer } from './text/xml-viewer';
 
 interface FileViewerShellProps {
   file: FileItem;
   /**
    * Optional pre-built object / data URL for the file content.
-   * When provided, viewers that can embed content (PDF, image) will use it.
+   * When provided, viewers that can embed content (PDF, image, office docs) will use it.
    */
   src?: string;
   /**
@@ -38,7 +47,39 @@ interface FileViewerShellProps {
 
 export function FileViewerShell({ file, src, publicUrl, textContent, onDownload }: FileViewerShellProps) {
   const category = getFileCategory(file.contentType);
+  const subtype = getFileSubtype(file.contentType);
 
+  // ── Text subtypes ─────────────────────────────────────────────────────────
+  if (subtype === 'md' && textContent) {
+    return <MarkdownViewer file={file} textContent={textContent} onDownload={onDownload} />;
+  }
+
+  if (subtype === 'csv' && textContent) {
+    return <CsvViewer file={file} textContent={textContent} onDownload={onDownload} />;
+  }
+
+  if (subtype === 'json' && textContent) {
+    return <JsonViewer file={file} textContent={textContent} onDownload={onDownload} />;
+  }
+
+  if (subtype === 'xml' && textContent) {
+    return <XmlViewer file={file} textContent={textContent} onDownload={onDownload} />;
+  }
+
+  // ── Office document subtypes (binary rendering with specialized viewers) ──
+  if (subtype === 'docx' || subtype === 'doc') {
+    return <DocxViewer file={file} src={src} onDownload={onDownload} />;
+  }
+
+  if (subtype === 'xlsx' || subtype === 'xls') {
+    return <SpreadsheetViewer file={file} src={src} onDownload={onDownload} />;
+  }
+
+  if (subtype === 'pptx' || subtype === 'ppt') {
+    return <PptxViewer file={file} src={src} publicUrl={publicUrl} onDownload={onDownload} />;
+  }
+
+  // ── Category-based routing ─────────────────────────────────────────────────
   switch (category) {
     case 'pdf':
       return <PdfViewer file={file} src={src} onDownload={onDownload} />;
@@ -49,40 +90,14 @@ export function FileViewerShell({ file, src, publicUrl, textContent, onDownload 
     case 'document':
     case 'spreadsheet':
     case 'presentation':
+      // Fallback for any document types not matched above
       return <DocumentViewer file={file} publicUrl={publicUrl} onDownload={onDownload} />;
 
     case 'video':
-      return (
-        <div className="h-full flex flex-col bg-card">
-          <div className="flex-1 overflow-auto flex items-center justify-center p-8">
-            {src ? (
-              /* eslint-disable-next-line jsx-a11y/media-has-caption */
-              <video
-                src={src}
-                controls
-                aria-label={file.originalName}
-                className="max-w-full max-h-full rounded shadow-2xl"
-              />
-            ) : (
-              <GenericViewer file={file} onDownload={onDownload} />
-            )}
-          </div>
-        </div>
-      );
+      return <VideoViewer file={file} src={src} onDownload={onDownload} />;
 
     case 'audio':
-      return (
-        <div className="h-full flex flex-col bg-card">
-          <div className="flex-1 overflow-auto flex items-center justify-center p-8">
-            {src ? (
-              /* eslint-disable-next-line jsx-a11y/media-has-caption */
-              <audio src={src} controls aria-label={file.originalName} className="w-full max-w-lg" />
-            ) : (
-              <GenericViewer file={file} onDownload={onDownload} />
-            )}
-          </div>
-        </div>
-      );
+      return <AudioViewer file={file} src={src} onDownload={onDownload} />;
 
     case 'code':
       return textContent ? (

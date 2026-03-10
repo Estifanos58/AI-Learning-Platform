@@ -11,7 +11,16 @@ export { FileViewerShell } from './file-viewer-shell';
 export { PdfViewer } from './pdf/pdf-viewer';
 export { ImageViewer } from './image/image-viewer';
 export { DocumentViewer } from './document/document-viewer';
+export { DocxViewer } from './document/docx-viewer';
+export { SpreadsheetViewer } from './document/spreadsheet-viewer';
+export { PptxViewer } from './document/pptx-viewer';
 export { TextViewer } from './text/text-viewer';
+export { MarkdownViewer } from './text/markdown-viewer';
+export { CsvViewer } from './text/csv-viewer';
+export { JsonViewer } from './text/json-viewer';
+export { XmlViewer } from './text/xml-viewer';
+export { VideoViewer } from './video/video-viewer';
+export { AudioViewer } from './audio/audio-viewer';
 export { GenericViewer } from './generic/generic-viewer';
 
 // Shared toolbar – use in custom viewer layouts
@@ -19,5 +28,5 @@ export { ViewerToolbar } from './viewer-toolbar';
 export type { ViewerToolbarProps } from './viewer-toolbar';
 
 // Utilities
-export { getFileCategory, getFileCategoryMeta, base64ToObjectUrl } from './utils/file-type';
-export type { FileCategory, FileCategoryMeta } from './utils/file-type';
+export { getFileCategory, getFileCategoryMeta, getFileSubtype, base64ToObjectUrl } from './utils/file-type';
+export type { FileCategory, FileCategoryMeta, FileSubtype } from './utils/file-type';
