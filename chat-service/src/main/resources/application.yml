@@ -25,6 +25,11 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      group-id: chat-service-rag-v1
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 management:
   endpoints:
@@ -49,3 +54,8 @@ app:
   kafka:
     chat:
       ai-message-topic: ${APP_KAFKA_TOPIC_AI_MESSAGE:ai.message.requested}
+      ai-message-v2-topic: ${APP_KAFKA_TOPIC_AI_MESSAGE_V2:ai.message.requested.v2}
+      ai-message-chunk-topic: ${APP_KAFKA_TOPIC_AI_MESSAGE_CHUNK:ai.message.chunk.v1}
+      ai-message-completed-topic: ${APP_KAFKA_TOPIC_AI_MESSAGE_COMPLETED:ai.message.completed.v1}
+      ai-message-failed-topic: ${APP_KAFKA_TOPIC_AI_MESSAGE_FAILED:ai.message.failed.v1}
+      ai-message-cancelled-topic: ${APP_KAFKA_TOPIC_AI_MESSAGE_CANCELLED:ai.message.cancelled.v1}

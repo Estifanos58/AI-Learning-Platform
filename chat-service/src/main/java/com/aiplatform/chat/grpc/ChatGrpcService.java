@@ -15,7 +15,10 @@ import com.aiplatform.chat.proto.SendMessageRequest;
 import com.aiplatform.chat.proto.SendMessageResponse;
 import com.aiplatform.chat.proto.SimpleResponse;
 import com.aiplatform.chat.proto.TypingIndicatorRequest;
-import com.aiplatform.chat.service.ChatApplicationService;
+import com.aiplatform.chat.proto.CancelMessageRequest;
+import com.aiplatform.chat.proto.MessageChunk;
+import com.aiplatform.chat.proto.StreamMessageRequest;
+import com.aiplatform.chat.service.ChatKafkaPublisher;
 import io.grpc.stub.StreamObserver;
 import lombok.RequiredArgsConstructor;
 import net.devh.boot.grpc.server.service.GrpcService;
@@ -28,6 +31,7 @@ import java.util.UUID;
 public class ChatGrpcService extends ChatServiceGrpc.ChatServiceImplBase {
 
     private final ChatApplicationService chatApplicationService;
+    private final ChatKafkaPublisher kafkaPublisher;
 
     @Override
     public void sendMessage(SendMessageRequest request, StreamObserver<SendMessageResponse> responseObserver) {
@@ -137,6 +141,30 @@ public class ChatGrpcService extends ChatServiceGrpc.ChatServiceImplBase {
         } catch (Exception e) {
             responseObserver.onError(GrpcChatExceptionMapper.toStatusException(e));
         }
+    }
+
+    @Override
+    public void cancelMessage(CancelMessageRequest request, StreamObserver<SimpleResponse> responseObserver) {
+        try {
+            String userId = GrpcContextKeys.USER_ID.get();
+            kafkaPublisher.publishCancellation(
+                    request.getChatroomId(),
+                    request.getMessageId(),
+                    userId != null ? userId : request.getUserId()
+            );
+            responseObserver.onNext(SimpleResponse.newBuilder().setMessage("Cancellation requested").build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            responseObserver.onError(GrpcChatExceptionMapper.toStatusException(e));
+        }
+    }
+
+    @Override
+    public void streamMessageResponse(StreamMessageRequest request, StreamObserver<MessageChunk> responseObserver) {
+        // This is a server-streaming RPC. Actual streaming is driven by the RAG service via Kafka→Redis.
+        // The gateway will use SSE; this stub serves as the gRPC contract.
+        // Real implementations would subscribe to Redis pub/sub and push chunks.
+        responseObserver.onCompleted();
     }
 
     private MessageDto toMessageDto(MessageEntity message) {

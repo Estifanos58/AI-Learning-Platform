@@ -1,0 +1,29 @@
+# RAG Service Dependencies
+# Core
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.6
+pydantic-settings==2.7.1
+
+# Kafka
+kafka-python==2.2.15
+
+# HTTP client (TEI calls, LLM API fallbacks)
+httpx==0.28.1
+
+# Vector DB
+qdrant-client==1.12.1
+
+# LLM providers (optional but recommended)
+openai==1.58.1
+# google-generativeai==0.8.3  # uncomment to enable Gemini
+
+# Text extraction
+# kreuzberg==0.7.0  # install separately; requires system deps (pandoc, tesseract)
+
+# Chunking / ML utilities
+# sentence-transformers==3.3.1  # for local reranking (optional)
+# tiktoken==0.8.0               # for accurate token counting (optional)
+
+# Observability
+prometheus-client==0.21.1

@@ -1,0 +1,59 @@
+"""LLM – DeepSeek provider (OpenAI-compatible API)."""
+
+from __future__ import annotations
+
+import logging
+from typing import AsyncIterator
+
+from app.config import get_settings
+from app.llm.base_provider import BaseLLMProvider, LLMChunk, LLMRequest, LLMUsage
+
+log = logging.getLogger(__name__)
+settings = get_settings()
+
+_DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
+
+
+class DeepSeekProvider(BaseLLMProvider):
+
+    def __init__(self) -> None:
+        self._usage = LLMUsage()
+
+    @property
+    def provider_name(self) -> str:
+        return "deepseek"
+
+    @property
+    def default_model(self) -> str:
+        return settings.deepseek_model
+
+    def is_available(self) -> bool:
+        return bool(settings.deepseek_api_key)
+
+    async def stream(self, request: LLMRequest) -> AsyncIterator[LLMChunk]:
+        api_key = request.user_api_key or settings.deepseek_api_key
+        model = request.model or self.default_model
+        try:
+            from openai import AsyncOpenAI  # type: ignore[import]
+
+            client = AsyncOpenAI(api_key=api_key, base_url=_DEEPSEEK_BASE_URL)
+            messages = [{"role": m.role, "content": m.content} for m in request.messages]
+            stream = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                stream=True,
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta.content or ""
+                done = chunk.choices[0].finish_reason is not None
+                yield LLMChunk(delta=delta, done=done, finish_reason=chunk.choices[0].finish_reason)
+                if done:
+                    break
+        except Exception as exc:  # noqa: BLE001
+            log.error("DeepSeek streaming error: %s", exc)
+            yield LLMChunk(delta="", done=True, finish_reason="error")
+
+    async def get_usage(self) -> LLMUsage:
+        return self._usage

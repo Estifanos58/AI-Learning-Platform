@@ -47,6 +47,7 @@ app:
     file-events:
       enabled: ${APP_KAFKA_FILE_EVENTS_ENABLED:false}
       uploaded-topic: ${APP_KAFKA_TOPIC_FILE_UPLOADED:file.uploaded.v1}
+      uploaded-v2-topic: ${APP_KAFKA_TOPIC_FILE_UPLOADED_V2:file.uploaded.v2}
       deleted-topic: ${APP_KAFKA_TOPIC_FILE_DELETED:file.deleted.v1}
       folder-created-topic: ${APP_KAFKA_TOPIC_FOLDER_CREATED:folder.created.v1}
       folder-deleted-topic: ${APP_KAFKA_TOPIC_FOLDER_DELETED:folder.deleted.v1}

@@ -129,6 +129,10 @@ services:
       GRPC_SERVER_PORT: 9092
       FILE_STORAGE_ROOT_PATH: /data
       APP_GRPC_FILE_SERVICE_SECRET: change-me-shared-secret
+      APP_KAFKA_FILE_EVENTS_ENABLED: "true"
+      APP_KAFKA_TOPIC_FILE_UPLOADED: file.uploaded.v1
+      APP_KAFKA_TOPIC_FILE_UPLOADED_V2: file.uploaded.v2
+      APP_KAFKA_TOPIC_FILE_DELETED: file.deleted.v1
     volumes:
       - file-storage:/data
     ports:
@@ -185,6 +189,11 @@ services:
       APP_GRPC_CHAT_SERVICE_SECRET: change-me-shared-secret
       APP_GRPC_FILE_SERVICE_SECRET: change-me-shared-secret
       APP_KAFKA_TOPIC_AI_MESSAGE: ai.message.requested
+      APP_KAFKA_TOPIC_AI_MESSAGE_V2: ai.message.requested.v2
+      APP_KAFKA_TOPIC_AI_MESSAGE_CHUNK: ai.message.chunk.v1
+      APP_KAFKA_TOPIC_AI_MESSAGE_COMPLETED: ai.message.completed.v1
+      APP_KAFKA_TOPIC_AI_MESSAGE_FAILED: ai.message.failed.v1
+      APP_KAFKA_TOPIC_AI_MESSAGE_CANCELLED: ai.message.cancelled.v1
     ports:
       - "9095:9095"
 
@@ -238,15 +247,89 @@ services:
       - "8086:8086"
 
   rag-service:
-    image: alpine:3.20
-    command: ["sh", "-c", "sleep infinity"]
+    build:
+      context: .
+      dockerfile: rag-service/Dockerfile
     profiles: ["rag"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    environment:
+      RAG_HOST: 0.0.0.0
+      RAG_PORT: 8087
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_GROUP_ID: rag-service-v1
+      KAFKA_TOPIC_FILE_UPLOADED_V2: file.uploaded.v2
+      KAFKA_TOPIC_FILE_DELETED_V1: file.deleted.v1
+      KAFKA_TOPIC_AI_MESSAGE_REQUESTED_V2: ai.message.requested.v2
+      KAFKA_TOPIC_AI_MESSAGE_CANCELLED_V1: ai.message.cancelled.v1
+      KAFKA_TOPIC_AI_MESSAGE_CHUNK_V1: ai.message.chunk.v1
+      KAFKA_TOPIC_AI_MESSAGE_COMPLETED_V1: ai.message.completed.v1
+      KAFKA_TOPIC_AI_MESSAGE_FAILED_V1: ai.message.failed.v1
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: rag_chunks_prod
+      TEI_BASE_URL: http://tei:80
+      FILE_STORAGE_ROOT_PATH: /data
+      GRPC_FILE_SERVICE_ADDRESS: file-service:9092
+      APP_GRPC_SERVICE_SECRET: change-me-shared-secret
+      APP_ENV: production
+      RAG_DATABASE_URL: postgresql+asyncpg://postgres:postgres@rag-postgres:5432/rag_db
     volumes:
       - file-storage:/data:ro
+    ports:
+      - "8087:8087"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8087/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  rag-postgres:
+    image: postgres:15-alpine
+    profiles: ["rag"]
+    environment:
+      POSTGRES_DB: rag_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5436:5432"
+    volumes:
+      - rag_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rag_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    profiles: ["rag"]
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    profiles: ["rag"]
+    command: --model-id BAAI/bge-large-en-v1.5 --port 80
+    ports:
+      - "8088:80"
+    volumes:
+      - tei_models:/data
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
 
 volumes:
   auth_postgres_data:
   profile_postgres_data:
   file_postgres_data:
   chat_postgres_data:
+  rag_postgres_data:
   file-storage:
+  qdrant_data:
+  tei_models:

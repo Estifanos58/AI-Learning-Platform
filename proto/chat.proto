@@ -12,6 +12,10 @@ service ChatService {
   rpc ListChatrooms(ListChatroomsRequest) returns (ListChatroomsResponse);
   rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
   rpc SendTypingIndicator(TypingIndicatorRequest) returns (SimpleResponse);
+
+  // RAG streaming RPCs
+  rpc StreamMessageResponse(StreamMessageRequest) returns (stream MessageChunk);
+  rpc CancelMessage(CancelMessageRequest) returns (SimpleResponse);
 }
 
 message SendMessageRequest {
@@ -24,6 +28,7 @@ message SendMessageRequest {
   bytes file_content = 7;
   string file_original_name = 8;
   string file_content_type = 9;
+  repeated string file_ids = 10;
 }
 
 message SendMessageResponse {
@@ -84,4 +89,26 @@ message ListMessagesResponse {
 
 message SimpleResponse {
   string message = 1;
+}
+
+// RAG streaming messages
+message StreamMessageRequest {
+  string message_id = 1;
+  string chatroom_id = 2;
+  string user_id = 3;
+}
+
+message MessageChunk {
+  string message_id = 1;
+  string request_id = 2;
+  int32 sequence = 3;
+  string content_delta = 4;
+  bool done = 5;
+  string finish_reason = 6;
+}
+
+message CancelMessageRequest {
+  string message_id = 1;
+  string chatroom_id = 2;
+  string user_id = 3;
 }

@@ -1,6 +1,7 @@
 package com.aiplatform.gateway.controller;
 
 import com.aiplatform.chat.proto.ChatServiceGrpc;
+import com.aiplatform.chat.proto.CancelMessageRequest;
 import com.aiplatform.chat.proto.GetChatroomRequest;
 import com.aiplatform.chat.proto.ListChatroomsRequest;
 import com.aiplatform.chat.proto.ListMessagesRequest;
@@ -18,7 +19,9 @@ import com.aiplatform.gateway.security.JwtValidationService;
 import com.aiplatform.gateway.util.GatewayPrincipal;
 import com.aiplatform.gateway.util.GatewayPrincipalResolver;
 import com.aiplatform.gateway.util.GrpcExceptionMapper;
-import com.google.protobuf.ByteString;
+import com.aiplatform.gateway.websocket.ChatRedisSubscriber;
+import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
 import io.grpc.Metadata;
 import io.grpc.stub.MetadataUtils;
 import lombok.RequiredArgsConstructor;
@@ -55,6 +58,7 @@ public class GatewayChatController {
 
     private final GrpcChatProperties grpcChatProperties;
     private final JwtValidationService jwtValidationService;
+    private final ChatRedisSubscriber redisSubscriber;
 
     @PostMapping("/messages")
     public Mono<ResponseEntity<SendChatMessageResponse>> sendMessage(
@@ -167,6 +171,57 @@ public class GatewayChatController {
                             .setIsTyping(isTyping)
                             .build());
                     return ResponseEntity.ok(new ApiMessageResponse("OK"));
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
+    /**
+     * SSE streaming endpoint: bridges RAG chunk events to the client.
+     * GET /api/internal/chat/messages/{messageId}/stream?chatroomId=...
+     */
+    @GetMapping(value = "/messages/{messageId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public reactor.core.publisher.Flux<ServerSentEvent<String>> streamMessage(
+            @PathVariable String messageId,
+            @RequestParam(required = false) String chatroomId,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
+    ) {
+        try {
+            resolvePrincipal(authorization, correlationHeader);
+        } catch (Exception e) {
+            return reactor.core.publisher.Flux.error(e);
+        }
+
+        String room = chatroomId != null && !chatroomId.isBlank() ? chatroomId : messageId;
+        return redisSubscriber.subscribeToAiStream(room, messageId)
+                .map(data -> ServerSentEvent.<String>builder()
+                        .id(messageId)
+                        .event("ai_chunk")
+                        .data(data)
+                        .build())
+                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
+    /**
+     * Cancel an active AI generation.
+     * POST /api/internal/chat/messages/{messageId}/cancel
+     */
+    @PostMapping("/messages/{messageId}/cancel")
+    public Mono<ResponseEntity<ApiMessageResponse>> cancelMessage(
+            @PathVariable String messageId,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
+    ) {
+        return Mono.fromCallable(() -> {
+                    GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
+                    withMetadata(principal).cancelMessage(
+                            CancelMessageRequest.newBuilder()
+                                    .setMessageId(messageId)
+                                    .setUserId(principal.userId())
+                                    .build()
+                    );
+                    return ResponseEntity.ok(new ApiMessageResponse("Cancellation requested"));
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorMap(GrpcExceptionMapper::toResponseStatus);

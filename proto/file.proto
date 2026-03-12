@@ -32,6 +32,10 @@ service FileService {
   rpc GetFilePath(GetFilePathRequest) returns (FilePathResponse);
   rpc GetFileContent(GetFileContentRequest) returns (FileContentResponse);
   rpc GetFileContentStream(GetFileContentRequest) returns (stream FileContentChunk);
+
+  // RAG-specific RPCs
+  rpc AuthorizeFilesForUser(AuthorizeFilesForUserRequest) returns (AuthorizeFilesForUserResponse);
+  rpc BatchGetFileMetadata(BatchGetFileMetadataRequest) returns (BatchGetFileMetadataResponse);
 }
 
 message CreateFolderRequest {
@@ -196,4 +200,24 @@ message FileContentChunk {
 
 message SimpleResponse {
   string message = 1;
+}
+
+// RAG authorization messages
+message AuthorizeFilesForUserRequest {
+  string user_id = 1;
+  repeated string file_ids = 2;
+}
+
+message AuthorizeFilesForUserResponse {
+  repeated string allowed_file_ids = 1;
+  map<string, string> denied_reasons = 2;
+}
+
+message BatchGetFileMetadataRequest {
+  string user_id = 1;
+  repeated string file_ids = 2;
+}
+
+message BatchGetFileMetadataResponse {
+  repeated FileResponse files = 1;
 }

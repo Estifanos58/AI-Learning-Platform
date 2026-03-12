@@ -29,6 +29,19 @@ public class FileEventPublisher {
             return;
         }
         kafkaTemplate.send(topicProperties.uploadedTopic(), file.getId().toString(), toPayload("file.uploaded.v1", file));
+        // Also publish v2 for RAG ingestion
+        publishUploadedV2(file);
+    }
+
+    public void publishUploadedV2(FileEntity file) {
+        if (!topicProperties.enabled() || kafkaTemplate == null) {
+            return;
+        }
+        String v2Topic = topicProperties.uploadedV2Topic();
+        if (v2Topic == null || v2Topic.isBlank()) {
+            return;
+        }
+        kafkaTemplate.send(v2Topic, file.getId().toString(), toPayloadV2(file));
     }
 
     public void publishDeleted(FileEntity file) {
@@ -70,6 +83,32 @@ public class FileEventPublisher {
                 + "\"fileType\":\"" + file.getFileType().name() + "\"," 
                 + "\"path\":\"" + path + "\"," 
                 + "\"timestamp\":\"" + timestamp + "\""
+                + "}";
+    }
+
+    private String toPayloadV2(FileEntity file) {
+        String timestamp = TIME_FORMATTER.format(LocalDateTime.now());
+        String path = file.getStoragePath() == null ? "" : file.getStoragePath().replace("\"", "");
+        String contentType = file.getContentType() == null ? "" : file.getContentType().replace("\"", "");
+        String originalName = file.getOriginalName() == null ? "" : file.getOriginalName().replace("\"", "");
+        String folderId = file.getFolderId() == null ? "" : file.getFolderId().toString();
+        return "{"
+                + "\"event_id\":\"" + UUID.randomUUID() + "\","
+                + "\"event_type\":\"file.uploaded.v2\","
+                + "\"timestamp\":\"" + timestamp + "\","
+                + "\"payload\":{"
+                + "\"file_id\":\"" + file.getId() + "\","
+                + "\"owner_id\":\"" + file.getOwnerId() + "\","
+                + "\"folder_id\":\"" + folderId + "\","
+                + "\"file_name\":\"" + originalName + "\","
+                + "\"file_type\":\"" + file.getFileType().name() + "\","
+                + "\"content_type\":\"" + contentType + "\","
+                + "\"storage_path\":\"" + path + "\","
+                + "\"file_size\":" + (file.getFileSize() == null ? 0 : file.getFileSize()) + ","
+                + "\"is_shareable\":" + (file.getIsShareable() != null && file.getIsShareable()) + ","
+                + "\"tags\":[],"
+                + "\"metadata\":{}"
+                + "}"
                 + "}";
     }
 

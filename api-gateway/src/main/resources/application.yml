@@ -96,6 +96,40 @@ spring:
                 redis-rate-limiter.replenishRate: 100
                 redis-rate-limiter.burstCapacity: 120
             - RewritePath=/api/chat/?(?<segment>.*), /api/internal/chat/${segment}
+        - id: chat-ai-messages-rate-limited
+          uri: forward:/
+          predicates:
+            - Path=/api/chat/messages
+            - Method=POST
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@ipRateLimitKeyResolver}'
+                redis-rate-limiter.replenishRate: 5
+                redis-rate-limiter.burstCapacity: 10
+            - RewritePath=/api/chat/?(?<segment>.*), /api/internal/chat/${segment}
+        - id: chat-ai-stream-rate-limited
+          uri: forward:/
+          predicates:
+            - Path=/api/chat/messages/*/stream
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@ipRateLimitKeyResolver}'
+                redis-rate-limiter.replenishRate: 10
+                redis-rate-limiter.burstCapacity: 20
+            - RewritePath=/api/chat/?(?<segment>.*), /api/internal/chat/${segment}
+        - id: chat-ai-cancel-rate-limited
+          uri: forward:/
+          predicates:
+            - Path=/api/chat/messages/*/cancel
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@ipRateLimitKeyResolver}'
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 30
+            - RewritePath=/api/chat/?(?<segment>.*), /api/internal/chat/${segment}
       globalcors:
         cors-configurations:
           '[/**]':

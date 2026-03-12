@@ -436,6 +436,27 @@ public class FileApplicationService {
         }
     }
 
+    /**
+     * RAG authorization check: returns true if userId is owner, or the folder is shared, or the file is explicitly shared.
+     */
+    public boolean isFileAuthorizedForUser(UUID fileId, UUID userId) {
+        return fileRepository.findByIdAndDeletedFalse(fileId)
+                .map(file -> {
+                    if (file.getOwnerId().equals(userId)) return true;
+                    if (folderShareRepository.existsByFolderIdAndSharedWithUserId(file.getFolderId(), userId)) return true;
+                    return fileShareRepository.existsByFileIdAndSharedWithUserId(file.getId(), userId);
+                })
+                .orElse(false);
+    }
+
+    /**
+     * Returns file metadata if the user is authorized to access it.
+     */
+    public java.util.Optional<FileEntity> getFileMetadata(UUID fileId, UUID userId) {
+        return fileRepository.findByIdAndDeletedFalse(fileId)
+                .filter(file -> isFileAuthorizedForUser(fileId, userId));
+    }
+
     private String safeOriginalName(String originalName, String fallback) {
         String cleaned = blankToNull(originalName);
         return cleaned == null ? fallback : cleaned;

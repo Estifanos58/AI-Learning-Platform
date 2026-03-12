@@ -40,10 +40,12 @@ import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.grpc.stub.StreamObserver;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import net.devh.boot.grpc.server.service.GrpcService;
 
 import java.util.UUID;
 
+@Slf4j
 @GrpcService
 @RequiredArgsConstructor
 public class FileGrpcService extends FileServiceGrpc.FileServiceImplBase {
@@ -572,6 +574,66 @@ public class FileGrpcService extends FileServiceGrpc.FileServiceImplBase {
         private StreamingUploadState(AuthenticatedPrincipal principal, String internalSource) {
             this.principal = principal;
             this.internalSource = internalSource;
+        }
+    }
+
+    // ── RAG-specific RPCs ────────────────────────────────────────────────────
+
+    @Override
+    public void authorizeFilesForUser(
+            com.aiplatform.file.proto.AuthorizeFilesForUserRequest request,
+            StreamObserver<com.aiplatform.file.proto.AuthorizeFilesForUserResponse> responseObserver) {
+        try {
+            UUID userId = UUID.fromString(request.getUserId());
+            com.aiplatform.file.proto.AuthorizeFilesForUserResponse.Builder builder =
+                    com.aiplatform.file.proto.AuthorizeFilesForUserResponse.newBuilder();
+
+            for (String fileIdStr : request.getFileIdsList()) {
+                try {
+                    UUID fileId = UUID.fromString(fileIdStr);
+                    boolean allowed = fileApplicationService.isFileAuthorizedForUser(fileId, userId);
+                    if (allowed) {
+                        builder.addAllowedFileIds(fileIdStr);
+                    } else {
+                        builder.putDeniedReasons(fileIdStr, "unauthorized");
+                    }
+                } catch (Exception e) {
+                    builder.putDeniedReasons(fileIdStr, "invalid_id");
+                }
+            }
+
+            responseObserver.onNext(builder.build());
+            responseObserver.onCompleted();
+        } catch (Exception exception) {
+            responseObserver.onError(FileGrpcExceptionMapper.toStatusException(exception));
+        }
+    }
+
+    @Override
+    public void batchGetFileMetadata(
+            com.aiplatform.file.proto.BatchGetFileMetadataRequest request,
+            StreamObserver<com.aiplatform.file.proto.BatchGetFileMetadataResponse> responseObserver) {
+        try {
+            UUID userId = UUID.fromString(request.getUserId());
+            com.aiplatform.file.proto.BatchGetFileMetadataResponse.Builder builder =
+                    com.aiplatform.file.proto.BatchGetFileMetadataResponse.newBuilder();
+
+            for (String fileIdStr : request.getFileIdsList()) {
+                try {
+                    UUID fileId = UUID.fromString(fileIdStr);
+                    if (fileApplicationService.isFileAuthorizedForUser(fileId, userId)) {
+                        fileApplicationService.getFileMetadata(fileId, userId)
+                                .ifPresent(file -> builder.addFiles(FileGrpcResponseMapper.toResponse(file)));
+                    }
+                } catch (Exception e) {
+                    log.debug("Skipping file_id={} in batch: {}", fileIdStr, e.getMessage());
+                }
+            }
+
+            responseObserver.onNext(builder.build());
+            responseObserver.onCompleted();
+        } catch (Exception exception) {
+            responseObserver.onError(FileGrpcExceptionMapper.toStatusException(exception));
         }
     }
 }

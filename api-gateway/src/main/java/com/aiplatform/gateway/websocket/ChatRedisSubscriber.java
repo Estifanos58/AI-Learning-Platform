@@ -101,4 +101,47 @@ public class ChatRedisSubscriber {
                     return Flux.empty();
                 });
     }
+
+    /**
+     * Subscribes to AI streaming chunk events for a specific message.
+     * Used by the SSE streaming endpoint.
+     */
+    public Flux<String> subscribeToAiStream(String chatroomId, String messageId) {
+        PatternTopic chunkTopic = PatternTopic.of("aiChunk." + chatroomId);
+        PatternTopic completedTopic = PatternTopic.of("aiCompleted." + chatroomId);
+        PatternTopic failedTopic = PatternTopic.of("aiFailed." + chatroomId);
+        PatternTopic cancelledTopic = PatternTopic.of("aiCancelled." + chatroomId);
+
+        Flux<String> chunkFlux = Flux.defer(() -> createContainer().receive(chunkTopic))
+                .map(message -> {
+                    try {
+                        Map<String, Object> data = objectMapper.readValue(message.getMessage(), new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+                        if (!messageId.equals(data.get("messageId"))) return null;
+                        return objectMapper.writeValueAsString(Map.of("type", "AI_CHUNK", "data", data));
+                    } catch (Exception e) {
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull);
+
+        Flux<String> terminalFlux = Flux.defer(() -> createContainer()
+                        .receive(completedTopic, failedTopic, cancelledTopic))
+                .map(message -> {
+                    try {
+                        Map<String, Object> data = objectMapper.readValue(message.getMessage(), new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+                        if (!messageId.equals(data.get("messageId"))) return null;
+                        String type = (String) data.getOrDefault("type", "AI_COMPLETED");
+                        return objectMapper.writeValueAsString(Map.of("type", type, "data", data));
+                    } catch (Exception e) {
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull);
+
+        return Flux.merge(chunkFlux, terminalFlux)
+                .onErrorResume(error -> {
+                    log.warn("Redis AI stream subscription error: {}", error.getMessage());
+                    return Flux.empty();
+                });
+    }
 }
