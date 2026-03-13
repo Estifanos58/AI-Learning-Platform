@@ -39,10 +39,10 @@ public class RagStreamConsumer {
 
     @KafkaListener(
             topics = {
-                    "#{@kafkaChatTopicProperties.aiMessageChunkTopic() ?: 'ai.message.chunk.v1'}",
-                    "#{@kafkaChatTopicProperties.aiMessageCompletedTopic() ?: 'ai.message.completed.v1'}",
-                    "#{@kafkaChatTopicProperties.aiMessageFailedTopic() ?: 'ai.message.failed.v1'}",
-                    "#{@kafkaChatTopicProperties.aiMessageCancelledTopic() ?: 'ai.message.cancelled.v1'}"
+                "${app.kafka.chat.ai-message-chunk-topic:ai.message.chunk.v1}",
+                "${app.kafka.chat.ai-message-completed-topic:ai.message.completed.v1}",
+                "${app.kafka.chat.ai-message-failed-topic:ai.message.failed.v1}",
+                "${app.kafka.chat.ai-message-cancelled-topic:ai.message.cancelled.v1}"
             },
             groupId = "${spring.kafka.consumer.group-id:chat-service-rag-v1}",
             containerFactory = "ragStreamKafkaListenerContainerFactory"

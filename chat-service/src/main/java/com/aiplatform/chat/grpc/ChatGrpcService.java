@@ -18,6 +18,7 @@ import com.aiplatform.chat.proto.TypingIndicatorRequest;
 import com.aiplatform.chat.proto.CancelMessageRequest;
 import com.aiplatform.chat.proto.MessageChunk;
 import com.aiplatform.chat.proto.StreamMessageRequest;
+import com.aiplatform.chat.service.ChatApplicationService;
 import com.aiplatform.chat.service.ChatKafkaPublisher;
 import io.grpc.stub.StreamObserver;
 import lombok.RequiredArgsConstructor;

@@ -20,6 +20,7 @@ import com.aiplatform.gateway.util.GatewayPrincipal;
 import com.aiplatform.gateway.util.GatewayPrincipalResolver;
 import com.aiplatform.gateway.util.GrpcExceptionMapper;
 import com.aiplatform.gateway.websocket.ChatRedisSubscriber;
+import com.google.protobuf.ByteString;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import io.grpc.Metadata;

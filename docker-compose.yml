@@ -248,9 +248,9 @@ services:
 
   rag-service:
     build:
-      context: .
-      dockerfile: rag-service/Dockerfile
-    profiles: ["rag"]
+      context: ./rag-service
+      dockerfile: Dockerfile
+    # profiles: ["rag"]
     depends_on:
       kafka:
         condition: service_healthy
@@ -259,6 +259,7 @@ services:
     environment:
       RAG_HOST: 0.0.0.0
       RAG_PORT: 8087
+      ENCRYPTION_KEY: ${RAG_ENCRYPTION_KEY:-local-dev-rag-encryption-key-32-bytes}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_GROUP_ID: rag-service-v1
       KAFKA_TOPIC_FILE_UPLOADED_V2: file.uploaded.v2
@@ -289,7 +290,7 @@ services:
 
   rag-postgres:
     image: postgres:15-alpine
-    profiles: ["rag"]
+    # profiles: ["rag"]
     environment:
       POSTGRES_DB: rag_db
       POSTGRES_USER: postgres
@@ -306,7 +307,7 @@ services:
 
   qdrant:
     image: qdrant/qdrant:v1.12.4
-    profiles: ["rag"]
+    # profiles: ["rag"]
     ports:
       - "6333:6333"
       - "6334:6334"
@@ -315,7 +316,7 @@ services:
 
   tei:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
-    profiles: ["rag"]
+    # profiles: ["rag"]
     command: --model-id BAAI/bge-large-en-v1.5 --port 80
     ports:
       - "8088:80"
