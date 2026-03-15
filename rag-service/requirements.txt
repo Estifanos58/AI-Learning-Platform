@@ -8,8 +8,18 @@ pydantic-settings==2.7.1
 # Kafka
 kafka-python==2.2.15
 
+# gRPC
+grpcio==1.69.0
+grpcio-tools==1.69.0
+
 # HTTP client (TEI calls, LLM API fallbacks)
 httpx==0.28.1
+
+# Database / security
+sqlalchemy==2.0.38
+asyncpg==0.30.0
+cryptography==44.0.0
+aiosqlite==0.20.0
 
 # Vector DB
 qdrant-client==1.12.1

@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package ai.v1;
+
+option java_multiple_files = true;
+option java_package = "com.aiplatform.ai.proto";
+option java_outer_classname = "AiModelsProto";
+
+service AiModelService {
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+  rpc CreateUserApiKey(CreateUserApiKeyRequest) returns (ApiKeyResponse);
+  rpc UpdateUserApiKey(UpdateUserApiKeyRequest) returns (ApiKeyResponse);
+  rpc DeleteUserApiKey(DeleteUserApiKeyRequest) returns (ApiKeyResponse);
+}
+
+message ListModelsRequest {}
+
+message AiModelDto {
+  string model_id = 1;
+  string model_name = 2;
+  string provider = 3;
+  int32 context_length = 4;
+  bool supports_streaming = 5;
+  bool user_key_configured = 6;
+  bool platform_key_available = 7;
+  string description = 8;
+}
+
+message ListModelsResponse {
+  repeated AiModelDto models = 1;
+}
+
+message CreateUserApiKeyRequest {
+  string model_id = 1;
+  string api_key = 2;
+}
+
+message UpdateUserApiKeyRequest {
+  string model_id = 1;
+  string api_key = 2;
+}
+
+message DeleteUserApiKeyRequest {
+  string model_id = 1;
+}
+
+message ApiKeyResponse {
+  string model_id = 1;
+  string status = 2;
+}

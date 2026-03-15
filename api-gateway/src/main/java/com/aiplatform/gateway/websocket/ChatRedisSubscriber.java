@@ -1,14 +1,13 @@
 package com.aiplatform.gateway.websocket;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
 import org.springframework.data.redis.listener.PatternTopic;
 import org.springframework.data.redis.listener.ReactiveRedisMessageListenerContainer;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.socket.WebSocketSession;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
 import java.util.Map;
 import java.util.Objects;
@@ -17,16 +16,17 @@ import java.util.Objects;
 @Component
 public class ChatRedisSubscriber {
 
-    private final ReactiveRedisConnectionFactory connectionFactory;
+    private final ReactiveRedisMessageListenerContainer container;
     private final ObjectMapper objectMapper;
 
     public ChatRedisSubscriber(ReactiveRedisConnectionFactory connectionFactory, ObjectMapper objectMapper) {
-        this.connectionFactory = connectionFactory;
+        this.container = new ReactiveRedisMessageListenerContainer(connectionFactory);
         this.objectMapper = objectMapper;
     }
 
-    private ReactiveRedisMessageListenerContainer createContainer() {
-        return new ReactiveRedisMessageListenerContainer(connectionFactory);
+    @PreDestroy
+    public void shutdown() {
+        container.destroy();
     }
 
     /**
@@ -35,7 +35,7 @@ public class ChatRedisSubscriber {
      */
     public Flux<String> subscribeToNewMessages(String chatroomId) {
         PatternTopic topic = PatternTopic.of("newMessageSent." + chatroomId);
-        return Flux.defer(() -> createContainer().receive(topic))
+        return Flux.defer(() -> container.receive(topic))
                 .map(message -> {
                     try {
                         Map<String, Object> envelope = Map.of(
@@ -58,7 +58,7 @@ public class ChatRedisSubscriber {
 
     public Flux<String> subscribeToTyping(String chatroomId) {
         PatternTopic topic = PatternTopic.of("userTyping." + chatroomId);
-        return Flux.defer(() -> createContainer().receive(topic))
+        return Flux.defer(() -> container.receive(topic))
                 .map(message -> {
                     try {
                         Map<String, Object> envelope = Map.of(
@@ -81,7 +81,7 @@ public class ChatRedisSubscriber {
 
     public Flux<String> subscribeToNewChatroom(String userId) {
         PatternTopic topic = PatternTopic.of("ChatroomCreatedWithMessage." + userId);
-        return Flux.defer(() -> createContainer().receive(topic))
+        return Flux.defer(() -> container.receive(topic))
                 .map(message -> {
                     try {
                         Map<String, Object> envelope = Map.of(
@@ -102,6 +102,45 @@ public class ChatRedisSubscriber {
                 });
     }
 
+    public Flux<String> subscribeToAiEvents(String chatroomId) {
+        PatternTopic chunkTopic = PatternTopic.of("aiChunk." + chatroomId);
+        PatternTopic completedTopic = PatternTopic.of("aiCompleted." + chatroomId);
+        PatternTopic failedTopic = PatternTopic.of("aiFailed." + chatroomId);
+        PatternTopic cancelledTopic = PatternTopic.of("aiCancelled." + chatroomId);
+
+        return Flux.defer(() -> container.receive(chunkTopic, completedTopic, failedTopic, cancelledTopic))
+                .map(message -> {
+                    try {
+                        String channel = new String(message.getChannel());
+                        String type;
+                        if (channel.startsWith("aiChunk.")) {
+                            type = "AI_CHUNK";
+                        } else if (channel.startsWith("aiCompleted.")) {
+                            type = "AI_COMPLETED";
+                        } else if (channel.startsWith("aiFailed.")) {
+                            type = "AI_FAILED";
+                        } else {
+                            type = "AI_CANCELLED";
+                        }
+
+                        Map<String, Object> envelope = Map.of(
+                                "type", type,
+                                "chatroomId", chatroomId,
+                                "data", objectMapper.readValue(message.getMessage(), Object.class)
+                        );
+                        return objectMapper.writeValueAsString(envelope);
+                    } catch (Exception e) {
+                        log.warn("Failed to process AI event for chatroomId={}", chatroomId, e);
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .onErrorResume(error -> {
+                    log.warn("Redis subscription unavailable for AI events chatroomId={}: {}", chatroomId, error.getMessage());
+                    return Flux.empty();
+                });
+    }
+
     /**
      * Subscribes to AI streaming chunk events for a specific message.
      * Used by the SSE streaming endpoint.
@@ -112,7 +151,7 @@ public class ChatRedisSubscriber {
         PatternTopic failedTopic = PatternTopic.of("aiFailed." + chatroomId);
         PatternTopic cancelledTopic = PatternTopic.of("aiCancelled." + chatroomId);
 
-        Flux<String> chunkFlux = Flux.defer(() -> createContainer().receive(chunkTopic))
+        Flux<String> chunkFlux = Flux.defer(() -> container.receive(chunkTopic))
                 .map(message -> {
                     try {
                         Map<String, Object> data = objectMapper.readValue(message.getMessage(), new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
@@ -124,7 +163,7 @@ public class ChatRedisSubscriber {
                 })
                 .filter(Objects::nonNull);
 
-        Flux<String> terminalFlux = Flux.defer(() -> createContainer()
+        Flux<String> terminalFlux = Flux.defer(() -> container
                         .receive(completedTopic, failedTopic, cancelledTopic))
                 .map(message -> {
                     try {

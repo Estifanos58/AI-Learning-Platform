@@ -9,11 +9,14 @@ import uuid
 from typing import Any, Dict, Optional, Set
 
 from app.agents.base_agent import AgentContext
+from app.db.session import AsyncSessionLocal
+from app.repositories.user_key_repository import UserKeyRepository
 from app.orchestration.planner_agent import PlannerAgent
 from app.orchestration.response_aggregator import ResponseAggregator
 from app.orchestration.workflow_builder import WorkflowBuilder
 from app.retrieval.reranker import Reranker
 from app.retrieval.vector_search import VectorSearch
+from app.security.encryption import decrypt_key
 from app.security.user_permission_checker import UserPermissionChecker
 from app.streaming.response_streamer import ResponseStreamer
 from app.usage.token_meter import TokenMeter
@@ -54,7 +57,7 @@ class PipelineExecutor:
         file_ids = payload.get("file_ids", [])
         options = payload.get("options", {})
         context_window = payload.get("context_window", [])
-        user_api_key: Optional[str] = None  # look up from encrypted store if needed
+        user_api_key = await self._resolve_user_api_key(user_id=user_id, model_id=model_id)
 
         # Register cancellation event
         cancel_event = asyncio.Event()
@@ -94,6 +97,21 @@ class PipelineExecutor:
             log.info(
                 "Pipeline complete: request_id=%s latency_ms=%d", request_id, latency_ms
             )
+
+    async def _resolve_user_api_key(self, user_id: str, model_id: str) -> Optional[str]:
+        if not user_id or not model_id:
+            return None
+
+        try:
+            async with AsyncSessionLocal() as session:
+                repo = UserKeyRepository(session)
+                record = await repo.get_active_key(user_id=user_id, model_id=model_id)
+                if record is None:
+                    return None
+                return decrypt_key(record.encrypted_api_key)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Failed to resolve user API key for user_id=%s model_id=%s: %s", user_id, model_id, exc)
+            return None
 
     async def _run_pipeline(
         self,

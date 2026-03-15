@@ -44,3 +44,12 @@ def test_route_none_raises_if_no_provider(monkeypatch):
         monkeypatch.setattr(p, "is_available", lambda: False)
     with pytest.raises(RuntimeError):
         router.route(None)
+
+
+def test_route_uses_user_key_even_when_provider_not_available(monkeypatch):
+    router = ProviderRouter()
+    provider = router._providers["openai"]
+    monkeypatch.setattr(provider, "is_available", lambda: False)
+
+    selected = router.route("gpt-4o", user_api_key="user-key-present")
+    assert selected.provider_name == "openai"

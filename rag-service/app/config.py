@@ -130,6 +130,8 @@ class Settings(BaseSettings):
     file_service_grpc_address: str = Field(
         default="localhost:9092", alias="GRPC_FILE_SERVICE_ADDRESS"
     )
+    rag_grpc_host: str = Field(default="0.0.0.0", alias="RAG_GRPC_HOST")
+    rag_grpc_port: int = Field(default=9097, alias="RAG_GRPC_PORT")
     grpc_service_secret: str = Field(
         default="change-me-shared-secret", alias="APP_GRPC_SERVICE_SECRET"
     )
@@ -154,6 +156,10 @@ class Settings(BaseSettings):
     # ── Security ─────────────────────────────────────────────────────────────
     encryption_key: str = Field(
         default="change-me-32-byte-encryption-key!!", alias="ENCRYPTION_KEY"
+    )
+    ai_key_encryption_secret: str = Field(
+        default="change-me-32-byte-encryption-key!!",
+        alias="AI_KEY_ENCRYPTION_SECRET",
     )
     max_prompt_length: int = Field(default=8000, alias="MAX_PROMPT_LENGTH")
 

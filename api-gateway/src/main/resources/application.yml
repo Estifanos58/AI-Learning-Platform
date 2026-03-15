@@ -130,6 +130,17 @@ spring:
                 redis-rate-limiter.replenishRate: 20
                 redis-rate-limiter.burstCapacity: 30
             - RewritePath=/api/chat/?(?<segment>.*), /api/internal/chat/${segment}
+        - id: ai-model-route
+          uri: forward:/
+          predicates:
+            - Path=/api/ai/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@ipRateLimitKeyResolver}'
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 120
+            - RewritePath=/api/ai/?(?<segment>.*), /api/internal/ai/${segment}
       globalcors:
         cors-configurations:
           '[/**]':
@@ -171,6 +182,9 @@ grpc:
     chat-service:
       address: ${GRPC_CHAT_ADDRESS:static://localhost:9095}
       negotiationType: ${GRPC_CHAT_NEGOTIATION:PLAINTEXT}
+    rag-service:
+      address: ${GRPC_RAG_ADDRESS:static://localhost:9097}
+      negotiationType: ${GRPC_RAG_NEGOTIATION:PLAINTEXT}
 
 app:
   jwt:
@@ -185,6 +199,8 @@ app:
       service-secret: ${APP_GRPC_FILE_SERVICE_SECRET:change-me-shared-secret}
     chat:
       service-secret: ${APP_GRPC_CHAT_SERVICE_SECRET:change-me-shared-secret}
+    rag:
+      service-secret: ${APP_GRPC_RAG_SERVICE_SECRET:change-me-shared-secret}
 
 management:
   endpoints:
