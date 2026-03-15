@@ -1,23 +1,22 @@
 /**
- * Chat Types
- * Typed mock contracts for chat and messages
+ * Gateway chat contracts
  */
+
+export type ChatroomType = 'DM' | 'GROUP' | 'DOCUMENT_CONTEXT';
 
 export interface Chatroom {
   id: string;
-  type: 'DM' | 'GROUP' | 'DOCUMENT_CONTEXT';
+  type: ChatroomType;
   memberIds: string[];
-  contextFileId?: string;
   name?: string;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;
 }
 
 export interface ChatMessage {
   id: string;
   chatroomId: string;
   senderUserId: string;
-  senderUsername?: string;
   aiModelId?: string;
   content: string;
   fileId?: string;
@@ -26,11 +25,85 @@ export interface ChatMessage {
 }
 
 export interface SendMessageRequest {
-  chatroomId: string;
-  content: string;
+  otherUserId?: string;
+  chatroomId?: string;
+  content?: string;
   aiModelId?: string;
   fileId?: string;
+  fileOriginalName?: string;
+  fileContentType?: string;
+  fileBase64?: string;
 }
+
+export interface SendMessageResponse {
+  message: ChatMessage;
+  chatroomId: string;
+  isNewChatroom: boolean;
+}
+
+export interface ListChatroomsResponse {
+  chatrooms: Chatroom[];
+  total: number;
+}
+
+export interface ListMessagesResponse {
+  messages: ChatMessage[];
+  total: number;
+}
+
+export interface TypingPayload {
+  userId: string;
+  chatroomId: string;
+  isTyping: boolean;
+}
+
+export interface NewMessageEvent {
+  type: 'newMessage';
+  chatroomId: string;
+  data: {
+    message: ChatMessage;
+    chatroomId: string;
+    userId: string;
+    fileId?: string;
+  };
+}
+
+export interface NewChatroomEvent {
+  type: 'newChatroom';
+  userId: string;
+  data: {
+    message?: ChatMessage;
+    chatroomId: string;
+    otherUserId?: string;
+    userId?: string;
+    fileId?: string;
+  };
+}
+
+export interface TypingEvent {
+  type: 'typing';
+  chatroomId: string;
+  data: TypingPayload;
+}
+
+export type AIStreamEventType = 'AI_CHUNK' | 'AI_COMPLETED' | 'AI_FAILED' | 'AI_CANCELLED';
+
+export interface AIStreamEvent {
+  type: AIStreamEventType;
+  chatroomId: string;
+  data: {
+    type: AIStreamEventType;
+    chatroomId: string;
+    messageId: string;
+    sequence?: number;
+    contentDelta?: string;
+    content?: string;
+    done?: boolean;
+    error?: string;
+  };
+}
+
+export type ChatRealtimeEvent = NewMessageEvent | NewChatroomEvent | TypingEvent | AIStreamEvent;
 
 export interface AIModel {
   id: string;

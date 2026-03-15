@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 
 interface ChatComposerProps {
   onSendMessage: (content: string, aiModelId?: string) => Promise<void>;
+  onTypingChange?: (isTyping: boolean) => Promise<void> | void;
   isCompact?: boolean;
   models?: AIModel[];
 }
@@ -28,11 +29,12 @@ const DEFAULT_MODELS: AIModel[] = [
   },
 ];
 
-export function ChatComposer({ onSendMessage, isCompact, models = DEFAULT_MODELS }: ChatComposerProps) {
+export function ChatComposer({ onSendMessage, onTypingChange, isCompact, models = DEFAULT_MODELS }: ChatComposerProps) {
   const [content, setContent] = useState('');
   const [aiModelId, setAiModelId] = useState(models[0]?.id ?? 'gpt-4');
   const [isLoading, setIsLoading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!models.some((model) => model.id === aiModelId)) {
@@ -47,6 +49,11 @@ export function ChatComposer({ onSendMessage, isCompact, models = DEFAULT_MODELS
     try {
       await onSendMessage(content, aiModelId);
       setContent('');
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+      onTypingChange?.(false);
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
       }
@@ -71,6 +78,39 @@ export function ChatComposer({ onSendMessage, isCompact, models = DEFAULT_MODELS
     }
   }, [content]);
 
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleChange = (value: string) => {
+    setContent(value);
+    if (!onTypingChange) return;
+
+    if (value.trim().length === 0) {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+      onTypingChange(false);
+      return;
+    }
+
+    onTypingChange(true);
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      onTypingChange(false);
+      typingTimeoutRef.current = null;
+    }, 1200);
+  };
+
   return (
     <div className={cn(
         "border-t border-border/50 bg-background/50 backdrop-blur-xl transition-all",
@@ -83,7 +123,7 @@ export function ChatComposer({ onSendMessage, isCompact, models = DEFAULT_MODELS
             <Sparkles className="h-3 w-3 text-primary" />
             <span>Model:</span>
             <Select value={aiModelId} onValueChange={setAiModelId} disabled={isLoading}>
-                <SelectTrigger className="h-5 border-none bg-transparent hover:bg-accent focus:ring-0 p-0 px-1 gap-1 text-xs w-auto min-w-[80px]">
+                <SelectTrigger className="h-5 border-none bg-transparent hover:bg-accent focus:ring-0 p-0 px-1 gap-1 text-xs w-auto min-w-20">
                 <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -118,12 +158,13 @@ export function ChatComposer({ onSendMessage, isCompact, models = DEFAULT_MODELS
             ref={textareaRef}
             placeholder={isCompact ? "Ask AI..." : "Ask a question about your document..."}
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            onChange={(e) => handleChange(e.target.value)}
             onKeyDown={handleKeyDown}
+            onBlur={() => onTypingChange?.(false)}
             disabled={isLoading}
             className={cn(
                 "flex-1 w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none placeholder:text-muted-foreground/70 disabled:opacity-50",
-                isCompact ? "text-xs min-h-[28px] py-1 px-1" : "text-sm min-h-[20px] max-h-[200px] px-1 py-1.5"
+                isCompact ? "text-xs min-h-7 py-1 px-1" : "text-sm min-h-5 max-h-50 px-1 py-1.5"
             )}
             rows={1}
             style={{ overflow: 'hidden' }}

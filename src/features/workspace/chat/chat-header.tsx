@@ -7,11 +7,12 @@ import { Button } from '@/components/ui/button';
 import { useWorkspace } from '../workspace-context';
 
 interface ChatHeaderProps {
-  chatroom: Chatroom;
+  chatroom?: Chatroom | null;
   isCompact?: boolean;
+  isSocketConnected?: boolean;
 }
 
-export function ChatHeader({ chatroom, isCompact }: ChatHeaderProps) {
+export function ChatHeader({ chatroom, isCompact, isSocketConnected }: ChatHeaderProps) {
   const { toggleChatPanel } = useWorkspace(); // Assuming toggleChatPanel exists
 
   return (
@@ -21,10 +22,12 @@ export function ChatHeader({ chatroom, isCompact }: ChatHeaderProps) {
     )}>
       <div className="min-w-0 flex-1 flex flex-col justify-center">
         <h3 className={cn("font-semibold truncate", isCompact ? "text-xs" : "text-sm")}>
-            {chatroom.name || "Chat Context"}
+            {chatroom?.name || "Document Chat"}
         </h3>
         {!isCompact && (
-            <p className="text-xs text-muted-foreground truncate">Ask about your document</p>
+            <p className="text-xs text-muted-foreground truncate">
+              {isSocketConnected ? 'Realtime connected' : 'Realtime reconnecting...'}
+            </p>
         )}
       </div>
       <div className="flex items-center gap-1">

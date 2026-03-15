@@ -9,11 +9,13 @@ import { Avatar } from '@/components/ui/avatar';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
+    currentUserId?: string;
   isCompact?: boolean;
 }
 
-export function ChatMessageItem({ message, isCompact }: ChatMessageItemProps) {
-  const isAI = message.senderUserId === 'ai-assistant';
+export function ChatMessageItem({ message, currentUserId, isCompact }: ChatMessageItemProps) {
+    const isMine = Boolean(currentUserId && message.senderUserId === currentUserId);
+    const isAI = !isMine && Boolean(message.aiModelId || message.senderUserId === 'ai-assistant');
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -26,17 +28,21 @@ export function ChatMessageItem({ message, isCompact }: ChatMessageItemProps) {
     <div 
         className={cn(
             "group flex w-full gap-2 py-1 animate-in fade-in slide-in-from-bottom-2 duration-300", 
-            isAI ? "justify-start" : "justify-end",
+                        isMine ? "justify-end" : "justify-start",
             isCompact ? "text-xs" : "text-sm"
         )}
     >
       {/* Avatar (Left for AI) */}
-      {isAI && (
+            {!isMine && (
         <Avatar className={cn(
             "border border-border bg-muted/50 flex items-center justify-center shrink-0 mt-0.5",
             isCompact ? "h-6 w-6" : "h-8 w-8"
         )}>
-            <Sparkles className={cn("text-primary animate-pulse-slow", isCompact ? "h-3 w-3" : "h-4 w-4")} />
+                        {isAI ? (
+                            <Sparkles className={cn("text-primary animate-pulse-slow", isCompact ? "h-3 w-3" : "h-4 w-4")} />
+                        ) : (
+                            <User className={cn("text-foreground", isCompact ? "h-3 w-3" : "h-4 w-4")} />
+                        )}
         </Avatar>
       )}
 
@@ -44,13 +50,13 @@ export function ChatMessageItem({ message, isCompact }: ChatMessageItemProps) {
       <div className={cn(
         "flex flex-col relative",
         isCompact ? "max-w-[90%]" : "max-w-[85%] sm:max-w-[75%]",
-        isAI ? "items-start" : "items-end"
+                isMine ? "items-end" : "items-start"
       )}>
         {/* Name Label */}
         {!isCompact && (
             <div className="flex items-center gap-2 mb-1 px-1">
                 <span className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-wider">
-                    {isAI ? 'Assistant' : 'You'}
+                    {isMine ? 'You' : isAI ? 'Assistant' : 'Member'}
                 </span>
                 <span className="text-[10px] text-muted-foreground/40 hidden group-hover:block transition-opacity">
                     {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -63,9 +69,9 @@ export function ChatMessageItem({ message, isCompact }: ChatMessageItemProps) {
             className={cn(
                 "relative shadow-sm backdrop-blur-sm transition-all leading-relaxed",
                 isCompact ? "px-3 py-2 rounded-xl" : "px-4 py-3 rounded-2xl",
-                isAI 
-                    ? "bg-card border border-border/50 text-card-foreground rounded-tl-sm hover:border-border" 
-                    : "bg-primary text-primary-foreground rounded-tr-sm hover:bg-primary/90"
+                isMine
+                    ? "bg-primary text-primary-foreground rounded-tr-sm hover:bg-primary/90"
+                    : "bg-card border border-border/50 text-card-foreground rounded-tl-sm hover:border-border"
             )}
         >
             {message.isLoading ? (
@@ -75,7 +81,7 @@ export function ChatMessageItem({ message, isCompact }: ChatMessageItemProps) {
                     <span className="w-1 h-1 bg-current rounded-full animate-bounce" />
                 </div>
             ) : (
-                <div className="whitespace-pre-wrap break-words">
+                <div className="whitespace-pre-wrap wrap-break-word">
                     {message.content}
                 </div>
             )}
@@ -98,7 +104,7 @@ export function ChatMessageItem({ message, isCompact }: ChatMessageItemProps) {
       </div>
 
       {/* Avatar (Right for User) */}
-      {!isAI && (
+            {isMine && (
         <Avatar className="h-8 w-8 border border-border bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
             <User className="h-4 w-4 text-primary" />
         </Avatar>

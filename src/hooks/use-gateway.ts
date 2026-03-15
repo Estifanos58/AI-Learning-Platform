@@ -1,10 +1,21 @@
 'use client';
 
 import useSWR from 'swr';
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import { gatewayApi } from '@/src/lib/api/gateway';
+import { openChatSocket } from '@/src/lib/api/gateway-chat';
 import { assertUploadFileSize } from '@/src/lib/api/gateway-file-utils';
-import { AuthSession, FileItem, FileUploadStatus, Folder, ProfileVisibility, Role, UserProfile } from '@/src/lib/types';
+import {
+  AuthSession,
+  ChatMessage,
+  ChatRealtimeEvent,
+  FileItem,
+  FileUploadStatus,
+  Folder,
+  ProfileVisibility,
+  Role,
+  UserProfile,
+} from '@/src/lib/types';
 
 const EMPTY_FOLDERS: Folder[] = [];
 const EMPTY_FILES: FileItem[] = [];
@@ -221,22 +232,207 @@ export function useGatewayFile(token?: string | null, fileId?: string | null) {
 }
 
 export function useGatewayChat(token?: string | null, chatroomId?: string | null) {
-  const shouldFetchMessages = Boolean(token && chatroomId);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
 
-  const messagesQuery = useSWR(
-    shouldFetchMessages ? ['chat-messages', token, chatroomId] : null,
-    () => gatewayApi.chat.listMessages(token as string, chatroomId as string),
-    {
-      revalidateOnFocus: true,
-      dedupingInterval: 5_000,
+  const socketRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const upsertMessage = useCallback((message: ChatMessage) => {
+    setMessages((prev) => {
+      const index = prev.findIndex((item) => item.id === message.id);
+      if (index === -1) {
+        return [...prev, message];
+      }
+      const next = [...prev];
+      next[index] = {
+        ...next[index],
+        ...message,
+      };
+      return next;
+    });
+  }, []);
+
+  const refreshMessages = useCallback(async () => {
+    if (!token || !chatroomId) {
+      setMessages([]);
+      return [];
     }
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const loaded = await gatewayApi.chat.listMessages(token, chatroomId);
+      setMessages(loaded);
+      return loaded;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load messages';
+      setError(message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [token, chatroomId]);
+
+  useEffect(() => {
+    setTypingUserIds([]);
+    if (!chatroomId) {
+      setMessages([]);
+      return;
+    }
+
+    refreshMessages().catch(() => undefined);
+  }, [chatroomId, refreshMessages]);
+
+  const handleRealtimeEvent = useCallback(
+    (event: ChatRealtimeEvent) => {
+      if (event.type === 'newMessage') {
+        if (!chatroomId || event.chatroomId !== chatroomId) return;
+        upsertMessage(event.data.message);
+        return;
+      }
+
+      if (event.type === 'typing') {
+        if (!chatroomId || event.chatroomId !== chatroomId) return;
+        const { userId, isTyping } = event.data;
+        setTypingUserIds((prev) => {
+          if (isTyping && !prev.includes(userId)) return [...prev, userId];
+          if (!isTyping) return prev.filter((id) => id !== userId);
+          return prev;
+        });
+        return;
+      }
+
+      if (!('chatroomId' in event) || !chatroomId || event.chatroomId !== chatroomId) {
+        return;
+      }
+
+      const streamEvent = event;
+      const payload = streamEvent.data;
+      const messageId = payload.messageId;
+
+      if (streamEvent.type === 'AI_CHUNK') {
+        setMessages((prev) => {
+          const index = prev.findIndex((item) => item.id === messageId);
+          if (index === -1) {
+            return [
+              ...prev,
+              {
+                id: messageId,
+                chatroomId,
+                senderUserId: 'ai-assistant',
+                aiModelId: 'streaming',
+                content: payload.contentDelta ?? '',
+                createdAt: new Date().toISOString(),
+                isLoading: !payload.done,
+              },
+            ];
+          }
+
+          const next = [...prev];
+          const current = next[index];
+          next[index] = {
+            ...current,
+            content: `${current.content ?? ''}${payload.contentDelta ?? ''}`,
+            isLoading: !payload.done,
+          };
+          return next;
+        });
+        return;
+      }
+
+      if (streamEvent.type === 'AI_COMPLETED') {
+        setMessages((prev) => {
+          const index = prev.findIndex((item) => item.id === messageId);
+          if (index === -1) return prev;
+          const next = [...prev];
+          next[index] = {
+            ...next[index],
+            content: payload.content ?? next[index].content,
+            isLoading: false,
+          };
+          return next;
+        });
+        return;
+      }
+
+      if (streamEvent.type === 'AI_FAILED' || streamEvent.type === 'AI_CANCELLED') {
+        setMessages((prev) => {
+          const index = prev.findIndex((item) => item.id === messageId);
+          if (index === -1) return prev;
+          const next = [...prev];
+          next[index] = {
+            ...next[index],
+            isLoading: false,
+          };
+          return next;
+        });
+      }
+    },
+    [chatroomId, upsertMessage],
   );
 
+  useEffect(() => {
+    if (!token) return;
+
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
+    socketRef.current?.close();
+
+    let isDisposed = false;
+
+    const connect = () => {
+      if (isDisposed) return;
+
+      const socket = openChatSocket({
+        accessToken: token,
+        chatroomId: chatroomId ?? undefined,
+        onOpen: () => {
+          setIsSocketConnected(true);
+          setError(null);
+        },
+        onMessage: handleRealtimeEvent,
+        onError: () => {
+          setIsSocketConnected(false);
+        },
+        onClose: () => {
+          setIsSocketConnected(false);
+          if (!isDisposed) {
+            reconnectTimerRef.current = setTimeout(connect, 2_000);
+          }
+        },
+      });
+
+      socketRef.current = socket;
+    };
+
+    connect();
+
+    return () => {
+      isDisposed = true;
+      setIsSocketConnected(false);
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      socketRef.current?.close();
+      socketRef.current = null;
+    };
+  }, [token, chatroomId, handleRealtimeEvent]);
+
   return {
-    messages: messagesQuery.data ?? [],
-    isLoading: messagesQuery.isLoading,
-    error: messagesQuery.error instanceof Error ? messagesQuery.error.message : null,
-    refreshMessages: messagesQuery.mutate,
+    messages,
+    isLoading,
+    error,
+    isSocketConnected,
+    typingUserIds,
+    refreshMessages,
     listChatrooms: async () => {
       if (!token) throw new Error('Not authenticated');
       return gatewayApi.chat.listChatrooms(token);
@@ -257,15 +453,17 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     }) => {
       if (!token) throw new Error('Not authenticated');
       const result = await gatewayApi.chat.sendMessage(token, input);
-      await messagesQuery.mutate();
+      upsertMessage(result.message);
       return result;
     },
     setTyping: async (currentChatroomId: string, isTyping = true) => {
       if (!token) throw new Error('Not authenticated');
       return gatewayApi.chat.setTyping(token, currentChatroomId, isTyping);
     },
-    getModels: gatewayApi.chat.getModels,
-    createChatroomForFileMockFallback: gatewayApi.chat.createChatroomForFile,
+    cancelAiMessage: async (messageId: string) => {
+      if (!token) throw new Error('Not authenticated');
+      return gatewayApi.chat.cancelAiMessage(token, messageId);
+    },
   };
 }
 
