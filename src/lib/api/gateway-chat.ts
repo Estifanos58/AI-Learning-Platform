@@ -1,4 +1,5 @@
 import {
+  AIModel,
   ChatMessage,
   ChatRealtimeEvent,
   Chatroom,
@@ -173,4 +174,24 @@ export const chatApi = {
     chatRequest<{ message: string }>(`/api/chat/messages/${messageId}/cancel`, token, {
       method: 'POST',
     }),
+
+  async listAiModels(token: string): Promise<AIModel[]> {
+    const candidateEndpoints = ['/api/chat/ai-models', '/api/chat/models'];
+
+    for (const endpoint of candidateEndpoints) {
+      try {
+        const response = await chatRequest<{ models?: AIModel[] } | AIModel[]>(endpoint, token);
+        if (Array.isArray(response)) {
+          return response;
+        }
+        if (Array.isArray(response.models)) {
+          return response.models;
+        }
+      } catch {
+        // try next candidate endpoint
+      }
+    }
+
+    return [];
+  },
 };

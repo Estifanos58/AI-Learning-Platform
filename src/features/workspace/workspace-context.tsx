@@ -18,6 +18,7 @@ interface WorkspaceContextType extends WorkspaceState {
   toggleSidebar: () => void;
   toggleChatPanel: () => void;
   setChatroomId: (id: string | null) => void;
+  setDraftOtherUserId: (id: string | null) => void;
   leftSidebarWidth: number;
   rightSidebarWidth: number;
   setLeftSidebarWidth: (width: number) => void;
@@ -37,6 +38,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [chatPanelOpen, setChatPanelOpen] = useState(true);
   const [chatroomId, setChatroomId] = useState<string | null>(null);
+  const [draftOtherUserId, setDraftOtherUserId] = useState<string | null>(null);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(320);
   const [isProfileOpen, setProfileOpen] = useState(false);
@@ -87,11 +89,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     sidebarOpen,
     chatPanelOpen,
     chatroomId,
+    draftOtherUserId,
     setSelectedFolderId,
     setSelectedFileId,
     toggleSidebar,
     toggleChatPanel,
     setChatroomId,
+    setDraftOtherUserId,
     leftSidebarWidth,
     rightSidebarWidth,
     setLeftSidebarWidth,
@@ -107,11 +111,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     sidebarOpen,
     chatPanelOpen,
     chatroomId,
+    draftOtherUserId,
     setSelectedFolderId,
     setSelectedFileId,
     toggleSidebar,
     toggleChatPanel,
     setChatroomId,
+    setDraftOtherUserId,
     leftSidebarWidth,
     rightSidebarWidth,
     setLeftSidebarWidth,

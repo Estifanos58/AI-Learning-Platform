@@ -55,6 +55,14 @@ export function useGatewayProfile(token?: string | null) {
       await gatewayApi.profile.updateVisibility(token, visibility);
       await query.mutate();
     },
+    getByUserId: async (userId: string) => {
+      if (!token) throw new Error('Not authenticated');
+      return gatewayApi.profile.getByUserId(token, userId);
+    },
+    searchProfiles: async (input: { nameQuery?: string; page?: number; size?: number }) => {
+      if (!token) throw new Error('Not authenticated');
+      return gatewayApi.profile.search(token, input);
+    },
   };
 }
 
@@ -463,6 +471,10 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     cancelAiMessage: async (messageId: string) => {
       if (!token) throw new Error('Not authenticated');
       return gatewayApi.chat.cancelAiMessage(token, messageId);
+    },
+    listAiModels: async () => {
+      if (!token) throw new Error('Not authenticated');
+      return gatewayApi.chat.listAiModels(token);
     },
   };
 }

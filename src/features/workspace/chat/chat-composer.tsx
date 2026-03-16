@@ -10,45 +10,54 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { AIModel } from '@/src/lib/types';
-import { Sparkles, Send, Loader2, Paperclip } from 'lucide-react';
+import { Sparkles, Send, Loader2, Paperclip, X, FilePlus2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ChatComposerProps {
-  onSendMessage: (content: string, aiModelId?: string) => Promise<void>;
+  onSendMessage: (content: string, aiModelId?: string, attachedFileIds?: string[]) => Promise<void>;
   onTypingChange?: (isTyping: boolean) => Promise<void> | void;
   isCompact?: boolean;
   models?: AIModel[];
+  allowFileDrop?: boolean;
 }
 
-const DEFAULT_MODELS: AIModel[] = [
-  {
-    id: 'gpt-4',
-    name: 'GPT-4',
-    provider: 'OpenAI',
-    description: 'Most capable model',
-  },
-];
+const WORKSPACE_CHAT_FILE_MIME = 'application/x-workspace-file';
 
-export function ChatComposer({ onSendMessage, onTypingChange, isCompact, models = DEFAULT_MODELS }: ChatComposerProps) {
+interface AttachedWorkspaceFile {
+  id: string;
+  originalName: string;
+  contentType?: string;
+}
+
+export function ChatComposer({
+  onSendMessage,
+  onTypingChange,
+  isCompact,
+  models = [],
+  allowFileDrop = false,
+}: ChatComposerProps) {
   const [content, setContent] = useState('');
-  const [aiModelId, setAiModelId] = useState(models[0]?.id ?? 'gpt-4');
+  const [aiModelId, setAiModelId] = useState(models[0]?.id ?? '');
   const [isLoading, setIsLoading] = useState(false);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedWorkspaceFile[]>([]);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!models.some((model) => model.id === aiModelId)) {
-      setAiModelId(models[0]?.id ?? 'gpt-4');
+      setAiModelId(models[0]?.id ?? '');
     }
   }, [models, aiModelId]);
 
   const handleSend = async () => {
-    if (!content.trim() || isLoading) return;
+    if ((!content.trim() && attachedFiles.length === 0) || isLoading) return;
 
     setIsLoading(true);
     try {
-      await onSendMessage(content, aiModelId);
+      await onSendMessage(content, aiModelId || undefined, attachedFiles.map((file) => file.id));
       setContent('');
+      setAttachedFiles([]);
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = null;
@@ -111,13 +120,75 @@ export function ChatComposer({ onSendMessage, onTypingChange, isCompact, models 
     }, 1200);
   };
 
+  const attachWorkspaceFile = (file: AttachedWorkspaceFile) => {
+    setAttachedFiles((previous) => {
+      if (previous.some((item) => item.id === file.id)) {
+        return previous;
+      }
+
+      return [...previous, file];
+    });
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!allowFileDrop) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDraggingOver(false);
+
+    const rawPayload = event.dataTransfer.getData(WORKSPACE_CHAT_FILE_MIME);
+    if (!rawPayload) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(rawPayload) as AttachedWorkspaceFile;
+      if (!parsed.id || !parsed.originalName) {
+        return;
+      }
+
+      attachWorkspaceFile(parsed);
+    } catch {
+      // ignore invalid payloads
+    }
+  };
+
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!allowFileDrop) return;
+
+    if (!event.dataTransfer.types.includes(WORKSPACE_CHAT_FILE_MIME)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = 'copy';
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!allowFileDrop) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (event.relatedTarget === null || !event.currentTarget.contains(event.relatedTarget as Node)) {
+      setIsDraggingOver(false);
+    }
+  };
+
+  const removeAttachedFile = (fileId: string) => {
+    setAttachedFiles((previous) => previous.filter((file) => file.id !== fileId));
+  };
+
   return (
     <div className={cn(
         "border-t border-border/50 bg-background/50 backdrop-blur-xl transition-all",
         isCompact ? "p-2 space-y-2" : "p-4 space-y-3"
     )}>
       {/* Model Selection Row - Only show in expanded or if selected */}
-      {!isCompact && (
+      {!isCompact && models.length > 0 && (
         <div className="flex items-center justify-between pb-2">
             <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-1 rounded-full border border-border/50">
             <Sparkles className="h-3 w-3 text-primary" />
@@ -138,21 +209,50 @@ export function ChatComposer({ onSendMessage, onTypingChange, isCompact, models 
         </div>
       )}
 
+      {attachedFiles.length > 0 ? (
+        <div className="flex flex-wrap gap-2 rounded-lg border border-border/60 bg-muted/20 p-2">
+          {attachedFiles.map((file) => (
+            <div
+              key={file.id}
+              className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background px-2 py-1 text-xs"
+            >
+              <Paperclip className="h-3 w-3 text-muted-foreground" />
+              <span className="max-w-36 truncate">{file.originalName}</span>
+              <button
+                type="button"
+                className="rounded-sm text-muted-foreground hover:text-foreground"
+                onClick={() => removeAttachedFile(file.id)}
+                aria-label="Remove attached file"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       {/* Input Composer */}
       <div className={cn(
           "relative flex items-end gap-2 bg-muted/30 border border-input focus-within:ring-1 focus-within:ring-ring focus-within:border-primary/50 transition-all shadow-sm",
-          isCompact ? "rounded-lg p-1" : "rounded-xl p-2"
-        )}>
-        {!isCompact && (
-            <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0 rounded-lg mb-0.5"
-                title="Attach a file"
-            >
-                <Paperclip className="h-4 w-4" />
-            </Button>
+          isCompact ? "rounded-lg p-1" : "rounded-xl p-2",
+          isDraggingOver && "border-primary ring-1 ring-primary/50 bg-primary/5"
         )}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+      >
+
+        {!isCompact ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0 rounded-lg mb-0.5"
+            title={allowFileDrop ? 'Drag a file from the left sidebar into this box' : 'Open or create a chatroom to attach files'}
+            disabled
+          >
+            {allowFileDrop ? <FilePlus2 className="h-4 w-4" /> : <Paperclip className="h-4 w-4" />}
+          </Button>
+        ) : null}
 
         <textarea
             ref={textareaRef}
@@ -172,11 +272,11 @@ export function ChatComposer({ onSendMessage, onTypingChange, isCompact, models 
 
         <Button
             onClick={handleSend}
-            disabled={isLoading || !content.trim()}
+          disabled={isLoading || (!content.trim() && attachedFiles.length === 0)}
             className={cn(
                 "shrink-0 rounded-lg transition-all",
                 isCompact ? "h-7 w-7 mb-0" : "h-8 w-8 mb-0.5",
-                content.trim() ? "opacity-100 hover:scale-105" : "opacity-50"
+            content.trim() || attachedFiles.length > 0 ? "opacity-100 hover:scale-105" : "opacity-50"
             )}
             size="icon"
         >

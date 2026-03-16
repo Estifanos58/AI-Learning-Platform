@@ -29,6 +29,8 @@ import {
 } from '@/components/ui/tooltip';
 import { WorkspaceFileIcon } from './workspace-file-icon';
 
+const WORKSPACE_CHAT_FILE_MIME = 'application/x-workspace-file';
+
 export interface FolderTreeItemProps {
   folder: Folder;
   allFolders: Folder[];
@@ -249,6 +251,20 @@ export function FolderTreeItem({
                   isCompact && 'justify-center px-0 mx-1 flex-col h-auto py-2 gap-1 mb-1'
                 )}
                 style={{ paddingLeft: isCompact ? '0px' : `${Math.max(8, (level + 1) * 16 + 28)}px` }}
+                draggable
+                onDragStart={(event) => {
+                  event.stopPropagation();
+                  event.dataTransfer.effectAllowed = 'copy';
+                  event.dataTransfer.setData(
+                    WORKSPACE_CHAT_FILE_MIME,
+                    JSON.stringify({
+                      id: file.id,
+                      originalName: file.originalName,
+                      contentType: file.contentType,
+                    }),
+                  );
+                  event.dataTransfer.setData('text/plain', file.id);
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onSelectFile?.(file);

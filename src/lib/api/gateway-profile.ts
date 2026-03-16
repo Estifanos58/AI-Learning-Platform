@@ -22,4 +22,27 @@ export const profileApi = {
   async updateVisibility(token: string, visibility: ProfileVisibility): Promise<{ message: string }> {
     return apiRequest<{ message: string }>('/profile/visibility', { method: 'PATCH', token, body: { visibility }, cache: 'no-store' });
   },
+
+  async getByUserId(token: string, userId: string): Promise<UserProfile> {
+    return apiRequest<UserProfile>(`/profile/${encodeURIComponent(userId)}`, {
+      token,
+      cache: 'no-store',
+    });
+  },
+
+  async search(token: string, input: { nameQuery?: string; page?: number; size?: number }): Promise<{ profiles: UserProfile[]; total: number }> {
+    const params = new URLSearchParams();
+
+    if (input.nameQuery?.trim()) {
+      params.set('nameQuery', input.nameQuery.trim());
+    }
+
+    params.set('page', String(input.page ?? 0));
+    params.set('size', String(input.size ?? 20));
+
+    return apiRequest<{ profiles: UserProfile[]; total: number }>(`/profile/search?${params.toString()}`, {
+      token,
+      cache: 'no-store',
+    });
+  },
 };

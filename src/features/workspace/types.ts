@@ -8,4 +8,5 @@ export interface WorkspaceState {
   sidebarOpen: boolean;
   chatPanelOpen: boolean;
   chatroomId: string | null;
+  draftOtherUserId: string | null;
 }
