@@ -8,6 +8,7 @@ import { assertUploadFileSize } from '@/src/lib/api/gateway-file-utils';
 import {
   AuthSession,
   ChatMessage,
+  NewChatroomEvent,
   ChatRealtimeEvent,
   FileItem,
   FileUploadStatus,
@@ -249,30 +250,59 @@ export function useGatewayFile(token?: string | null, fileId?: string | null) {
   };
 }
 
-export function useGatewayChat(token?: string | null, chatroomId?: string | null) {
+interface UseGatewayChatOptions {
+  subscribedChatroomIds?: string[];
+  onNewChatroom?: (event: NewChatroomEvent) => void;
+}
+
+export function useGatewayChat(token?: string | null, chatroomId?: string | null, options?: UseGatewayChatOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
 
-  const socketRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userSocketRef = useRef<WebSocket | null>(null);
+  const roomSocketsRef = useRef(new Map<string, WebSocket>());
+  const userReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const roomReconnectTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const activeChatroomIdRef = useRef<string | null>(chatroomId ?? null);
+  const onNewChatroomRef = useRef<UseGatewayChatOptions['onNewChatroom']>(options?.onNewChatroom);
+
+  useEffect(() => {
+    activeChatroomIdRef.current = chatroomId ?? null;
+  }, [chatroomId]);
+
+  useEffect(() => {
+    onNewChatroomRef.current = options?.onNewChatroom;
+  }, [options?.onNewChatroom]);
+
+  const subscribedChatroomIds = useMemo(() => {
+    const ids = options?.subscribedChatroomIds ?? [];
+    return [...new Set(ids.filter(Boolean))].sort();
+  }, [options?.subscribedChatroomIds]);
+  const subscribedChatroomIdsKey = useMemo(() => subscribedChatroomIds.join('|'), [subscribedChatroomIds]);
+
+  const sortMessagesByCreatedAt = useCallback((rows: ChatMessage[]) => {
+    return [...rows].sort((a, b) => {
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+  }, []);
 
   const upsertMessage = useCallback((message: ChatMessage) => {
     setMessages((prev) => {
       const index = prev.findIndex((item) => item.id === message.id);
       if (index === -1) {
-        return [...prev, message];
+        return sortMessagesByCreatedAt([...prev, message]);
       }
       const next = [...prev];
       next[index] = {
         ...next[index],
         ...message,
       };
-      return next;
+      return sortMessagesByCreatedAt(next);
     });
-  }, []);
+  }, [sortMessagesByCreatedAt]);
 
   const refreshMessages = useCallback(async () => {
     if (!token || !chatroomId) {
@@ -284,7 +314,7 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     setError(null);
     try {
       const loaded = await gatewayApi.chat.listMessages(token, chatroomId);
-      setMessages(loaded);
+      setMessages(sortMessagesByCreatedAt(loaded));
       return loaded;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load messages';
@@ -293,7 +323,7 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     } finally {
       setIsLoading(false);
     }
-  }, [token, chatroomId]);
+  }, [token, chatroomId, sortMessagesByCreatedAt]);
 
   useEffect(() => {
     setTypingUserIds([]);
@@ -307,14 +337,23 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
 
   const handleRealtimeEvent = useCallback(
     (event: ChatRealtimeEvent) => {
+      const activeChatroomId = activeChatroomIdRef.current;
+
+      if (event.type === 'newChatroom') {
+        onNewChatroomRef.current?.(event);
+        if (!activeChatroomId || event.data.chatroomId !== activeChatroomId || !event.data.message) return;
+        upsertMessage(event.data.message);
+        return;
+      }
+
       if (event.type === 'newMessage') {
-        if (!chatroomId || event.chatroomId !== chatroomId) return;
+        if (!activeChatroomId || event.chatroomId !== activeChatroomId) return;
         upsertMessage(event.data.message);
         return;
       }
 
       if (event.type === 'typing') {
-        if (!chatroomId || event.chatroomId !== chatroomId) return;
+        if (!activeChatroomId || event.chatroomId !== activeChatroomId) return;
         const { userId, isTyping } = event.data;
         setTypingUserIds((prev) => {
           if (isTyping && !prev.includes(userId)) return [...prev, userId];
@@ -324,7 +363,7 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
         return;
       }
 
-      if (!('chatroomId' in event) || !chatroomId || event.chatroomId !== chatroomId) {
+      if (!('chatroomId' in event) || !activeChatroomId || event.chatroomId !== activeChatroomId) {
         return;
       }
 
@@ -340,7 +379,7 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
               ...prev,
               {
                 id: messageId,
-                chatroomId,
+                chatroomId: activeChatroomId,
                 senderUserId: 'ai-assistant',
                 aiModelId: 'streaming',
                 content: payload.contentDelta ?? '',
@@ -390,18 +429,18 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
         });
       }
     },
-    [chatroomId, upsertMessage],
+    [upsertMessage],
   );
 
   useEffect(() => {
     if (!token) return;
 
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = null;
+    if (userReconnectTimerRef.current) {
+      clearTimeout(userReconnectTimerRef.current);
+      userReconnectTimerRef.current = null;
     }
 
-    socketRef.current?.close();
+    userSocketRef.current?.close();
 
     let isDisposed = false;
 
@@ -410,7 +449,6 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
 
       const socket = openChatSocket({
         accessToken: token,
-        chatroomId: chatroomId ?? undefined,
         onOpen: () => {
           setIsSocketConnected((prev) => (prev ? prev : true));
           setError(null);
@@ -422,12 +460,12 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
         onClose: () => {
           setIsSocketConnected((prev) => (prev ? false : prev));
           if (!isDisposed) {
-            reconnectTimerRef.current = setTimeout(connect, 2_000);
+            userReconnectTimerRef.current = setTimeout(connect, 2_000);
           }
         },
       });
 
-      socketRef.current = socket;
+      userSocketRef.current = socket;
     };
 
     connect();
@@ -435,14 +473,81 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     return () => {
       isDisposed = true;
       setIsSocketConnected((prev) => (prev ? false : prev));
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
+      if (userReconnectTimerRef.current) {
+        clearTimeout(userReconnectTimerRef.current);
+        userReconnectTimerRef.current = null;
       }
-      socketRef.current?.close();
-      socketRef.current = null;
+      userSocketRef.current?.close();
+      userSocketRef.current = null;
     };
-  }, [token, chatroomId, handleRealtimeEvent]);
+  }, [token, handleRealtimeEvent]);
+
+  useEffect(() => {
+    if (!token) {
+      roomReconnectTimersRef.current.forEach((timer) => clearTimeout(timer));
+      roomReconnectTimersRef.current.clear();
+      roomSocketsRef.current.forEach((socket) => socket.close());
+      roomSocketsRef.current.clear();
+      return;
+    }
+
+    const targetIds = new Set<string>(subscribedChatroomIds);
+    if (chatroomId) {
+      targetIds.add(chatroomId);
+    }
+
+    for (const [roomId, socket] of roomSocketsRef.current.entries()) {
+      if (targetIds.has(roomId)) continue;
+      socket.close();
+      roomSocketsRef.current.delete(roomId);
+      const reconnectTimer = roomReconnectTimersRef.current.get(roomId);
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        roomReconnectTimersRef.current.delete(roomId);
+      }
+    }
+
+    const connectRoom = (roomId: string) => {
+      if (!roomId || roomSocketsRef.current.has(roomId)) return;
+
+      const socket = openChatSocket({
+        accessToken: token,
+        chatroomId: roomId,
+        onMessage: handleRealtimeEvent,
+        onClose: () => {
+          roomSocketsRef.current.delete(roomId);
+          if (!targetIds.has(roomId)) return;
+          const timer = setTimeout(() => {
+            roomReconnectTimersRef.current.delete(roomId);
+            if (targetIds.has(roomId)) {
+              connectRoom(roomId);
+            }
+          }, 2_000);
+          roomReconnectTimersRef.current.set(roomId, timer);
+        },
+      });
+
+      roomSocketsRef.current.set(roomId, socket);
+    };
+
+    targetIds.forEach((roomId) => connectRoom(roomId));
+  }, [token, chatroomId, subscribedChatroomIdsKey, handleRealtimeEvent]);
+
+  useEffect(() => {
+    return () => {
+      if (userReconnectTimerRef.current) {
+        clearTimeout(userReconnectTimerRef.current);
+        userReconnectTimerRef.current = null;
+      }
+      userSocketRef.current?.close();
+      userSocketRef.current = null;
+
+      roomReconnectTimersRef.current.forEach((timer) => clearTimeout(timer));
+      roomReconnectTimersRef.current.clear();
+      roomSocketsRef.current.forEach((socket) => socket.close());
+      roomSocketsRef.current.clear();
+    };
+  }, []);
 
   const listChatrooms = useCallback(async () => {
     if (!token) throw new Error('Not authenticated');
@@ -485,6 +590,21 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     return gatewayApi.chat.listAiModels(token);
   }, [token]);
 
+  const createUserApiKey = useCallback(async (input: { modelId: string; apiKey: string }) => {
+    if (!token) throw new Error('Not authenticated');
+    return gatewayApi.chat.createUserApiKey(token, input);
+  }, [token]);
+
+  const updateUserApiKey = useCallback(async (input: { modelId: string; apiKey: string }) => {
+    if (!token) throw new Error('Not authenticated');
+    return gatewayApi.chat.updateUserApiKey(token, input);
+  }, [token]);
+
+  const deleteUserApiKey = useCallback(async (modelId: string) => {
+    if (!token) throw new Error('Not authenticated');
+    return gatewayApi.chat.deleteUserApiKey(token, modelId);
+  }, [token]);
+
   return useMemo(() => ({
     messages,
     isLoading,
@@ -498,8 +618,13 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     setTyping,
     cancelAiMessage,
     listAiModels,
+    createUserApiKey,
+    updateUserApiKey,
+    deleteUserApiKey,
   }), [
     cancelAiMessage,
+    createUserApiKey,
+    deleteUserApiKey,
     error,
     getChatroom,
     isLoading,
@@ -511,6 +636,7 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     sendMessage,
     setTyping,
     typingUserIds,
+    updateUserApiKey,
   ]);
 }
 

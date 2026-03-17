@@ -14,18 +14,33 @@ const messages = new Map<string, ChatMessage[]>();
 // AI Models
 export const AVAILABLE_AI_MODELS: AIModel[] = [
   {
+    modelId: 'gpt-4',
+    modelName: 'GPT-4',
+    contextLength: 128000,
+    supportsStreaming: true,
+    userKeyConfigured: false,
     id: 'gpt-4',
     name: 'GPT-4',
     provider: 'OpenAI',
     description: 'Most capable model',
   },
   {
+    modelId: 'gpt-3.5-turbo',
+    modelName: 'GPT-3.5 Turbo',
+    contextLength: 16384,
+    supportsStreaming: true,
+    userKeyConfigured: false,
     id: 'gpt-3.5-turbo',
     name: 'GPT-3.5 Turbo',
     provider: 'OpenAI',
     description: 'Fast and efficient',
   },
   {
+    modelId: 'claude-3-opus',
+    modelName: 'Claude 3 Opus',
+    contextLength: 200000,
+    supportsStreaming: true,
+    userKeyConfigured: false,
     id: 'claude-3-opus',
     name: 'Claude 3 Opus',
     provider: 'Anthropic',

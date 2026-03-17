@@ -1,5 +1,5 @@
 import { ProfileVisibility, UserProfile } from '@/src/lib/types';
-import { apiRequest } from './gateway-core';
+import { apiRequest } from '@/src/lib/api/gateway-core';
 import { updateProfileSchema } from './gateway-schemas';
 
 export const profileApi = {

@@ -106,8 +106,25 @@ export interface AIStreamEvent {
 export type ChatRealtimeEvent = NewMessageEvent | NewChatroomEvent | TypingEvent | AIStreamEvent;
 
 export interface AIModel {
+  modelId: string;
+  modelName: string;
+  contextLength: number;
+  supportsStreaming: boolean;
+  userKeyConfigured: boolean;
   id: string;
   name: string;
   provider: string;
-  description: string;
+  description?: string;
+  platformKeyAvailable?: boolean;
+  active?: boolean;
+}
+
+export interface UpsertUserAiApiKeyInput {
+  modelId: string;
+  apiKey: string;
+}
+
+export interface UserAiApiKeyResponse {
+  success: boolean;
+  message?: string;
 }

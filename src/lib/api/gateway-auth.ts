@@ -1,6 +1,6 @@
 import { AuthSession, Role } from '@/src/lib/types';
 import { authMockService } from '@/src/lib/mocks';
-import { apiRequest, mapErrorMessage } from './gateway-core';
+import { apiRequest, mapErrorMessage } from '@/src/lib/api/gateway-core';
 import { loginSchema, refreshSchema, signupSchema, verifyEmailSchema } from './gateway-schemas';
 
 export const authApi = {

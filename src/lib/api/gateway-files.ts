@@ -1,6 +1,6 @@
 import { FileItem, Folder, UploadFileRequest } from '@/src/lib/types';
 import { assertUploadFileSize } from './gateway-file-utils';
-import { apiRequest, formDataRequest } from './gateway-core';
+import { apiRequest, formDataRequest } from '@/src/lib/api/gateway-core';
 import { createFolderSchema, updateFileMetadataSchema, updateFolderSchema, uploadFileSchema } from './gateway-schemas';
 
 export interface FileUploadProgress {

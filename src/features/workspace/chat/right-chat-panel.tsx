@@ -42,7 +42,31 @@ export function RightChatPanel({ isOpen }: RightChatPanelProps) {
     typingUserIds,
   } = useGatewayChat(
     session?.accessToken,
-    chatroomId
+    chatroomId,
+    {
+      subscribedChatroomIds: chatrooms.map((room) => room.id),
+      onNewChatroom: (event) => {
+        const newChatroomId = event?.data?.chatroomId;
+        if (!newChatroomId) return;
+
+        setChatrooms((previous) => {
+          if (previous.some((room) => room.id === newChatroomId)) {
+            return previous;
+          }
+
+          return [
+            {
+              id: newChatroomId,
+              type: event.data.otherUserId ? 'DM' : 'DOCUMENT_CONTEXT',
+              memberIds: [user?.id, event.data.otherUserId].filter((id): id is string => Boolean(id)),
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+            ...previous,
+          ];
+        });
+      },
+    },
   );
   const { searchProfiles, getByUserId } = useGatewayProfile(session?.accessToken);
 

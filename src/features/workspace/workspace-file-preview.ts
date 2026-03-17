@@ -1,5 +1,6 @@
 import { getFileCategory } from '@/src/features/file-viewer';
 import { getFileContentType } from '@/src/lib/api/gateway-file-utils';
+import { apiRequestBlob } from '@/src/lib/api/gateway-core';
 import { FileItem } from '@/src/lib/types';
 
 export interface WorkspaceFilePreview {
@@ -23,27 +24,26 @@ export async function buildLocalFilePreview(file: File): Promise<WorkspaceFilePr
 }
 
 export async function buildRemoteFilePreview(file: FileItem, endpoint: string): Promise<WorkspaceFilePreview> {
-  const response = await fetch(endpoint, {
+  const blob = await apiRequestBlob(endpoint, {
+    baseUrl: '',
     cache: 'no-store',
     credentials: 'include',
+    headers: {
+      Accept: '*/*',
+    },
   });
 
-  if (!response.ok) {
-    throw new Error(`Failed to load file content (${response.status})`);
-  }
-
-  return buildFilePreviewFromResponse(file, response);
+  return buildFilePreviewFromBlob(file, blob);
 }
 
-async function buildFilePreviewFromResponse(file: FileItem, response: Response): Promise<WorkspaceFilePreview> {
+async function buildFilePreviewFromBlob(file: FileItem, blob: Blob): Promise<WorkspaceFilePreview> {
   const category = getFileCategory(file.contentType);
 
   if (category === 'code') {
-    return { textContent: await response.text() };
+    return { textContent: await blob.text() };
   }
 
   if (category === 'pdf' || category === 'image' || category === 'document' || category === 'spreadsheet' || category === 'presentation') {
-    const blob = await response.blob();
     if (!blob.size) {
       return {};
     }

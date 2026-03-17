@@ -5,6 +5,8 @@ import { FileItem } from '@/src/lib/types';
 import { FileViewerShell, getFileCategory } from '@/src/features/file-viewer';
 import { useAuth } from '@/src/contexts/auth';
 import { useWorkspace } from '@/src/features/workspace/workspace-context';
+import { apiRequestBlob } from '@/src/lib/api/gateway-core';
+import { GatewayApiError } from '@/src/lib/api/gateway-errors';
 
 interface FilePageClientProps {
   file: FileItem;
@@ -53,71 +55,29 @@ function resolveContentType(file: FileItem): string {
   return EXTENSION_CONTENT_TYPE_MAP[getFileExtension(file.originalName)] || file.contentType || 'application/octet-stream';
 }
 
-function resolveGatewayBaseUrl(): string {
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL?.trim().replace(/\/+$/, '');
-  if (!base) return 'http://localhost:8080/api/internal';
-  // if (base.endsWith('/api/internal')) return base;
-  return `${base}/api/internal`;
-}
-
-function parseApiErrorMessage(payload: unknown, status: number): string {
-  if (typeof payload === 'object' && payload && 'message' in payload) {
-    const maybeMessage = (payload as { message?: unknown }).message;
-    if (typeof maybeMessage === 'string' && maybeMessage.trim()) {
-      return maybeMessage;
-    }
-  }
-
-  return `File request failed with status ${status}`;
-}
-
 async function fetchFileBlob(fileId: string, accessToken: string, accept: string): Promise<Blob> {
-  const gatewayBaseUrl = resolveGatewayBaseUrl();
   const endpoints = [`/files/${fileId}/preview`];
   let lastError: Error | null = null;
 
   for (const endpoint of endpoints) {
-    const response = await fetch(`${gatewayBaseUrl}${endpoint}`, {
-      method: 'GET',
-      cache: 'no-store',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: accept || '*/*',
-      },
-    });
-
-    if (response.ok) {
-      return response.blob();
-    }
-
-    if (response.status === 404) {
-      lastError = new Error(`File endpoint not found (${endpoint})`);
-      continue;
-    }
-
-    const responseContentType = response.headers.get('content-type') || '';
-    if (responseContentType.includes('application/json')) {
-      let apiErrorPayload: unknown;
-      try {
-        apiErrorPayload = await response.json();
-      } catch {
-        // If JSON parsing fails, fall back to a generic status message.
-        let fallbackMessage = `File request failed with status ${response.status}`;
-        try {
-          const textPayload = await response.text();
-          if (textPayload.trim()) {
-            fallbackMessage = textPayload;
-          }
-        } catch {
-          // ignore secondary parsing errors
-        }
-        throw new Error(fallbackMessage);
+    try {
+      return await apiRequestBlob(endpoint, {
+        method: 'GET',
+        token: accessToken,
+        cache: 'no-store',
+        headers: {
+          Accept: accept || '*/*',
+        },
+      });
+    } catch (error) {
+      if (error instanceof GatewayApiError && error.status === 404) {
+        lastError = new Error(`File endpoint not found (${endpoint})`);
+        continue;
       }
 
-      throw new Error(parseApiErrorMessage(apiErrorPayload, response.status));
+      lastError = error instanceof Error ? error : new Error('File request failed');
+      break;
     }
-
-    throw new Error(`File request failed with status ${response.status}`);
   }
 
   throw lastError || new Error('Unable to fetch file content');
