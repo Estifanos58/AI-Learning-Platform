@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -44,18 +44,20 @@ export function ChatComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (!models.some((model) => model.id === aiModelId)) {
-      setAiModelId(models[0]?.id ?? '');
+  const resolvedAiModelId = useMemo(() => {
+    if (models.some((model) => model.id === aiModelId)) {
+      return aiModelId;
     }
-  }, [models, aiModelId]);
+
+    return models[0]?.id ?? '';
+  }, [aiModelId, models]);
 
   const handleSend = async () => {
     if ((!content.trim() && attachedFiles.length === 0) || isLoading) return;
 
     setIsLoading(true);
     try {
-      await onSendMessage(content, aiModelId || undefined, attachedFiles.map((file) => file.id));
+      await onSendMessage(content, resolvedAiModelId || undefined, attachedFiles.map((file) => file.id));
       setContent('');
       setAttachedFiles([]);
       if (typingTimeoutRef.current) {
@@ -193,7 +195,7 @@ export function ChatComposer({
             <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-1 rounded-full border border-border/50">
             <Sparkles className="h-3 w-3 text-primary" />
             <span>Model:</span>
-            <Select value={aiModelId} onValueChange={setAiModelId} disabled={isLoading}>
+            <Select value={resolvedAiModelId} onValueChange={setAiModelId} disabled={isLoading}>
                 <SelectTrigger className="h-5 border-none bg-transparent hover:bg-accent focus:ring-0 p-0 px-1 gap-1 text-xs w-auto min-w-20">
                 <SelectValue />
                 </SelectTrigger>

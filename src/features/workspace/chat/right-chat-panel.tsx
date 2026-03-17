@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { AIModel, Chatroom, UserProfile } from '@/src/lib/types';
 import { useAuth } from '@/src/contexts/auth';
 import { useWorkspace } from '../workspace-context';
@@ -26,7 +26,7 @@ export function RightChatPanel({ isOpen }: RightChatPanelProps) {
   const [chatrooms, setChatrooms] = useState<Chatroom[]>([]);
   const [isChatroomsLoading, setIsChatroomsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const debouncedSearchTerm = useDeferredValue(searchTerm.trim());
   const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
   const [aiModels, setAiModels] = useState<AIModel[]>([]);
@@ -109,14 +109,6 @@ export function RightChatPanel({ isOpen }: RightChatPanelProps) {
     if (!title) return 'C';
     return title.charAt(0).toUpperCase();
   }, [activeChatTitle]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm.trim());
-    }, 350);
-
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
 
   useEffect(() => {
     const loadChatrooms = async () => {

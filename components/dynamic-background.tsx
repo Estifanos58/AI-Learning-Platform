@@ -1,18 +1,6 @@
-"use client";
-
-import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+'use client';
 
 export function DynamicBackground() {
-  const { theme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) return null;
-
   return (
     <div className="fixed inset-0 -z-50 overflow-hidden pointer-events-none">
       <div className="absolute inset-0 bg-gradient-to-br from-background via-background to-background/90" />

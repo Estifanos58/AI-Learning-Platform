@@ -32,38 +32,48 @@ export function useGatewayProfile(token?: string | null) {
     }
   );
 
-  return {
+  const refresh = query.mutate;
+
+  const updateProfile = useCallback(async (input: {
+    firstName?: string;
+    lastName?: string;
+    universityId?: string;
+    department?: string;
+    bio?: string;
+    profileImageFileId?: string;
+  }) => {
+    if (!token) throw new Error('Not authenticated');
+    const updated = await gatewayApi.profile.updateMe(token, input);
+    await query.mutate(updated, { revalidate: false });
+    return updated;
+  }, [query, token]);
+
+  const updateVisibility = useCallback(async (visibility: ProfileVisibility) => {
+    if (!token) throw new Error('Not authenticated');
+    await gatewayApi.profile.updateVisibility(token, visibility);
+    await query.mutate();
+  }, [query, token]);
+
+  const getByUserId = useCallback(async (userId: string) => {
+    if (!token) throw new Error('Not authenticated');
+    return gatewayApi.profile.getByUserId(token, userId);
+  }, [token]);
+
+  const searchProfiles = useCallback(async (input: { nameQuery?: string; page?: number; size?: number }) => {
+    if (!token) throw new Error('Not authenticated');
+    return gatewayApi.profile.search(token, input);
+  }, [token]);
+
+  return useMemo(() => ({
     profile: query.data ?? null,
     isLoading: query.isLoading,
     error: query.error instanceof Error ? query.error.message : null,
-    refresh: query.mutate,
-    updateProfile: async (input: {
-      firstName?: string;
-      lastName?: string;
-      universityId?: string;
-      department?: string;
-      bio?: string;
-      profileImageFileId?: string;
-    }) => {
-      if (!token) throw new Error('Not authenticated');
-      const updated = await gatewayApi.profile.updateMe(token, input);
-      await query.mutate(updated, { revalidate: false });
-      return updated;
-    },
-    updateVisibility: async (visibility: ProfileVisibility) => {
-      if (!token) throw new Error('Not authenticated');
-      await gatewayApi.profile.updateVisibility(token, visibility);
-      await query.mutate();
-    },
-    getByUserId: async (userId: string) => {
-      if (!token) throw new Error('Not authenticated');
-      return gatewayApi.profile.getByUserId(token, userId);
-    },
-    searchProfiles: async (input: { nameQuery?: string; page?: number; size?: number }) => {
-      if (!token) throw new Error('Not authenticated');
-      return gatewayApi.profile.search(token, input);
-    },
-  };
+    refresh,
+    updateProfile,
+    updateVisibility,
+    getByUserId,
+    searchProfiles,
+  }), [getByUserId, query.data, query.error, query.isLoading, refresh, searchProfiles, updateProfile, updateVisibility]);
 }
 
 export function useGatewayFiles(token?: string | null) {
@@ -402,15 +412,15 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
         accessToken: token,
         chatroomId: chatroomId ?? undefined,
         onOpen: () => {
-          setIsSocketConnected(true);
+          setIsSocketConnected((prev) => (prev ? prev : true));
           setError(null);
         },
         onMessage: handleRealtimeEvent,
         onError: () => {
-          setIsSocketConnected(false);
+          setIsSocketConnected((prev) => (prev ? false : prev));
         },
         onClose: () => {
-          setIsSocketConnected(false);
+          setIsSocketConnected((prev) => (prev ? false : prev));
           if (!isDisposed) {
             reconnectTimerRef.current = setTimeout(connect, 2_000);
           }
@@ -424,7 +434,7 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
 
     return () => {
       isDisposed = true;
-      setIsSocketConnected(false);
+      setIsSocketConnected((prev) => (prev ? false : prev));
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
@@ -434,49 +444,74 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     };
   }, [token, chatroomId, handleRealtimeEvent]);
 
-  return {
+  const listChatrooms = useCallback(async () => {
+    if (!token) throw new Error('Not authenticated');
+    return gatewayApi.chat.listChatrooms(token);
+  }, [token]);
+
+  const getChatroom = useCallback(async (currentChatroomId: string) => {
+    if (!token) throw new Error('Not authenticated');
+    return gatewayApi.chat.getChatroom(token, currentChatroomId);
+  }, [token]);
+
+  const sendMessage = useCallback(async (input: {
+    otherUserId?: string;
+    chatroomId?: string;
+    aiModelId?: string;
+    content?: string;
+    fileId?: string;
+    fileBase64?: string;
+    fileOriginalName?: string;
+    fileContentType?: string;
+  }) => {
+    if (!token) throw new Error('Not authenticated');
+    const result = await gatewayApi.chat.sendMessage(token, input);
+    upsertMessage(result.message);
+    return result;
+  }, [token, upsertMessage]);
+
+  const setTyping = useCallback(async (currentChatroomId: string, isTyping = true) => {
+    if (!token) throw new Error('Not authenticated');
+    return gatewayApi.chat.setTyping(token, currentChatroomId, isTyping);
+  }, [token]);
+
+  const cancelAiMessage = useCallback(async (messageId: string) => {
+    if (!token) throw new Error('Not authenticated');
+    return gatewayApi.chat.cancelAiMessage(token, messageId);
+  }, [token]);
+
+  const listAiModels = useCallback(async () => {
+    if (!token) throw new Error('Not authenticated');
+    return gatewayApi.chat.listAiModels(token);
+  }, [token]);
+
+  return useMemo(() => ({
     messages,
     isLoading,
     error,
     isSocketConnected,
     typingUserIds,
     refreshMessages,
-    listChatrooms: async () => {
-      if (!token) throw new Error('Not authenticated');
-      return gatewayApi.chat.listChatrooms(token);
-    },
-    getChatroom: async (currentChatroomId: string) => {
-      if (!token) throw new Error('Not authenticated');
-      return gatewayApi.chat.getChatroom(token, currentChatroomId);
-    },
-    sendMessage: async (input: {
-      otherUserId?: string;
-      chatroomId?: string;
-      aiModelId?: string;
-      content?: string;
-      fileId?: string;
-      fileBase64?: string;
-      fileOriginalName?: string;
-      fileContentType?: string;
-    }) => {
-      if (!token) throw new Error('Not authenticated');
-      const result = await gatewayApi.chat.sendMessage(token, input);
-      upsertMessage(result.message);
-      return result;
-    },
-    setTyping: async (currentChatroomId: string, isTyping = true) => {
-      if (!token) throw new Error('Not authenticated');
-      return gatewayApi.chat.setTyping(token, currentChatroomId, isTyping);
-    },
-    cancelAiMessage: async (messageId: string) => {
-      if (!token) throw new Error('Not authenticated');
-      return gatewayApi.chat.cancelAiMessage(token, messageId);
-    },
-    listAiModels: async () => {
-      if (!token) throw new Error('Not authenticated');
-      return gatewayApi.chat.listAiModels(token);
-    },
-  };
+    listChatrooms,
+    getChatroom,
+    sendMessage,
+    setTyping,
+    cancelAiMessage,
+    listAiModels,
+  }), [
+    cancelAiMessage,
+    error,
+    getChatroom,
+    isLoading,
+    isSocketConnected,
+    listAiModels,
+    listChatrooms,
+    messages,
+    refreshMessages,
+    sendMessage,
+    setTyping,
+    typingUserIds,
+  ]);
 }
 
 export function useGatewayAuth() {
