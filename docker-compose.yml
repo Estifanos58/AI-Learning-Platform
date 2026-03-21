@@ -210,20 +210,24 @@ services:
         condition: service_started
       chat-service:
         condition: service_started
-      redis:
+      rag-service:
+        condition: service_started
+      chat-redis:
         condition: service_started
     environment:
       SERVER_PORT: 8080
-      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_HOST: chat-redis
       SPRING_DATA_REDIS_PORT: 6379
       GRPC_AUTH_ADDRESS: static://auth-service:9090
       GRPC_PROFILE_ADDRESS: static://user-profile-service:9091
       GRPC_FILE_ADDRESS: static://file-service:9092
       GRPC_CHAT_ADDRESS: static://chat-service:9095
+      GRPC_RAG_ADDRESS: static://rag-service:9097
       APP_GRPC_AUTH_SERVICE_SECRET: change-me-shared-secret
       APP_GRPC_PROFILE_SERVICE_SECRET: change-me-shared-secret
       APP_GRPC_FILE_SERVICE_SECRET: change-me-shared-secret
       APP_GRPC_CHAT_SERVICE_SECRET: change-me-shared-secret
+      APP_GRPC_RAG_SERVICE_SECRET: change-me-shared-secret
     ports:
       - "8080:8080"
 
