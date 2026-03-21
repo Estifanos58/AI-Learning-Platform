@@ -15,10 +15,14 @@ import { cn } from '@/lib/utils';
 
 interface ChatComposerProps {
   onSendMessage: (content: string, aiModelId?: string, attachedFileIds?: string[]) => Promise<void>;
+  onCancelStream?: () => Promise<void> | void;
   onTypingChange?: (isTyping: boolean) => Promise<void> | void;
   isCompact?: boolean;
   models?: AIModel[];
   allowFileDrop?: boolean;
+  selectedAiModelId?: string | null;
+  onSelectedAiModelChange?: (modelId: string) => void;
+  isAiStreaming?: boolean;
 }
 
 const WORKSPACE_CHAT_FILE_MIME = 'application/x-workspace-file';
@@ -31,10 +35,14 @@ interface AttachedWorkspaceFile {
 
 export function ChatComposer({
   onSendMessage,
+  onCancelStream,
   onTypingChange,
   isCompact,
   models = [],
   allowFileDrop = false,
+  selectedAiModelId,
+  onSelectedAiModelChange,
+  isAiStreaming = false,
 }: ChatComposerProps) {
   const [content, setContent] = useState('');
   const [aiModelId, setAiModelId] = useState(models[0]?.id ?? '');
@@ -45,12 +53,28 @@ export function ChatComposer({
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const resolvedAiModelId = useMemo(() => {
-    if (models.some((model) => model.id === aiModelId)) {
-      return aiModelId;
+    const preferredModelId = selectedAiModelId ?? aiModelId;
+    if (models.some((model) => model.id === preferredModelId)) {
+      return preferredModelId;
     }
 
     return models[0]?.id ?? '';
-  }, [aiModelId, models]);
+  }, [aiModelId, models, selectedAiModelId]);
+
+  useEffect(() => {
+    if (!resolvedAiModelId) {
+      return;
+    }
+
+    if (selectedAiModelId !== resolvedAiModelId) {
+      onSelectedAiModelChange?.(resolvedAiModelId);
+    }
+  }, [onSelectedAiModelChange, resolvedAiModelId, selectedAiModelId]);
+
+  const handleModelChange = (nextModelId: string) => {
+    setAiModelId(nextModelId);
+    onSelectedAiModelChange?.(nextModelId);
+  };
 
   const handleSend = async () => {
     if ((!content.trim() && attachedFiles.length === 0) || isLoading) return;
@@ -195,13 +219,18 @@ export function ChatComposer({
             <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-1 rounded-full border border-border/50">
             <Sparkles className="h-3 w-3 text-primary" />
             <span>Model:</span>
-            <Select value={resolvedAiModelId} onValueChange={setAiModelId} disabled={isLoading}>
+            <Select value={resolvedAiModelId} onValueChange={handleModelChange} disabled={isLoading}>
                 <SelectTrigger className="h-5 border-none bg-transparent hover:bg-accent focus:ring-0 p-0 px-1 gap-1 text-xs w-auto min-w-20">
                 <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                 {models.map((model) => (
-                    <SelectItem key={model.id} value={model.id} className="text-xs">
+                    <SelectItem
+                      key={model.id}
+                      value={model.id}
+                      className="text-xs"
+                      disabled={model.platformKeyAvailable === false && !model.userKeyConfigured}
+                    >
                     {model.name}
                     </SelectItem>
                 ))}
@@ -273,17 +302,20 @@ export function ChatComposer({
         />
 
         <Button
-            onClick={handleSend}
-          disabled={isLoading || (!content.trim() && attachedFiles.length === 0)}
+          onClick={isAiStreaming ? () => onCancelStream?.() : handleSend}
+          disabled={isLoading || (!isAiStreaming && !content.trim() && attachedFiles.length === 0)}
             className={cn(
                 "shrink-0 rounded-lg transition-all",
                 isCompact ? "h-7 w-7 mb-0" : "h-8 w-8 mb-0.5",
-            content.trim() || attachedFiles.length > 0 ? "opacity-100 hover:scale-105" : "opacity-50"
+          isAiStreaming || content.trim() || attachedFiles.length > 0 ? "opacity-100 hover:scale-105" : "opacity-50"
             )}
             size="icon"
+          title={isAiStreaming ? 'Stop AI generation' : 'Send message'}
         >
-            {isLoading ? (
-                <Loader2 className={cn("animate-spin", isCompact ? "h-3 w-3" : "h-4 w-4")} />
+          {isLoading ? (
+            <Loader2 className={cn("animate-spin", isCompact ? "h-3 w-3" : "h-4 w-4")} />
+          ) : isAiStreaming ? (
+            <X className={cn(isCompact ? "h-3 w-3" : "h-4 w-4")} />
             ) : (
                 <Send className={cn(isCompact ? "h-3 w-3" : "h-4 w-4")} />
             )}

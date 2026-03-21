@@ -9,4 +9,5 @@ export interface WorkspaceState {
   chatPanelOpen: boolean;
   chatroomId: string | null;
   draftOtherUserId: string | null;
+  preferredAiModelId: string | null;
 }

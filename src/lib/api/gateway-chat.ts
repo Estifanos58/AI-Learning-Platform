@@ -1,6 +1,7 @@
 import {
   AIModel,
   ChatMessage,
+  AIStreamEventType,
   ChatRealtimeEvent,
   Chatroom,
   ListChatroomsResponse,
@@ -12,6 +13,7 @@ import {
 } from '@/src/lib/types';
 import { apiRequest, API_BASE_URL } from '@/src/lib/api/gateway-core';
 import { sendMessageSchema } from './gateway-schemas';
+import { fetchEventSource } from '@microsoft/fetch-event-source';
 
 async function chatRequest<T>(
   endpoint: string,
@@ -36,6 +38,30 @@ export interface OpenChatSocketOptions {
   onError?: (error: Event) => void;
   onOpen?: () => void;
   onClose?: (event: CloseEvent) => void;
+}
+
+export interface StreamAiResponseOptions {
+  token: string;
+  messageId: string;
+  chatroomId: string;
+  signal?: AbortSignal;
+  correlationId?: string;
+  onChunk: (payload: { messageId: string; contentDelta: string; sequence?: number; done?: boolean }) => void;
+  onCompleted: (payload: { messageId: string; finalContent?: string; done?: boolean }) => void;
+  onFailed: (payload: { messageId: string; error: string }) => void;
+  onCancelled: (payload: { messageId: string }) => void;
+}
+
+interface StreamEnvelope {
+  type: AIStreamEventType;
+  data: {
+    messageId?: string;
+    sequence?: number;
+    contentDelta?: string;
+    finalContent?: string;
+    done?: boolean;
+    error?: string;
+  };
 }
 
 export function resolveGatewayWsBase(): string {
@@ -111,8 +137,73 @@ export const chatApi = {
       method: 'POST',
     }),
 
+  async streamAiResponse(options: StreamAiResponseOptions): Promise<void> {
+    const streamUrl = `${API_BASE_URL}/chat/messages/${encodeURIComponent(options.messageId)}/stream?chatroomId=${encodeURIComponent(options.chatroomId)}`;
+    let accumulated = '';
+
+    await fetchEventSource(streamUrl, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${options.token}`,
+        Accept: 'text/event-stream',
+        ...(options.correlationId ? { 'X-Correlation-ID': options.correlationId } : {}),
+      },
+      signal: options.signal,
+      onmessage(event) {
+        if (event.event !== 'ai_chunk') return;
+
+        let envelope: StreamEnvelope;
+        try {
+          envelope = JSON.parse(event.data) as StreamEnvelope;
+        } catch {
+          return;
+        }
+
+        const resolvedMessageId = envelope.data.messageId ?? options.messageId;
+
+        if (envelope.type === 'AI_CHUNK') {
+          const delta = envelope.data.contentDelta ?? '';
+          accumulated += delta;
+          options.onChunk({
+            messageId: resolvedMessageId,
+            contentDelta: delta,
+            sequence: envelope.data.sequence,
+            done: envelope.data.done,
+          });
+          return;
+        }
+
+        if (envelope.type === 'AI_COMPLETED') {
+          options.onCompleted({
+            messageId: resolvedMessageId,
+            finalContent: envelope.data.finalContent ?? accumulated,
+            done: envelope.data.done,
+          });
+          return;
+        }
+
+        if (envelope.type === 'AI_FAILED') {
+          options.onFailed({
+            messageId: resolvedMessageId,
+            error: envelope.data.error ?? 'AI generation failed',
+          });
+          return;
+        }
+
+        if (envelope.type === 'AI_CANCELLED') {
+          options.onCancelled({
+            messageId: resolvedMessageId,
+          });
+        }
+      },
+      onerror(error) {
+        throw error;
+      },
+    });
+  },
+
   async listAiModels(token: string): Promise<AIModel[]> {
-    const candidateEndpoints = ['ai/models', 'api/ai/models', 'chat/ai-models', 'chat/models'];
+    const candidateEndpoints = ['ai/models'];
 
     const normalizeModel = (input: Record<string, unknown>): AIModel | null => {
       const modelId = typeof input.model_id === 'string'
@@ -186,7 +277,7 @@ export const chatApi = {
   },
 
   async createUserApiKey(token: string, input: UpsertUserAiApiKeyInput): Promise<UserAiApiKeyResponse> {
-    const candidateEndpoints = ['ai/api-keys', 'api/ai/api-keys'];
+    const candidateEndpoints = ['ai/api-keys'];
 
     for (const endpoint of candidateEndpoints) {
       try {
@@ -207,8 +298,8 @@ export const chatApi = {
 
   async updateUserApiKey(token: string, input: UpsertUserAiApiKeyInput): Promise<UserAiApiKeyResponse> {
     const candidateEndpoints = [
-      `ai/api-keys/${encodeURIComponent(input.modelId)}`,
-      `api/ai/api-keys/${encodeURIComponent(input.modelId)}`,
+      `ai/api-keys/${encodeURIComponent(input.modelId)}`
+      
     ];
 
     for (const endpoint of candidateEndpoints) {
@@ -229,8 +320,7 @@ export const chatApi = {
 
   async deleteUserApiKey(token: string, modelId: string): Promise<UserAiApiKeyResponse> {
     const candidateEndpoints = [
-      `ai/api-keys/${encodeURIComponent(modelId)}`,
-      `api/ai/api-keys/${encodeURIComponent(modelId)}`,
+      `ai/api-keys/${encodeURIComponent(modelId)}`
     ];
 
     for (const endpoint of candidateEndpoints) {

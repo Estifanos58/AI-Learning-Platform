@@ -261,6 +261,7 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
   const [error, setError] = useState<string | null>(null);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
+  const [activeAiRequestMessageId, setActiveAiRequestMessageId] = useState<string | null>(null);
 
   const userSocketRef = useRef<WebSocket | null>(null);
   const roomSocketsRef = useRef(new Map<string, WebSocket>());
@@ -268,6 +269,7 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
   const roomReconnectTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const activeChatroomIdRef = useRef<string | null>(chatroomId ?? null);
   const onNewChatroomRef = useRef<UseGatewayChatOptions['onNewChatroom']>(options?.onNewChatroom);
+  const activeAiAbortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     activeChatroomIdRef.current = chatroomId ?? null;
@@ -304,6 +306,80 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     });
   }, [sortMessagesByCreatedAt]);
 
+  const appendOrCreateAiChunk = useCallback((params: {
+    requestMessageId: string;
+    streamMessageId: string;
+    streamChatroomId: string;
+    delta: string;
+    done?: boolean;
+  }) => {
+    setMessages((prev) => {
+      const fallbackId = `ai-stream-${params.requestMessageId}`;
+      const messageIdCandidates = [params.streamMessageId, fallbackId];
+      const index = prev.findIndex((item) => messageIdCandidates.includes(item.id));
+
+      if (index === -1) {
+        return sortMessagesByCreatedAt([
+          ...prev,
+          {
+            id: params.streamMessageId,
+            chatroomId: params.streamChatroomId,
+            senderUserId: 'ai-assistant',
+            aiModelId: 'streaming',
+            content: params.delta,
+            createdAt: new Date().toISOString(),
+            isLoading: !params.done,
+          },
+        ]);
+      }
+
+      const next = [...prev];
+      const current = next[index];
+      next[index] = {
+        ...current,
+        id: params.streamMessageId,
+        content: `${current.content ?? ''}${params.delta}`,
+        isLoading: !params.done,
+      };
+      return sortMessagesByCreatedAt(next);
+    });
+  }, [sortMessagesByCreatedAt]);
+
+  const completeAiMessage = useCallback((params: {
+    requestMessageId: string;
+    streamMessageId: string;
+    finalContent?: string;
+    streamChatroomId: string;
+  }) => {
+    setMessages((prev) => {
+      const fallbackId = `ai-stream-${params.requestMessageId}`;
+      const index = prev.findIndex((item) => item.id === params.streamMessageId || item.id === fallbackId);
+      if (index === -1) {
+        return sortMessagesByCreatedAt([
+          ...prev,
+          {
+            id: params.streamMessageId,
+            chatroomId: params.streamChatroomId,
+            senderUserId: 'ai-assistant',
+            aiModelId: 'streaming',
+            content: params.finalContent ?? '',
+            createdAt: new Date().toISOString(),
+            isLoading: false,
+          },
+        ]);
+      }
+
+      const next = [...prev];
+      next[index] = {
+        ...next[index],
+        id: params.streamMessageId,
+        content: params.finalContent ?? next[index].content,
+        isLoading: false,
+      };
+      return sortMessagesByCreatedAt(next);
+    });
+  }, [sortMessagesByCreatedAt]);
+
   const refreshMessages = useCallback(async () => {
     if (!token || !chatroomId) {
       setMessages([]);
@@ -334,6 +410,16 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
 
     refreshMessages().catch(() => undefined);
   }, [chatroomId, refreshMessages]);
+
+  useEffect(() => {
+    if (!chatroomId) {
+      if (activeAiAbortControllerRef.current) {
+        activeAiAbortControllerRef.current.abort();
+        activeAiAbortControllerRef.current = null;
+      }
+      setActiveAiRequestMessageId(null);
+    }
+  }, [chatroomId]);
 
   const handleRealtimeEvent = useCallback(
     (event: ChatRealtimeEvent) => {
@@ -572,8 +658,118 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     if (!token) throw new Error('Not authenticated');
     const result = await gatewayApi.chat.sendMessage(token, input);
     upsertMessage(result.message);
+
+    const shouldStreamAi = Boolean(input.aiModelId && !input.otherUserId);
+    if (shouldStreamAi) {
+      if (activeAiAbortControllerRef.current) {
+        activeAiAbortControllerRef.current.abort();
+      }
+
+      const requestMessageId = result.message.id;
+      const streamChatroomId = result.chatroomId;
+      const controller = new AbortController();
+      activeAiAbortControllerRef.current = controller;
+      setActiveAiRequestMessageId(requestMessageId);
+
+      setMessages((prev) => {
+        const placeholderId = `ai-stream-${requestMessageId}`;
+        if (prev.some((item) => item.id === placeholderId)) {
+          return prev;
+        }
+
+        return sortMessagesByCreatedAt([
+          ...prev,
+          {
+            id: placeholderId,
+            chatroomId: streamChatroomId,
+            senderUserId: 'ai-assistant',
+            aiModelId: input.aiModelId,
+            content: '',
+            createdAt: new Date().toISOString(),
+            isLoading: true,
+          },
+        ]);
+      });
+
+      gatewayApi.chat.streamAiResponse({
+        token,
+        messageId: requestMessageId,
+        chatroomId: streamChatroomId,
+        signal: controller.signal,
+        onChunk: ({ messageId, contentDelta, done }) => {
+          appendOrCreateAiChunk({
+            requestMessageId,
+            streamMessageId: messageId,
+            streamChatroomId,
+            delta: contentDelta,
+            done,
+          });
+        },
+        onCompleted: ({ messageId, finalContent }) => {
+          completeAiMessage({
+            requestMessageId,
+            streamMessageId: messageId,
+            streamChatroomId,
+            finalContent,
+          });
+          setActiveAiRequestMessageId((current) => (current === requestMessageId ? null : current));
+          if (activeAiAbortControllerRef.current === controller) {
+            activeAiAbortControllerRef.current = null;
+          }
+        },
+        onFailed: ({ messageId, error: streamError }) => {
+          completeAiMessage({
+            requestMessageId,
+            streamMessageId: messageId,
+            streamChatroomId,
+          });
+          setError(streamError);
+          setActiveAiRequestMessageId((current) => (current === requestMessageId ? null : current));
+          if (activeAiAbortControllerRef.current === controller) {
+            activeAiAbortControllerRef.current = null;
+          }
+        },
+        onCancelled: ({ messageId }) => {
+          completeAiMessage({
+            requestMessageId,
+            streamMessageId: messageId,
+            streamChatroomId,
+          });
+          setActiveAiRequestMessageId((current) => (current === requestMessageId ? null : current));
+          if (activeAiAbortControllerRef.current === controller) {
+            activeAiAbortControllerRef.current = null;
+          }
+        },
+      }).catch((streamError) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setMessages((prev) => {
+          const placeholderId = `ai-stream-${requestMessageId}`;
+          const index = prev.findIndex((item) => item.id === placeholderId);
+          if (index === -1) {
+            return prev;
+          }
+
+          const next = [...prev];
+          next[index] = {
+            ...next[index],
+            isLoading: false,
+          };
+          return next;
+        });
+        setError(streamError instanceof Error ? streamError.message : 'AI stream failed');
+
+        setActiveAiRequestMessageId((current) => (current === requestMessageId ? null : current));
+        if (activeAiAbortControllerRef.current === controller) {
+          activeAiAbortControllerRef.current = null;
+        }
+      });
+    }
+
     return result;
-  }, [token, upsertMessage]);
+  }, [token, upsertMessage, sortMessagesByCreatedAt, appendOrCreateAiChunk, completeAiMessage]);
 
   const setTyping = useCallback(async (currentChatroomId: string, isTyping = true) => {
     if (!token) throw new Error('Not authenticated');
@@ -584,6 +780,22 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     if (!token) throw new Error('Not authenticated');
     return gatewayApi.chat.cancelAiMessage(token, messageId);
   }, [token]);
+
+  const stopActiveAiStream = useCallback(async () => {
+    const messageId = activeAiRequestMessageId;
+    if (!messageId) return;
+
+    if (activeAiAbortControllerRef.current) {
+      activeAiAbortControllerRef.current.abort();
+      activeAiAbortControllerRef.current = null;
+    }
+
+    try {
+      await cancelAiMessage(messageId);
+    } finally {
+      setActiveAiRequestMessageId(null);
+    }
+  }, [activeAiRequestMessageId, cancelAiMessage]);
 
   const listAiModels = useCallback(async () => {
     if (!token) throw new Error('Not authenticated');
@@ -610,6 +822,8 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     isLoading,
     error,
     isSocketConnected,
+    isAiStreaming: Boolean(activeAiRequestMessageId),
+    activeAiRequestMessageId,
     typingUserIds,
     refreshMessages,
     listChatrooms,
@@ -617,6 +831,7 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     sendMessage,
     setTyping,
     cancelAiMessage,
+    stopActiveAiStream,
     listAiModels,
     createUserApiKey,
     updateUserApiKey,
@@ -629,9 +844,11 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     getChatroom,
     isLoading,
     isSocketConnected,
+    activeAiRequestMessageId,
     listAiModels,
     listChatrooms,
     messages,
+    stopActiveAiStream,
     refreshMessages,
     sendMessage,
     setTyping,

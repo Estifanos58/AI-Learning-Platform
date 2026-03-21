@@ -21,7 +21,16 @@ interface RightChatPanelProps {
 
 export function RightChatPanel({ isOpen }: RightChatPanelProps) {
   const { user, session } = useAuth();
-  const { chatroomId, setChatroomId, draftOtherUserId, setDraftOtherUserId, rightSidebarWidth } = useWorkspace();
+  const {
+    chatroomId,
+    setChatroomId,
+    draftOtherUserId,
+    setDraftOtherUserId,
+    rightSidebarWidth,
+    selectedFileId,
+    preferredAiModelId,
+    setPreferredAiModelId,
+  } = useWorkspace();
   const [chatroom, setChatroom] = useState<Chatroom | null>(null);
   const [chatrooms, setChatrooms] = useState<Chatroom[]>([]);
   const [isChatroomsLoading, setIsChatroomsLoading] = useState(false);
@@ -38,6 +47,8 @@ export function RightChatPanel({ isOpen }: RightChatPanelProps) {
     listChatrooms,
     listAiModels,
     setTyping,
+    stopActiveAiStream,
+    isAiStreaming,
     isSocketConnected,
     typingUserIds,
   } = useGatewayChat(
@@ -293,6 +304,14 @@ export function RightChatPanel({ isOpen }: RightChatPanelProps) {
       return;
     }
 
+    if (aiModelId) {
+      const selectedModel = aiModels.find((model) => model.id === aiModelId || model.modelId === aiModelId);
+      if (selectedModel && selectedModel.platformKeyAvailable === false && !selectedModel.userKeyConfigured) {
+        toast.error('This model requires your API key before use');
+        return;
+      }
+    }
+
     try {
       let resolvedChatroomId = chatroom?.id ?? chatroomId ?? undefined;
 
@@ -305,17 +324,28 @@ export function RightChatPanel({ isOpen }: RightChatPanelProps) {
           aiModelId,
         });
 
-      if (fileIds.length === 0) {
+      const shouldAttachSelectedFileToNewAiChat =
+        Boolean(aiModelId) &&
+        !draftOtherUserId &&
+        !resolvedChatroomId &&
+        Boolean(selectedFileId) &&
+        fileIds.length === 0;
+
+      const computedFileIds = shouldAttachSelectedFileToNewAiChat
+        ? [selectedFileId as string]
+        : fileIds;
+
+      if (computedFileIds.length === 0) {
         const response = await sendOne({ content: sanitizedContent || undefined }, true);
         resolvedChatroomId = response.chatroomId;
       } else {
         const firstResponse = await sendOne(
-          { content: sanitizedContent || undefined, fileId: fileIds[0] },
+          { content: sanitizedContent || undefined, fileId: computedFileIds[0] },
           true,
         );
         resolvedChatroomId = firstResponse.chatroomId;
 
-        for (const fileId of fileIds.slice(1)) {
+        for (const fileId of computedFileIds.slice(1)) {
           await sendOne({ fileId }, false);
         }
       }
@@ -503,6 +533,7 @@ export function RightChatPanel({ isOpen }: RightChatPanelProps) {
             <ChatMessageList messages={messages} isCompact={isCompact} currentUserId={user?.id} typingUserIds={typingUserIds} />
             <ChatComposer
               onSendMessage={handleSendMessage}
+              onCancelStream={stopActiveAiStream}
               onTypingChange={
                 chatroomId
                   ? async (isTyping) => {
@@ -512,6 +543,9 @@ export function RightChatPanel({ isOpen }: RightChatPanelProps) {
               }
               isCompact={isCompact}
               allowFileDrop={hasActiveConversation}
+              selectedAiModelId={preferredAiModelId}
+              onSelectedAiModelChange={setPreferredAiModelId}
+              isAiStreaming={isAiStreaming}
               models={chatroom?.type === 'DM' || draftOtherUserId ? [] : aiModels}
             />
           </div>

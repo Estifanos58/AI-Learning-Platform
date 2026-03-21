@@ -1,15 +1,16 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
-import { Folder, FileItem, FileUploadStatus } from '@/src/lib/types';
+import { AIModel, Folder, FileItem, FileUploadStatus } from '@/src/lib/types';
 import { useAuth } from '@/src/contexts/auth';
 import { useWorkspace } from '../workspace-context';
 import { useGatewayFiles } from '@/src/hooks/use-gateway';
+import { gatewayApi } from '@/src/lib/api/gateway';
 import { FolderTree } from './folder-tree';
 import { EmptyState } from '@/src/components/common/states';
 import { 
@@ -24,6 +25,13 @@ import { Label } from '@/components/ui/label';
 import { FolderPlus, UploadCloud } from 'lucide-react';
 import { toast } from 'sonner';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -37,7 +45,13 @@ interface LeftSidebarProps {
 
 export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   const { user, session } = useAuth();
-  const { selectedFolderId, setSelectedFolderId, leftSidebarWidth } = useWorkspace();
+  const {
+    selectedFolderId,
+    setSelectedFolderId,
+    leftSidebarWidth,
+    preferredAiModelId,
+    setPreferredAiModelId,
+  } = useWorkspace();
   const router = useRouter();
   const {
     folders,
@@ -66,6 +80,11 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
   const [isShareable, setIsShareable] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<FileUploadStatus | null>(null);
+  const [aiModels, setAiModels] = useState<AIModel[]>([]);
+  const [isAiModelsLoading, setIsAiModelsLoading] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [isSavingApiKey, setIsSavingApiKey] = useState(false);
+  const [isDeletingApiKey, setIsDeletingApiKey] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Drag and Drop State
@@ -79,6 +98,81 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
     createFolder,
     uploadFiles,
   });
+
+  const selectedAiModel = useMemo(() => {
+    if (preferredAiModelId) {
+      return aiModels.find((model) => model.id === preferredAiModelId || model.modelId === preferredAiModelId) ?? null;
+    }
+    return aiModels[0] ?? null;
+  }, [aiModels, preferredAiModelId]);
+
+  const loadAiModels = useCallback(async () => {
+    if (!session?.accessToken) {
+      setAiModels([]);
+      return;
+    }
+
+    setIsAiModelsLoading(true);
+    try {
+      const models = await gatewayApi.chat.listAiModels(session.accessToken);
+      setAiModels(models);
+
+      if (!preferredAiModelId && models.length > 0) {
+        setPreferredAiModelId(models[0].id);
+      }
+    } catch {
+      setAiModels([]);
+    } finally {
+      setIsAiModelsLoading(false);
+    }
+  }, [preferredAiModelId, session?.accessToken, setPreferredAiModelId]);
+
+  useEffect(() => {
+    loadAiModels();
+  }, [loadAiModels]);
+
+  const handleSaveApiKey = async () => {
+    if (!session?.accessToken || !selectedAiModel || !apiKeyInput.trim()) {
+      return;
+    }
+
+    const modelId = selectedAiModel.modelId || selectedAiModel.id;
+
+    setIsSavingApiKey(true);
+    try {
+      if (selectedAiModel.userKeyConfigured) {
+        await gatewayApi.chat.updateUserApiKey(session.accessToken, { modelId, apiKey: apiKeyInput.trim() });
+      } else {
+        await gatewayApi.chat.createUserApiKey(session.accessToken, { modelId, apiKey: apiKeyInput.trim() });
+      }
+      setApiKeyInput('');
+      await loadAiModels();
+      toast.success('AI API key saved');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save AI API key');
+    } finally {
+      setIsSavingApiKey(false);
+    }
+  };
+
+  const handleDeleteApiKey = async () => {
+    if (!session?.accessToken || !selectedAiModel) {
+      return;
+    }
+
+    const modelId = selectedAiModel.modelId || selectedAiModel.id;
+
+    setIsDeletingApiKey(true);
+    try {
+      await gatewayApi.chat.deleteUserApiKey(session.accessToken, modelId);
+      await loadAiModels();
+      toast.success('AI API key removed');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to remove AI API key');
+    } finally {
+      setIsDeletingApiKey(false);
+    }
+  };
 
   // --- Handlers ---
 
@@ -384,6 +478,71 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
              )}
           </div>
         </div>
+
+        {!isCompact ? (
+          <div className="border-b border-border/50 p-3 space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground">AI Assistant</p>
+            <Select
+              value={(selectedAiModel?.id || selectedAiModel?.modelId || '')}
+              onValueChange={setPreferredAiModelId}
+              disabled={isAiModelsLoading || aiModels.length === 0}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder={isAiModelsLoading ? 'Loading models...' : 'Select model'} />
+              </SelectTrigger>
+              <SelectContent>
+                {aiModels.map((model) => {
+                  const modelValue = model.id || model.modelId;
+                  const isDisabled = model.platformKeyAvailable === false && !model.userKeyConfigured;
+                  return (
+                    <SelectItem key={modelValue} value={modelValue} disabled={isDisabled}>
+                      {model.name} ({model.provider})
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+
+            {selectedAiModel ? (
+              <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <span className={cn('rounded px-1.5 py-0.5 border', selectedAiModel.userKeyConfigured ? 'border-emerald-500/40 text-emerald-600' : 'border-border')}>
+                  {selectedAiModel.userKeyConfigured ? 'Your key connected' : 'No user key'}
+                </span>
+                <span className={cn('rounded px-1.5 py-0.5 border', selectedAiModel.platformKeyAvailable ? 'border-primary/40 text-primary' : 'border-border')}>
+                  {selectedAiModel.platformKeyAvailable ? 'Platform key available' : 'Platform key unavailable'}
+                </span>
+              </div>
+            ) : null}
+
+            <div className="flex items-center gap-2">
+              <Input
+                value={apiKeyInput}
+                onChange={(event) => setApiKeyInput(event.target.value)}
+                placeholder={selectedAiModel?.userKeyConfigured ? 'Update API key' : 'Enter API key'}
+                className="h-8 text-xs"
+                type="password"
+              />
+              <Button
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={handleSaveApiKey}
+                disabled={!selectedAiModel || !apiKeyInput.trim() || isSavingApiKey}
+              >
+                {isSavingApiKey ? 'Saving...' : selectedAiModel?.userKeyConfigured ? 'Update' : 'Save'}
+              </Button>
+            </div>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={handleDeleteApiKey}
+              disabled={!selectedAiModel?.userKeyConfigured || isDeletingApiKey}
+            >
+              {isDeletingApiKey ? 'Removing...' : 'Remove user key'}
+            </Button>
+          </div>
+        ) : null}
 
         {/* Content */}
         <div className={`flex-1 overflow-y-auto overflow-x-hidden ${isCompact ? 'p-1' : 'p-2'}`}>

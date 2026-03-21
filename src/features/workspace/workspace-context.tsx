@@ -19,6 +19,7 @@ interface WorkspaceContextType extends WorkspaceState {
   toggleChatPanel: () => void;
   setChatroomId: (id: string | null) => void;
   setDraftOtherUserId: (id: string | null) => void;
+  setPreferredAiModelId: (id: string | null) => void;
   leftSidebarWidth: number;
   rightSidebarWidth: number;
   setLeftSidebarWidth: (width: number) => void;
@@ -39,6 +40,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [chatPanelOpen, setChatPanelOpen] = useState(true);
   const [chatroomId, setChatroomId] = useState<string | null>(null);
   const [draftOtherUserId, setDraftOtherUserId] = useState<string | null>(null);
+  const [preferredAiModelId, setPreferredAiModelId] = useState<string | null>(null);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(320);
   const [isProfileOpen, setProfileOpen] = useState(false);
@@ -90,12 +92,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     chatPanelOpen,
     chatroomId,
     draftOtherUserId,
+    preferredAiModelId,
     setSelectedFolderId,
     setSelectedFileId,
     toggleSidebar,
     toggleChatPanel,
     setChatroomId,
     setDraftOtherUserId,
+    setPreferredAiModelId,
     leftSidebarWidth,
     rightSidebarWidth,
     setLeftSidebarWidth,
@@ -112,12 +116,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     chatPanelOpen,
     chatroomId,
     draftOtherUserId,
+    preferredAiModelId,
     setSelectedFolderId,
     setSelectedFileId,
     toggleSidebar,
     toggleChatPanel,
     setChatroomId,
     setDraftOtherUserId,
+    setPreferredAiModelId,
     leftSidebarWidth,
     rightSidebarWidth,
     setLeftSidebarWidth,
