@@ -107,7 +107,7 @@ function triggerDownload(url: string, filename: string) {
 
 export function FilePageClient({ file }: FilePageClientProps) {
   const { session } = useAuth();
-  const { setSelectedFileId } = useWorkspace();
+  const { setSelectedFileId, setChatroomId, setDraftOtherUserId } = useWorkspace();
   const [objectUrl, setObjectUrl] = useState<string | undefined>(undefined);
   const [textContent, setTextContent] = useState<string | undefined>(undefined);
   const [downloadBlob, setDownloadBlob] = useState<Blob | null>(null);
@@ -119,10 +119,12 @@ export function FilePageClient({ file }: FilePageClientProps) {
   // Sync selectedFileId in context so the sidebar highlights the correct file
   useEffect(() => {
     setSelectedFileId(file.id);
+    setChatroomId(null);
+    setDraftOtherUserId(null);
     return () => {
       setSelectedFileId(null);
     };
-  }, [file.id, setSelectedFileId]);
+  }, [file.id, setChatroomId, setDraftOtherUserId, setSelectedFileId]);
 
   useEffect(() => {
     const accessToken = session?.accessToken;
