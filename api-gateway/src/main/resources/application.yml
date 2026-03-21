@@ -141,6 +141,17 @@ spring:
                 redis-rate-limiter.replenishRate: 100
                 redis-rate-limiter.burstCapacity: 120
             - RewritePath=/api/ai/?(?<segment>.*), /api/internal/ai/${segment}
+        - id: rag-route
+          uri: forward:/
+          predicates:
+            - Path=/api/rag/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@ipRateLimitKeyResolver}'
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 120
+            - RewritePath=/api/rag/?(?<segment>.*), /api/internal/rag/${segment}
       globalcors:
         cors-configurations:
           '[/**]':
