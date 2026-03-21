@@ -22,7 +22,7 @@ class IngestionConsumer:
       • file.uploaded.v2   → ingest file into Qdrant
       • file.deleted.v1    → remove vectors from Qdrant
       • ai.message.requested.v2 → orchestrate RAG and stream response
-      • ai.message.cancelled.v1 → cancel active generation
+            • ai.message.cancelled.v2 → cancel active generation
     """
 
     def __init__(self) -> None:
@@ -42,7 +42,7 @@ class IngestionConsumer:
             settings.topic_file_uploaded_v2,
             settings.topic_file_deleted_v1,
             settings.topic_ai_message_requested_v2,
-            settings.topic_ai_message_cancelled_v1,
+            settings.topic_ai_message_cancelled_v2,
         ]
         try:
             from kafka import KafkaConsumer  # type: ignore[import]
@@ -117,7 +117,7 @@ class IngestionConsumer:
             await self._handle_file_deleted(payload)
         elif topic == settings.topic_ai_message_requested_v2:
             await self._handle_ai_message_requested(payload)
-        elif topic == settings.topic_ai_message_cancelled_v1:
+        elif topic == settings.topic_ai_message_cancelled_v2:
             await self._handle_ai_message_cancelled(payload)
 
     # ── Handlers ─────────────────────────────────────────────────────────────

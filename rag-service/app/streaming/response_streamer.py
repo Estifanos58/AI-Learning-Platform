@@ -33,7 +33,7 @@ class ResponseStreamer:
     ) -> None:
         event = {
             "event_id": str(uuid.uuid4()),
-            "event_type": "ai.message.chunk.v1",
+            "event_type": "ai.message.chunk.v2",
             "timestamp": _now(),
             "payload": {
                 "chatroom_id": chatroom_id,
@@ -46,7 +46,7 @@ class ResponseStreamer:
             },
         }
         self._producer.send(
-            topic=settings.topic_ai_message_chunk_v1,
+            topic=settings.topic_ai_message_chunk_v2,
             key=request_id,
             value=event,
         )
@@ -63,7 +63,7 @@ class ResponseStreamer:
     ) -> None:
         event = {
             "event_id": str(uuid.uuid4()),
-            "event_type": "ai.message.completed.v1",
+            "event_type": "ai.message.completed.v2",
             "timestamp": _now(),
             "payload": {
                 "chatroom_id": chatroom_id,
@@ -76,7 +76,7 @@ class ResponseStreamer:
             },
         }
         self._producer.send(
-            topic=settings.topic_ai_message_completed_v1,
+            topic=settings.topic_ai_message_completed_v2,
             key=request_id,
             value=event,
         )
@@ -90,7 +90,7 @@ class ResponseStreamer:
     ) -> None:
         event = {
             "event_id": str(uuid.uuid4()),
-            "event_type": "ai.message.failed.v1",
+            "event_type": "ai.message.failed.v2",
             "timestamp": _now(),
             "payload": {
                 "chatroom_id": chatroom_id,
@@ -100,7 +100,7 @@ class ResponseStreamer:
             },
         }
         self._producer.send(
-            topic=settings.topic_ai_message_failed_v1,
+            topic=settings.topic_ai_message_failed_v2,
             key=request_id,
             value=event,
         )
@@ -113,7 +113,7 @@ class ResponseStreamer:
     ) -> None:
         event = {
             "event_id": str(uuid.uuid4()),
-            "event_type": "ai.message.cancelled.v1",
+            "event_type": "ai.message.cancelled.v2",
             "timestamp": _now(),
             "payload": {
                 "chatroom_id": chatroom_id,
@@ -122,7 +122,7 @@ class ResponseStreamer:
             },
         }
         self._producer.send(
-            topic=settings.topic_ai_message_cancelled_v1,
+            topic=settings.topic_ai_message_cancelled_v2,
             key=request_id,
             value=event,
         )

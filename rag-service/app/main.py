@@ -21,8 +21,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.ai_models_controller import router as ai_models_router
-from app.api.rag_controller import router as rag_router
 from app.config import get_settings
 from app.db.session import init_database
 from app.grpc.ai_models_server import AiModelsGrpcServer
@@ -133,8 +131,6 @@ app.add_middleware(
 )
 
 # ── Routes ────────────────────────────────────────────────────────────────────
-app.include_router(rag_router, prefix="/api/rag")
-app.include_router(ai_models_router)
 
 
 @app.get("/health", tags=["ops"])

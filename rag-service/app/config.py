@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     kafka_bootstrap_servers: str = Field(
         default="localhost:9092", alias="KAFKA_BOOTSTRAP_SERVERS"
     )
-    kafka_group_id: str = Field(default="rag-service-v1", alias="KAFKA_GROUP_ID")
+    kafka_group_id: str = Field(default="rag-service-v2", alias="KAFKA_GROUP_ID")
     kafka_auto_offset_reset: str = Field(
         default="earliest", alias="KAFKA_AUTO_OFFSET_RESET"
     )
@@ -51,21 +51,21 @@ class Settings(BaseSettings):
         default="ai.message.requested.v2",
         alias="KAFKA_TOPIC_AI_MESSAGE_REQUESTED_V2",
     )
-    topic_ai_message_cancelled_v1: str = Field(
-        default="ai.message.cancelled.v1",
-        alias="KAFKA_TOPIC_AI_MESSAGE_CANCELLED_V1",
+    topic_ai_message_cancelled_v2: str = Field(
+        default="ai.message.cancelled.v2",
+        alias="KAFKA_TOPIC_AI_MESSAGE_CANCELLED_V2",
     )
 
     # Outbound topics
-    topic_ai_message_chunk_v1: str = Field(
-        default="ai.message.chunk.v1", alias="KAFKA_TOPIC_AI_MESSAGE_CHUNK_V1"
+    topic_ai_message_chunk_v2: str = Field(
+        default="ai.message.chunk.v2", alias="KAFKA_TOPIC_AI_MESSAGE_CHUNK_V2"
     )
-    topic_ai_message_completed_v1: str = Field(
-        default="ai.message.completed.v1",
-        alias="KAFKA_TOPIC_AI_MESSAGE_COMPLETED_V1",
+    topic_ai_message_completed_v2: str = Field(
+        default="ai.message.completed.v2",
+        alias="KAFKA_TOPIC_AI_MESSAGE_COMPLETED_V2",
     )
-    topic_ai_message_failed_v1: str = Field(
-        default="ai.message.failed.v1", alias="KAFKA_TOPIC_AI_MESSAGE_FAILED_V1"
+    topic_ai_message_failed_v2: str = Field(
+        default="ai.message.failed.v2", alias="KAFKA_TOPIC_AI_MESSAGE_FAILED_V2"
     )
 
     # Dead-letter topics
@@ -73,7 +73,7 @@ class Settings(BaseSettings):
         default="file.uploaded.dlt.v1", alias="KAFKA_TOPIC_FILE_UPLOADED_DLT"
     )
     topic_ai_message_requested_dlt: str = Field(
-        default="ai.message.requested.dlt.v1",
+        default="ai.message.requested.dlt.v2",
         alias="KAFKA_TOPIC_AI_MESSAGE_REQUESTED_DLT",
     )
 
