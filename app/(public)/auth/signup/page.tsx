@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -13,54 +12,30 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAuth } from '@/src/contexts/auth';
+import { useSignupForm } from '@/src/hooks/app/use-signup-form';
 import { Sparkles, ArrowLeft } from 'lucide-react';
 
 export default function SignupPage() {
   const router = useRouter();
   const { signup, isLoading, error, clearError } = useAuth();
-  const [email, setEmail] = useState('');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [role, setRole] = useState('STUDENT');
-  const [localError, setLocalError] = useState<string | null>(null);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
-
-  const validatePassword = (pwd: string): boolean => {
-    if (pwd.length < 8) {
-      setPasswordError('Password must be at least 8 characters');
-      return false;
-    }
-    setPasswordError(null);
-    return true;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLocalError(null);
-    clearError();
-
-    // Validation
-    if (!email || !username || !password || !role) {
-      setLocalError('Please fill in all fields');
-      return;
-    }
-
-    if (!validatePassword(password)) {
-      return;
-    }
-
-    if (username.length > 100) {
-      setLocalError('Username must be 100 characters or less');
-      return;
-    }
-
-    try {
-      await signup(email, username, password, role);
-      router.push('/auth/verify-email');
-    } catch (err) {
-      setLocalError(err instanceof Error ? err.message : 'Signup failed');
-    }
-  };
+  const {
+    email,
+    setEmail,
+    username,
+    setUsername,
+    password,
+    setPassword,
+    role,
+    setRole,
+    localError,
+    passwordError,
+    validatePassword,
+    handleSubmit,
+  } = useSignupForm({
+    signup,
+    clearError,
+    onSuccess: () => router.push('/auth/verify-email'),
+  });
 
   const displayError = localError || error;
 
@@ -72,7 +47,7 @@ export default function SignupPage() {
         <div className="absolute inset-0 z-0">
           <div className="absolute top-[20%] -right-[10%] w-[70%] h-[70%] bg-purple-500/20 blur-[120px] rounded-full opacity-30 animate-pulse" />
           <div className="absolute bottom-[10%] left-[10%] w-[50%] h-[50%] bg-indigo-500/10 blur-[100px] rounded-full opacity-30 animate-pulse animation-delay-2000" />
-          <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] opacity-20"></div>
+          <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-size-[24px_24px] opacity-20"></div>
           
           {/* Animated Blobs */}
           <div className="absolute top-20 left-20 w-32 h-32 bg-primary/30 rounded-full blur-2xl animate-blob" />
@@ -102,7 +77,7 @@ export default function SignupPage() {
 
       {/* Form Side */}
       <div className="flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-background relative overflow-y-auto min-h-full">
-        <div className="absolute inset-0 bg-gradient-to-bl from-primary/5 via-transparent to-transparent pointer-events-none" />
+        <div className="absolute inset-0 bg-linear-to-bl from-primary/5 via-transparent to-transparent pointer-events-none" />
         <Button 
             variant="ghost" 
             className="absolute top-4 right-4 md:top-8 md:right-8" 

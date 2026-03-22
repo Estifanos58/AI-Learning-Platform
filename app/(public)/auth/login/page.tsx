@@ -1,37 +1,28 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/src/contexts/auth';
+import { useLoginForm } from '@/src/hooks/app/use-login-form';
 import { Bot, ArrowLeft } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
   const { login, isLoading, error, clearError } = useAuth();
-  const [email, setEmail] = useState('demo@example.com');
-  const [password, setPassword] = useState('password123');
-  const [localError, setLocalError] = useState<string | null>(null);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLocalError(null);
-    clearError();
-
-    if (!email || !password) {
-      setLocalError('Please fill in all fields');
-      return;
-    }
-
-    try {
-      await login(email, password);
-      router.push('/app/workspace');
-    } catch (err) {
-      setLocalError(err instanceof Error ? err.message : 'Login failed');
-    }
-  };
+  const {
+    email,
+    setEmail,
+    password,
+    setPassword,
+    localError,
+    handleSubmit,
+  } = useLoginForm({
+    login,
+    clearError,
+    onSuccess: () => router.push('/app/workspace'),
+  });
 
   const displayError = localError || error;
 

@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useGatewayAuth } from '@/src/hooks/use-gateway';
+import { useResetPasswordForm } from '@/src/hooks/app/use-reset-password-form';
 
 import { DynamicBackground } from '@/components/dynamic-background';
 import { ArrowLeft, CheckCircle2, LockKeyhole } from 'lucide-react';
@@ -13,54 +13,27 @@ import { ArrowLeft, CheckCircle2, LockKeyhole } from 'lucide-react';
 export default function ResetPasswordPage() {
   const router = useRouter();
   const { resetPassword } = useGatewayAuth();
-  const [token, setToken] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-
-  const validatePassword = (pwd: string): boolean => {
-    if (pwd.length < 8) {
-      setPasswordError('Password must be at least 8 characters');
-      return false;
-    }
-    setPasswordError(null);
-    return true;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-
-    if (!token || !newPassword || !confirmPassword) {
-      setError('Please fill in all fields');
-      return;
-    }
-
-    if (!validatePassword(newPassword)) {
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      await resetPassword({ token, newPassword });
-      setSuccess(true);
+  const {
+    token,
+    setToken,
+    newPassword,
+    setNewPassword,
+    confirmPassword,
+    setConfirmPassword,
+    isLoading,
+    error,
+    passwordError,
+    success,
+    validatePassword,
+    handleSubmit,
+  } = useResetPasswordForm({
+    resetPassword,
+    onSuccess: () => {
       setTimeout(() => {
         router.push('/auth/login');
       }, 2000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Password reset failed');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    },
+  });
 
   if (success) {
     return (
