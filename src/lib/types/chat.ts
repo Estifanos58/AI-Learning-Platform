@@ -2,7 +2,7 @@
  * Gateway chat contracts
  */
 
-export type ChatroomType = 'DM' | 'GROUP' | 'DOCUMENT_CONTEXT';
+export type ChatroomType = 'DM' | 'DIRECT' | 'GROUP' | 'AI' | 'DOCUMENT_CONTEXT';
 
 export interface Chatroom {
   id: string;
@@ -11,6 +11,9 @@ export interface Chatroom {
   name?: string;
   createdAt: string;
   updatedAt?: string;
+  otherUserId?: string | null;
+  otherUserName?: string | null;
+  otherUserProfileImageFileId?: string | null;
 }
 
 export interface ChatMessage {
