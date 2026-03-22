@@ -3,20 +3,39 @@
 import { useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { useThemeColor } from '@/src/contexts/theme-color-context';
+import { useAiSettings } from '@/src/hooks/app/use-ai-settings';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { Bell, Lock, Layout, Info, ChevronLeft, Moon, Sun, Monitor, Paintbrush, Check } from 'lucide-react';
+import { Bell, Lock, Layout, Info, ChevronLeft, Moon, Sun, Monitor, Paintbrush, Check, Sparkles } from 'lucide-react';
 import { useWorkspace } from '@/src/features/workspace/workspace-context';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import { useMemo } from 'react';
+import { useAuth } from '@/src/contexts/auth';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export function SettingsPageClient() {
   const router = useRouter();
+  const { session } = useAuth();
   const { setProfileOpen } = useWorkspace();
   const { theme, setTheme } = useTheme();
   const { themeColor, setThemeColor } = useThemeColor();
+  const {
+    aiModels,
+    isAiModelsLoading,
+    selectedAiModelId,
+    setSelectedAiModelId,
+    selectedAiModel,
+    apiKeyInput,
+    setApiKeyInput,
+    isSavingApiKey,
+    isDeletingApiKey,
+    handleSaveApiKey,
+    handleDeleteApiKey,
+  } = useAiSettings({ accessToken: session?.accessToken });
 
   const colors = [
     { name: 'zinc', class: 'bg-zinc-950 dark:bg-zinc-500', label: 'Zinc' },
@@ -54,6 +73,94 @@ export function SettingsPageClient() {
         </div>
 
         <div className="grid gap-6">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                <CardTitle className="text-lg">AI Assistant</CardTitle>
+              </div>
+              <CardDescription>Manage your AI models and API keys</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                <Label className="text-base">Select AI Model</Label>
+                <Select
+                  value={selectedAiModel?.id || selectedAiModel?.modelId || ''}
+                  onValueChange={setSelectedAiModelId}
+                  disabled={isAiModelsLoading || aiModels.length === 0}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={isAiModelsLoading ? 'Loading models...' : 'Select model'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {aiModels.map((model) => {
+                      const modelValue = model.id || model.modelId;
+                      return (
+                        <SelectItem key={modelValue} value={modelValue}>
+                          {model.name} ({model.provider})
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {selectedAiModel ? (
+                <div className="flex flex-col gap-3 pt-3 border-t">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span>Key Status:</span>
+                    <span
+                      className={cn(
+                        'rounded px-2 py-0.5 border text-xs font-medium',
+                        selectedAiModel.userKeyConfigured ? 'border-emerald-500/40 text-emerald-600' : 'border-border'
+                      )}
+                    >
+                      {selectedAiModel.userKeyConfigured ? 'Your key connected' : 'No user key'}
+                    </span>
+                    <span
+                      className={cn(
+                        'rounded px-2 py-0.5 border text-xs font-medium',
+                        selectedAiModel.platformKeyAvailable ? 'border-primary/40 text-primary' : 'border-border'
+                      )}
+                    >
+                      {selectedAiModel.platformKeyAvailable ? 'Platform key available' : 'Platform key unavailable'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm">Manage API Key</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={apiKeyInput}
+                        onChange={(event) => setApiKeyInput(event.target.value)}
+                        placeholder={selectedAiModel?.userKeyConfigured ? 'Update API key' : 'Enter API key'}
+                        className="max-w-md"
+                        type="password"
+                      />
+                      <Button
+                        onClick={handleSaveApiKey}
+                        disabled={!selectedAiModel || !apiKeyInput.trim() || isSavingApiKey}
+                      >
+                        {isSavingApiKey ? 'Saving...' : selectedAiModel?.userKeyConfigured ? 'Update' : 'Save'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="pt-2">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleDeleteApiKey}
+                      disabled={!selectedAiModel?.userKeyConfigured || isDeletingApiKey}
+                    >
+                      {isDeletingApiKey ? 'Removing...' : 'Remove user key'}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">

@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Loader2 } from 'lucide-react';
-import { gatewayApi } from '@/src/lib/api/gateway';
+import { useProfileSetupForm } from '@/src/hooks/app/use-profile-setup-form';
 import { UserProfile } from '@/src/lib/types';
 
 interface ProfileSetupPageClientProps {
@@ -18,39 +17,28 @@ interface ProfileSetupPageClientProps {
 
 export function ProfileSetupPageClient({ accessToken, initialProfile }: ProfileSetupPageClientProps) {
   const router = useRouter();
-  const [firstName, setFirstName] = useState(initialProfile?.firstName || '');
-  const [lastName, setLastName] = useState(initialProfile?.lastName || '');
-  const [universityId, setUniversityId] = useState(initialProfile?.universityId || '');
-  const [department, setDepartment] = useState(initialProfile?.department || '');
-  const [bio, setBio] = useState(initialProfile?.bio || '');
-  const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!firstName.trim() || !lastName.trim()) {
-      setError('First name and Last name are required');
-      return;
-    }
-
-    try {
-      setIsSaving(true);
-      setError(null);
-      await gatewayApi.profile.updateMe(accessToken, {
-        firstName,
-        lastName,
-        universityId,
-        department,
-        bio,
-      });
+  const {
+    firstName,
+    setFirstName,
+    lastName,
+    setLastName,
+    universityId,
+    setUniversityId,
+    department,
+    setDepartment,
+    bio,
+    setBio,
+    error,
+    isSaving,
+    handleSubmit,
+  } = useProfileSetupForm({
+    accessToken,
+    initialProfile,
+    onSuccess: () => {
       router.push('/app/workspace');
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save profile');
-    } finally {
-      setIsSaving(false);
-    }
-  };
+    },
+  });
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-background">
