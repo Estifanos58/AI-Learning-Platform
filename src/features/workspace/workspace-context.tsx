@@ -1,35 +1,10 @@
 'use client';
 
 import { createContext, useContext, useState, ReactNode, useCallback, useMemo, useEffect, useRef } from 'react';
-import { WorkspaceState } from './types';
-import type { WorkspaceFilePreview } from './workspace-file-preview';
+import { WorkspaceContextType, WorkspaceFilePreview } from './workspace-context.types';
+import { revokeObjectUrl } from './workspace-context.utils';
 
-export type { WorkspaceFilePreview } from './workspace-file-preview';
-
-function revokeObjectUrl(url?: string) {
-  if (url?.startsWith('blob:')) {
-    URL.revokeObjectURL(url);
-  }
-}
-
-interface WorkspaceContextType extends WorkspaceState {
-  setSelectedFolderId: (id: string | null) => void;
-  setSelectedFileId: (id: string | null) => void;
-  toggleSidebar: () => void;
-  toggleChatPanel: () => void;
-  setChatroomId: (id: string | null) => void;
-  setDraftOtherUserId: (id: string | null) => void;
-  setPreferredAiModelId: (id: string | null) => void;
-  leftSidebarWidth: number;
-  rightSidebarWidth: number;
-  setLeftSidebarWidth: (width: number) => void;
-  setRightSidebarWidth: (width: number) => void;
-  isProfileOpen: boolean;
-  setProfileOpen: (open: boolean) => void;
-  filePreviews: Record<string, WorkspaceFilePreview>;
-  setFilePreview: (fileId: string, preview: WorkspaceFilePreview) => void;
-  clearFilePreview: (fileId: string) => void;
-}
+export type { WorkspaceFilePreview } from './workspace-context.types';
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
 
@@ -41,6 +16,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [chatroomId, setChatroomId] = useState<string | null>(null);
   const [draftOtherUserId, setDraftOtherUserId] = useState<string | null>(null);
   const [preferredAiModelId, setPreferredAiModelId] = useState<string | null>(null);
+  const [chatroomAiModelIds, setChatroomAiModelIds] = useState<Record<string, string | null>>({});
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(320);
   const [isProfileOpen, setProfileOpen] = useState(false);
@@ -49,6 +25,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), []);
   const toggleChatPanel = useCallback(() => setChatPanelOpen((prev) => !prev), []);
+
+  const getChatroomAiModelId = useCallback((roomId: string) => {
+    return chatroomAiModelIds[roomId] ?? null;
+  }, [chatroomAiModelIds]);
+
+  const setChatroomAiModelId = useCallback((roomId: string, modelId: string | null) => {
+    setChatroomAiModelIds((prev) => ({
+      ...prev,
+      [roomId]: modelId,
+    }));
+  }, []);
 
   const setFilePreview = useCallback((fileId: string, preview: WorkspaceFilePreview) => {
     setFilePreviews((prev) => {
@@ -100,6 +87,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setChatroomId,
     setDraftOtherUserId,
     setPreferredAiModelId,
+    getChatroomAiModelId,
+    setChatroomAiModelId,
     leftSidebarWidth,
     rightSidebarWidth,
     setLeftSidebarWidth,
@@ -124,6 +113,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setChatroomId,
     setDraftOtherUserId,
     setPreferredAiModelId,
+    getChatroomAiModelId,
+    setChatroomAiModelId,
     leftSidebarWidth,
     rightSidebarWidth,
     setLeftSidebarWidth,
