@@ -411,7 +411,6 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     fileContentType?: string;
   }) => {
     if (!token) throw new Error('Not authenticated');
-        console.log("Send Message Reached")
 
     const result = await gatewayApi.chat.sendMessage(token, input);
     upsertMessage(result.message);
