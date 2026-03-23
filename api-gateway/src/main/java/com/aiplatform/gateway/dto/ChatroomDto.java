@@ -6,5 +6,8 @@ public record ChatroomDto(
         String id,
         String type,
         List<String> memberIds,
-        String createdAt
+        String createdAt,
+        String otherUserId,
+        String otherUserName,
+        String otherUserProfileImageFileId
 ) {}

@@ -8,6 +8,7 @@ import com.aiplatform.chat.proto.ListMessagesRequest;
 import com.aiplatform.chat.proto.SendMessageRequest;
 import com.aiplatform.chat.proto.TypingIndicatorRequest;
 import com.aiplatform.gateway.config.GrpcChatProperties;
+import com.aiplatform.gateway.config.GrpcProfileProperties;
 import com.aiplatform.gateway.dto.ApiMessageResponse;
 import com.aiplatform.gateway.dto.ChatMessageResponse;
 import com.aiplatform.gateway.dto.ChatroomDto;
@@ -20,6 +21,8 @@ import com.aiplatform.gateway.util.GatewayPrincipal;
 import com.aiplatform.gateway.util.GatewayPrincipalResolver;
 import com.aiplatform.gateway.util.GrpcExceptionMapper;
 import com.aiplatform.gateway.websocket.ChatRedisSubscriber;
+import com.aiplatform.profile.proto.GetProfileRequest;
+import com.aiplatform.profile.proto.UserProfileServiceGrpc;
 import com.google.protobuf.ByteString;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -41,7 +44,10 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/internal/chat")
@@ -57,7 +63,11 @@ public class GatewayChatController {
     @GrpcClient("chat-service")
     private ChatServiceGrpc.ChatServiceBlockingStub chatStub;
 
+    @GrpcClient("profile-service")
+    private UserProfileServiceGrpc.UserProfileServiceBlockingStub profileStub;
+
     private final GrpcChatProperties grpcChatProperties;
+    private final GrpcProfileProperties grpcProfileProperties;
     private final JwtValidationService jwtValidationService;
     private final ChatRedisSubscriber redisSubscriber;
 
@@ -126,7 +136,10 @@ public class GatewayChatController {
                                     .setPage(Math.max(page, 0))
                                     .setSize(Math.max(size, 1))
                                     .build());
-                    List<ChatroomDto> chatrooms = response.getChatroomsList().stream().map(this::toChatroomDto).toList();
+                        Map<String, OtherUserProfileView> dmProfileCache = new HashMap<>();
+                        List<ChatroomDto> chatrooms = response.getChatroomsList().stream()
+                            .map(chatroom -> toChatroomDto(chatroom, principal.userId(), dmProfileCache, principal))
+                            .toList();
                     return ResponseEntity.ok(new ListChatroomsResponse(chatrooms, response.getTotal()));
                 })
                 .subscribeOn(Schedulers.boundedElastic())
@@ -254,6 +267,95 @@ public class GatewayChatController {
     }
 
     private ChatroomDto toChatroomDto(com.aiplatform.chat.proto.ChatroomResponse cr) {
-        return new ChatroomDto(cr.getId(), cr.getType(), cr.getMemberIdsList(), cr.getCreatedAt());
+        return toChatroomDto(cr, null, new HashMap<>(), null);
     }
+
+    private ChatroomDto toChatroomDto(
+            com.aiplatform.chat.proto.ChatroomResponse cr,
+            String currentUserId,
+            Map<String, OtherUserProfileView> dmProfileCache,
+            GatewayPrincipal principal
+    ) {
+        String otherUserId = null;
+        String otherUserName = null;
+        String otherUserProfileImageFileId = null;
+
+        if ("DIRECT".equalsIgnoreCase(cr.getType())) {
+            otherUserId = cr.getMemberIdsList().stream()
+                    .filter(memberId -> currentUserId == null || !memberId.equals(currentUserId))
+                    .findFirst()
+                    .orElse(null);
+
+            if (otherUserId != null && principal != null) {
+                OtherUserProfileView profileView = dmProfileCache.computeIfAbsent(
+                        otherUserId,
+                        userId -> fetchOtherUserProfileView(principal, userId)
+                );
+                otherUserName = profileView.otherUserName();
+                otherUserProfileImageFileId = profileView.profileImageFileId();
+            }
+        }
+
+        return new ChatroomDto(
+                cr.getId(),
+                cr.getType(),
+                cr.getMemberIdsList(),
+                cr.getCreatedAt(),
+                otherUserId,
+                otherUserName,
+                otherUserProfileImageFileId
+        );
+    }
+
+    private OtherUserProfileView fetchOtherUserProfileView(GatewayPrincipal principal, String userId) {
+        try {
+            var profile = withProfileMetadata(principal)
+                    .getProfileById(GetProfileRequest.newBuilder().setUserId(userId).build());
+
+            String displayName = buildDisplayName(profile.getFirstName(), profile.getLastName())
+                    .orElse(userId);
+
+            return new OtherUserProfileView(displayName, emptyToNull(profile.getProfileImageFileId()));
+        } catch (Exception ex) {
+            return new OtherUserProfileView(userId, null);
+        }
+    }
+
+    private UserProfileServiceGrpc.UserProfileServiceBlockingStub withProfileMetadata(GatewayPrincipal principal) {
+        Metadata metadata = new Metadata();
+        metadata.put(CORRELATION_ID_KEY, principal.correlationId());
+        metadata.put(SERVICE_SECRET_KEY, grpcProfileProperties.getServiceSecret());
+        metadata.put(USER_ID_KEY, principal.userId());
+        if (!principal.roles().isBlank()) {
+            metadata.put(USER_ROLES_KEY, principal.roles());
+        }
+        if (!principal.universityId().isBlank()) {
+            metadata.put(UNIVERSITY_ID_KEY, principal.universityId());
+        }
+        return profileStub.withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata));
+    }
+
+    private Optional<String> buildDisplayName(String firstName, String lastName) {
+        String normalizedFirst = emptyToNull(firstName);
+        String normalizedLast = emptyToNull(lastName);
+        if (normalizedFirst == null && normalizedLast == null) {
+            return Optional.empty();
+        }
+        if (normalizedFirst == null) {
+            return Optional.of(normalizedLast);
+        }
+        if (normalizedLast == null) {
+            return Optional.of(normalizedFirst);
+        }
+        return Optional.of(normalizedFirst + " " + normalizedLast);
+    }
+
+    private String emptyToNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value;
+    }
+
+    private record OtherUserProfileView(String otherUserName, String profileImageFileId) {}
 }
