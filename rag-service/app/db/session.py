@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import AsyncIterator
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.db.base import Base
 from app.models.ai_model import AIModel
 from app.models.user_ai_api_key import UserAiApiKey  # noqa: F401
+from app.db.seed_platform_keys import sync_platform_keys
 
 settings = get_settings()
 log = logging.getLogger(__name__)
@@ -89,9 +90,43 @@ async def seed_default_ai_models(session: AsyncSession) -> None:
     log.info("Seeded default AI models")
 
 
-async def init_database() -> None:
+async def ensure_ai_models_schema() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+        if conn.dialect.name != "postgresql":
+            return
+
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE ai_models
+                ADD COLUMN IF NOT EXISTS encrypted_platform_key TEXT
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE ai_models
+                ADD COLUMN IF NOT EXISTS platform_key_available BOOLEAN NOT NULL DEFAULT FALSE
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE ai_models
+                SET platform_key_available = FALSE
+                WHERE platform_key_available IS NULL
+                """
+            )
+        )
+
+
+async def init_database() -> None:
+    await ensure_ai_models_schema()
+
     async with AsyncSessionLocal() as session:
         await seed_default_ai_models(session)
+        await sync_platform_keys(session)

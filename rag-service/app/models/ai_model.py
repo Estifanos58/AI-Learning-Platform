@@ -22,6 +22,7 @@ class AIModel(Base):
     platform_key_available: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    encrypted_platform_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[object] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

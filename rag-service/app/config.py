@@ -6,15 +6,16 @@ All settings are loaded from environment variables with sane defaults.
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import List, Optional
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", ".env.platform"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -53,19 +54,33 @@ class Settings(BaseSettings):
     )
     topic_ai_message_cancelled_v2: str = Field(
         default="ai.message.cancelled.v2",
-        alias="KAFKA_TOPIC_AI_MESSAGE_CANCELLED_V2",
+        validation_alias=AliasChoices(
+            "KAFKA_TOPIC_AI_MESSAGE_CANCELLED_V2",
+            "KAFKA_TOPIC_AI_MESSAGE_CANCELLED_V1",
+        ),
     )
 
     # Outbound topics
     topic_ai_message_chunk_v2: str = Field(
-        default="ai.message.chunk.v2", alias="KAFKA_TOPIC_AI_MESSAGE_CHUNK_V2"
+        default="ai.message.chunk.v2",
+        validation_alias=AliasChoices(
+            "KAFKA_TOPIC_AI_MESSAGE_CHUNK_V2",
+            "KAFKA_TOPIC_AI_MESSAGE_CHUNK_V1",
+        ),
     )
     topic_ai_message_completed_v2: str = Field(
         default="ai.message.completed.v2",
-        alias="KAFKA_TOPIC_AI_MESSAGE_COMPLETED_V2",
+        validation_alias=AliasChoices(
+            "KAFKA_TOPIC_AI_MESSAGE_COMPLETED_V2",
+            "KAFKA_TOPIC_AI_MESSAGE_COMPLETED_V1",
+        ),
     )
     topic_ai_message_failed_v2: str = Field(
-        default="ai.message.failed.v2", alias="KAFKA_TOPIC_AI_MESSAGE_FAILED_V2"
+        default="ai.message.failed.v2",
+        validation_alias=AliasChoices(
+            "KAFKA_TOPIC_AI_MESSAGE_FAILED_V2",
+            "KAFKA_TOPIC_AI_MESSAGE_FAILED_V1",
+        ),
     )
 
     # Dead-letter topics
@@ -140,9 +155,11 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
 
+    gemini_api_key_file: Optional[str] = Field(default=None, alias="GEMINI_API_KEY_FILE")
     gemini_api_key: Optional[str] = Field(default=None, alias="GEMINI_API_KEY")
     gemini_model: str = Field(default="gemini-1.5-flash", alias="GEMINI_MODEL")
 
+    deepseek_api_key_file: Optional[str] = Field(default=None, alias="DEEPSEEK_API_KEY_FILE")
     deepseek_api_key: Optional[str] = Field(default=None, alias="DEEPSEEK_API_KEY")
     deepseek_model: str = Field(
         default="deepseek-chat", alias="DEEPSEEK_MODEL"
@@ -184,6 +201,9 @@ class Settings(BaseSettings):
         return v
 
     def model_post_init(self, __context: object) -> None:
+        self.gemini_api_key = self.gemini_api_key or self._read_secret_file(self.gemini_api_key_file)
+        self.deepseek_api_key = self.deepseek_api_key or self._read_secret_file(self.deepseek_api_key_file)
+
         """Warn if insecure defaults are used in non-development environments."""
         import logging
         _log = logging.getLogger("rag-service.config")
@@ -192,6 +212,15 @@ class Settings(BaseSettings):
                 raise ValueError("ENCRYPTION_KEY must be explicitly set in non-development environments")
             if self.grpc_service_secret == "change-me-shared-secret":
                 _log.warning("APP_GRPC_SERVICE_SECRET is using the default insecure value")
+
+    def _read_secret_file(self, path_value: Optional[str]) -> Optional[str]:
+        if not path_value:
+            return None
+        try:
+            content = Path(path_value).read_text(encoding="utf-8").strip()
+            return content or None
+        except (FileNotFoundError, OSError):
+            return None
 
 
 @lru_cache
