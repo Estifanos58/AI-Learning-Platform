@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 from typing import AsyncIterator
 
@@ -26,7 +27,9 @@ class GeminiProvider(BaseLLMProvider):
         return settings.gemini_model
 
     def is_available(self) -> bool:
-        return bool(settings.gemini_api_key)
+        return bool(settings.gemini_api_key) and importlib.util.find_spec(
+            "google.generativeai"
+        ) is not None
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[LLMChunk]:
         api_key = request.user_api_key or settings.gemini_api_key

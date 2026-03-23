@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-import time
+import asyncio
 from typing import Any, Dict
 
 from app.config import get_settings
@@ -25,7 +25,8 @@ class IngestionConsumer:
             • ai.message.cancelled.v2 → cancel active generation
     """
 
-    def __init__(self) -> None:
+    def __init__(self, event_loop: asyncio.AbstractEventLoop) -> None:
+        self._event_loop = event_loop
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
             target=self._run, daemon=True, name="ingestion-consumer"
@@ -36,6 +37,8 @@ class IngestionConsumer:
 
     def stop(self) -> None:
         self._stop_event.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout=5)
 
     def _run(self) -> None:
         topics = [
@@ -84,9 +87,6 @@ class IngestionConsumer:
                 retry_delay = min(retry_delay * 2, 60)
 
     def _consume_loop(self, consumer: Any) -> None:
-        import asyncio
-
-        loop = asyncio.new_event_loop()
         try:
             while not self._stop_event.is_set():
                 batch = consumer.poll(timeout_ms=1000, max_records=10)
@@ -95,9 +95,11 @@ class IngestionConsumer:
                 for tp, records in batch.items():
                     for record in records:
                         try:
-                            loop.run_until_complete(
-                                self._dispatch(record.topic, record.value)
+                            future = asyncio.run_coroutine_threadsafe(
+                                self._dispatch(record.topic, record.value),
+                                self._event_loop,
                             )
+                            future.result()
                             consumer.commit()
                         except Exception as exc:  # noqa: BLE001
                             log.error(
@@ -107,7 +109,6 @@ class IngestionConsumer:
                             )
                             self._send_to_dlt(record)
         finally:
-            loop.close()
             consumer.close()
 
     async def _dispatch(self, topic: str, payload: Dict[str, Any]) -> None:

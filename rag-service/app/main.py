@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -91,7 +92,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     consumer: IngestionConsumer | None = None
     if settings.kafka_consumer_enabled:
         try:
-            consumer = IngestionConsumer()
+            consumer = IngestionConsumer(asyncio.get_running_loop())
             consumer.start()
             log.info("Kafka ingestion consumer started")
         except Exception as exc:  # noqa: BLE001
