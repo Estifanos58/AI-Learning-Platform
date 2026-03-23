@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { AIModel } from '@/src/lib/types';
 import { NO_AI_MODEL_VALUE } from './types';
 
@@ -12,6 +12,13 @@ interface UseChatComposerStateOptions {
 
 const getModelId = (model?: AIModel | null) => model?.id || model?.modelId || '';
 
+const AI_TAG_REGEX = /(?:^|\s)@ai\b/i;
+
+/** Strip every occurrence of the @ai tag (case-insensitive) from the text. */
+export function stripAiTag(text: string): string {
+  return text.replace(/@ai\b/gi, '').replace(/\s{2,}/g, ' ').trim();
+}
+
 export function useChatComposerState({
   models,
   isDirectChat,
@@ -23,8 +30,21 @@ export function useChatComposerState({
   const [aiModelId, setAiModelId] = useState(() =>
     isDirectChat ? NO_AI_MODEL_VALUE : (models.length > 0 ? getModelId(models[0]) : ''),
   );
+  const [showModelPicker, setShowModelPicker] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevIsAiTaggedRef = useRef(false);
+
+  // Detect @ai tag in content
+  const isAiTagged = useMemo(() => AI_TAG_REGEX.test(content), [content]);
+
+  // Show model picker when user just typed @ai (transition from false → true)
+  useEffect(() => {
+    if (isAiTagged && !prevIsAiTaggedRef.current) {
+      setShowModelPicker(true);
+    }
+    prevIsAiTaggedRef.current = isAiTagged;
+  }, [isAiTagged]);
 
   useEffect(() => {
     if (!isDirectChat && models.length > 0 && !aiModelId) {
@@ -48,10 +68,15 @@ export function useChatComposerState({
     if (effectiveSelectedId !== effectiveModelId) onSelectedAiModelChange?.(effectiveModelId);
   }, [onSelectedAiModelChange, resolvedAiModelId, selectedAiModelId]);
 
-  const handleModelChange = (nextModelId: string) => {
+  const handleModelChange = useCallback((nextModelId: string) => {
     setAiModelId(nextModelId);
     onSelectedAiModelChange?.(nextModelId === NO_AI_MODEL_VALUE ? null : nextModelId);
-  };
+    setShowModelPicker(false);
+  }, [onSelectedAiModelChange]);
+
+  const dismissModelPicker = useCallback(() => {
+    setShowModelPicker(false);
+  }, []);
 
   const handleContentChange = (value: string) => {
     setContent(value);
@@ -77,6 +102,7 @@ export function useChatComposerState({
 
   const resetComposer = () => {
     setContent('');
+    setShowModelPicker(false);
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = null;
@@ -95,6 +121,13 @@ export function useChatComposerState({
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
   }, []);
 
+  // Resolve the selected model name for display
+  const selectedModelName = useMemo(() => {
+    if (resolvedAiModelId === NO_AI_MODEL_VALUE || !resolvedAiModelId) return null;
+    const model = models.find((m) => getModelId(m) === resolvedAiModelId);
+    return model?.name || model?.modelName || null;
+  }, [resolvedAiModelId, models]);
+
   return {
     content,
     setContent,
@@ -103,5 +136,9 @@ export function useChatComposerState({
     handleModelChange,
     textareaRef,
     resetComposer,
+    isAiTagged,
+    showModelPicker,
+    dismissModelPicker,
+    selectedModelName,
   };
 }

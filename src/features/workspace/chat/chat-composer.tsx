@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { ChatComposerProps } from './chat-composer/types';
 import { NO_AI_MODEL_VALUE } from './chat-composer/types';
-import { useChatComposerState } from './chat-composer/use-chat-composer-state';
+import { useChatComposerState, stripAiTag } from './chat-composer/use-chat-composer-state';
 import { useFileDropAttachments } from './chat-composer/use-file-drop-attachments';
 import { AiModelSelector } from './chat-composer/ai-model-selector';
 import { AttachedFilesStrip } from './chat-composer/attached-files-strip';
@@ -32,6 +32,10 @@ export function ChatComposer({
     handleModelChange,
     textareaRef,
     resetComposer,
+    isAiTagged,
+    showModelPicker,
+    dismissModelPicker,
+    selectedModelName,
   } = useChatComposerState({
     models,
     isDirectChat,
@@ -53,12 +57,17 @@ export function ChatComposer({
   const handleSend = async () => {
     if ((!content.trim() && attachedFiles.length === 0) || isLoading) return;
 
-    const effectiveAiModelId = resolvedAiModelId === NO_AI_MODEL_VALUE ? undefined : resolvedAiModelId;
-    if (hasAiModels && !isDirectChat && !effectiveAiModelId) return;
+    // Only attach AI model when @ai tag is present
+    const effectiveAiModelId = isAiTagged
+      ? (resolvedAiModelId === NO_AI_MODEL_VALUE ? undefined : resolvedAiModelId)
+      : undefined;
+
+    // Strip @ai tag from the content before sending
+    const sanitizedContent = isAiTagged ? stripAiTag(content) : content;
 
     setIsLoading(true);
     try {
-      await onSendMessage(content, effectiveAiModelId || undefined, attachedFiles.map((file) => file.id));
+      await onSendMessage(sanitizedContent, effectiveAiModelId || undefined, attachedFiles.map((file) => file.id));
       setAttachedFiles([]);
       resetComposer();
     } catch (error) {
@@ -77,7 +86,11 @@ export function ChatComposer({
         value={resolvedAiModelId}
         isLoading={isLoading}
         isAiStreaming={isAiStreaming}
+        isAiTagged={isAiTagged}
+        showModelPicker={showModelPicker}
+        selectedModelName={selectedModelName}
         onChange={handleModelChange}
+        onDismiss={dismissModelPicker}
       />
 
       <AttachedFilesStrip files={attachedFiles} onRemove={removeAttachedFile} />
@@ -93,6 +106,8 @@ export function ChatComposer({
         hasAiModels={hasAiModels}
         isDirectChat={isDirectChat}
         resolvedAiModelId={resolvedAiModelId}
+        isAiTagged={isAiTagged}
+        selectedModelName={selectedModelName}
         textareaRef={textareaRef}
         onChange={handleContentChange}
         onBlur={() => onTypingChange?.(false)}
