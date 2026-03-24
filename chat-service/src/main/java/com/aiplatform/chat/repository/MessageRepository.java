@@ -10,4 +10,6 @@ import java.util.UUID;
 public interface MessageRepository extends JpaRepository<MessageEntity, UUID> {
 
     Page<MessageEntity> findByChatroomIdOrderByCreatedAtAsc(UUID chatroomId, Pageable pageable);
+
+    java.util.List<MessageEntity> findTop5ByChatroomIdAndIdNotOrderByCreatedAtDesc(UUID chatroomId, UUID id);
 }

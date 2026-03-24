@@ -2,6 +2,7 @@ package com.aiplatform.chat.service;
 
 import com.aiplatform.chat.config.KafkaChatTopicProperties;
 import com.aiplatform.chat.domain.MessageEntity;
+import com.aiplatform.chat.repository.MessageRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -23,6 +25,7 @@ public class ChatKafkaPublisher {
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final KafkaChatTopicProperties topicProperties;
     private final ObjectMapper objectMapper;
+    private final MessageRepository messageRepository;
 
     public void publishAiMessageRequested(MessageEntity message) {
         if (message.getAiModelId() == null || message.getAiModelId().isBlank()) {
@@ -39,6 +42,8 @@ public class ChatKafkaPublisher {
             fileIds.add(message.getFileId().toString());
         }
 
+        List<Map<String, Object>> contextWindow = buildContextWindow(message);
+
         Map<String, Object> payload = Map.of(
                 "event_id", UUID.randomUUID().toString(),
                 "event_type", "ai.message.requested.v2",
@@ -50,7 +55,7 @@ public class ChatKafkaPublisher {
                         "ai_model_id", message.getAiModelId(),
                         "content", message.getContent() != null ? message.getContent() : "",
                         "file_ids", fileIds,
-                        "context_window", List.of(),
+                        "context_window", contextWindow,
                         "options", Map.of(
                                 "max_tokens", 2048,
                                 "temperature", 0.2,
@@ -65,6 +70,39 @@ public class ChatKafkaPublisher {
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize AI message v2 event. messageId={}", message.getId(), e);
         }
+    }
+
+    private List<Map<String, Object>> buildContextWindow(MessageEntity message) {
+        if (message.getChatroomId() == null || message.getId() == null) {
+            return List.of();
+        }
+
+        List<MessageEntity> previousMessages = messageRepository
+                .findTop5ByChatroomIdAndIdNotOrderByCreatedAtDesc(message.getChatroomId(), message.getId());
+        if (previousMessages.isEmpty()) {
+            return List.of();
+        }
+
+        Collections.reverse(previousMessages);
+        List<Map<String, Object>> contextWindow = new ArrayList<>();
+        for (MessageEntity item : previousMessages) {
+            if (item.getContent() == null || item.getContent().isBlank()) {
+                continue;
+            }
+
+            String role = (item.getAiModelId() != null && !item.getAiModelId().isBlank()) ? "assistant" : "user";
+            String senderName = item.getSenderUserId() != null ? item.getSenderUserId().toString() : "unknown";
+            String uploadedAt = item.getCreatedAt() != null ? item.getCreatedAt().toString() : "";
+            String chunkText = "Sender: " + senderName + "\nUploadedAt: " + uploadedAt + "\nContent: " + item.getContent();
+
+            contextWindow.add(Map.of(
+                    "role", role,
+                    "content", chunkText,
+                    "sender_name", senderName,
+                    "uploaded_at", uploadedAt
+            ));
+        }
+        return contextWindow;
     }
 
     public void publishCancellation(String chatroomId, String messageId, String userId) {
