@@ -45,10 +45,16 @@ class TutorAgent(BaseAgent):
         ]
 
         router = ProviderRouter()
-        provider = router.route(context.model_id, context.user_api_key)
+        selected_model = context.model_name or context.model_id
+        provider = router.route(
+            selected_model,
+            context.user_api_key,
+            preferred_provider=context.provider_name,
+            allow_fallback=not bool(selected_model or context.provider_name),
+        )
         request = LLMRequest(
             messages=messages,
-            model=context.model_id,
+            model=selected_model,
             max_tokens=context.options.get("max_tokens", 1024),
             temperature=0.5,
             stream=False,

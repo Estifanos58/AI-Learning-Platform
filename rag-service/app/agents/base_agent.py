@@ -16,6 +16,8 @@ class AgentContext:
     question: str
     chunks: List[Dict[str, Any]]  # retrieved & reranked context chunks
     model_id: Optional[str] = None
+    model_name: Optional[str] = None
+    provider_name: Optional[str] = None
     user_api_key: Optional[str] = None
     options: Dict[str, Any] = field(default_factory=dict)
 

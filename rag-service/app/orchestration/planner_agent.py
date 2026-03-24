@@ -53,15 +53,25 @@ class PlannerAgent:
         question: str,
         context_summary: str,
         model_id: Optional[str] = None,
+        model_name: Optional[str] = None,
+        provider_name: Optional[str] = None,
         user_api_key: Optional[str] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> ExecutionPlan:
         opts = options or {}
 
         # Try LLM-based planning if model available
-        if model_id or user_api_key:
+        if model_id or model_name or provider_name or user_api_key:
             try:
-                return await self._llm_plan(question, context_summary, model_id, user_api_key, opts)
+                return await self._llm_plan(
+                    question,
+                    context_summary,
+                    model_id,
+                    model_name,
+                    provider_name,
+                    user_api_key,
+                    opts,
+                )
             except Exception as exc:  # noqa: BLE001
                 log.warning("LLM planner failed, using heuristic: %s", exc)
 
@@ -95,6 +105,8 @@ class PlannerAgent:
         question: str,
         context_summary: str,
         model_id: Optional[str],
+        model_name: Optional[str],
+        provider_name: Optional[str],
         user_api_key: Optional[str],
         options: Dict[str, Any],
     ) -> ExecutionPlan:
@@ -122,10 +134,16 @@ class PlannerAgent:
         ]
 
         router = ProviderRouter()
-        provider = router.route(model_id, user_api_key)
+        selected_model = model_name or model_id
+        provider = router.route(
+            selected_model,
+            user_api_key,
+            preferred_provider=provider_name,
+            allow_fallback=not bool(selected_model or provider_name),
+        )
         request = LLMRequest(
             messages=messages,
-            model=model_id,
+            model=selected_model,
             max_tokens=256,
             temperature=0.0,
             stream=False,
