@@ -31,9 +31,9 @@ async def get_db_session() -> AsyncIterator[AsyncSession]:
 def _default_models() -> list[dict[str, object]]:
     return [
         {
-            "model_name": "gpt-4o",
+            "model_name": settings.openai_model,
             "provider": "openai",
-            "description": "OpenAI GPT-4o",
+            "description": f"OpenAI {settings.openai_model}",
             "context_length": 128000,
             "supports_streaming": True,
             "platform_key_available": bool(settings.openai_api_key),
@@ -49,27 +49,45 @@ def _default_models() -> list[dict[str, object]]:
             "active": True,
         },
         {
-            "model_name": "gemini-1.5-pro",
+            "model_name": settings.gemini_model,
             "provider": "gemini",
-            "description": "Google Gemini 1.5 Pro",
+            "description": f"Google {settings.gemini_model}",
             "context_length": 2000000,
             "supports_streaming": True,
             "platform_key_available": bool(settings.gemini_api_key),
             "active": True,
         },
         {
-            "model_name": "deepseek-chat",
+            "model_name": settings.deepseek_model,
             "provider": "deepseek",
-            "description": "DeepSeek Chat",
+            "description": f"DeepSeek {settings.deepseek_model}",
             "context_length": 64000,
             "supports_streaming": True,
             "platform_key_available": bool(settings.deepseek_api_key),
             "active": True,
         },
         {
-            "model_name": "local-llama",
+            "model_name": settings.groq_model,
+            "provider": "groq",
+            "description": f"Groq {settings.groq_model}",
+            "context_length": 131072,
+            "supports_streaming": True,
+            "platform_key_available": bool(settings.groq_api_key),
+            "active": True,
+        },
+        {
+            "model_name": settings.openrouter_model,
+            "provider": "openrouter",
+            "description": f"OpenRouter {settings.openrouter_model}",
+            "context_length": 128000,
+            "supports_streaming": True,
+            "platform_key_available": bool(settings.openrouter_api_key),
+            "active": True,
+        },
+        {
+            "model_name": settings.local_llm_model,
             "provider": "local",
-            "description": "Local Llama-compatible model",
+            "description": f"Local model {settings.local_llm_model}",
             "context_length": 32000,
             "supports_streaming": True,
             "platform_key_available": bool(settings.local_llm_url),
@@ -79,15 +97,51 @@ def _default_models() -> list[dict[str, object]]:
 
 
 async def seed_default_ai_models(session: AsyncSession) -> None:
-    existing = await session.execute(select(AIModel.id).limit(1))
-    if existing.first() is not None:
-        return
+    default_models = _default_models()
+    deduped: list[dict[str, object]] = []
+    seen_names: set[str] = set()
+    for item in default_models:
+        model_name = str(item["model_name"])
+        if model_name in seen_names:
+            continue
+        seen_names.add(model_name)
+        deduped.append(item)
 
-    for item in _default_models():
-        session.add(AIModel(**item))
+    names = [item["model_name"] for item in deduped]
 
-    await session.commit()
-    log.info("Seeded default AI models")
+    result = await session.execute(select(AIModel).where(AIModel.model_name.in_(names)))
+    existing_by_name = {model.model_name: model for model in result.scalars().all()}
+
+    inserted = 0
+    updated = 0
+    for item in deduped:
+        model_name = item["model_name"]
+        existing = existing_by_name.get(model_name)
+        if existing is None:
+            session.add(AIModel(**item))
+            inserted += 1
+            continue
+
+        changed = False
+        for field in (
+            "provider",
+            "description",
+            "context_length",
+            "supports_streaming",
+            "platform_key_available",
+            "active",
+        ):
+            new_value = item[field]
+            if getattr(existing, field) != new_value:
+                setattr(existing, field, new_value)
+                changed = True
+
+        if changed:
+            updated += 1
+
+    if inserted or updated:
+        await session.commit()
+        log.info("Default AI models upserted: inserted=%d updated=%d", inserted, updated)
 
 
 async def ensure_ai_models_schema() -> None:
