@@ -11,6 +11,8 @@ log = logging.getLogger(__name__)
 _COST_PER_1K: Dict[str, Dict[str, float]] = {
     "openai": {"prompt": 0.0015, "completion": 0.002},
     "gemini": {"prompt": 0.00025, "completion": 0.0005},
+    "openrouter": {"prompt": 0.0010, "completion": 0.0020},
+    "groq": {"prompt": 0.0005, "completion": 0.0008},
     "deepseek": {"prompt": 0.0014, "completion": 0.0028},
     "local": {"prompt": 0.0, "completion": 0.0},
 }
@@ -54,6 +56,10 @@ class TokenMeter:
         m = model_id.lower() if model_id else ""
         if "gemini" in m:
             provider = "gemini"
+        elif "openrouter" in m or "open-router" in m or "/" in m:
+            provider = "openrouter"
+        elif "groq" in m:
+            provider = "groq"
         elif "deepseek" in m:
             provider = "deepseek"
         elif "local" in m or "ollama" in m or "mistral" in m:

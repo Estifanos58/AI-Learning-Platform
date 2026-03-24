@@ -27,6 +27,8 @@ def _provider_key_map() -> dict[str, str | None]:
         "openai": settings.openai_api_key,
         "gemini": settings.gemini_api_key,
         "deepseek": settings.deepseek_api_key,
+        "groq": settings.groq_api_key,
+        "openrouter": settings.openrouter_api_key,
     }
 
 

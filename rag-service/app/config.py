@@ -165,6 +165,23 @@ class Settings(BaseSettings):
         default="deepseek-chat", alias="DEEPSEEK_MODEL"
     )
 
+    groq_api_key_file: Optional[str] = Field(default=None, alias="GROQ_API_KEY_FILE")
+    groq_api_key: Optional[str] = Field(default=None, alias="GROQ_API_KEY")
+    groq_model: str = Field(default="llama-3.3-70b-versatile", alias="GROQ_MODEL")
+
+    openrouter_api_key_file: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENROUTER_API_KEY_FILE", "OPEN_ROUTER_API_KEY_FILE"),
+    )
+    openrouter_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY"),
+    )
+    openrouter_model: str = Field(
+        default="openai/gpt-4o-mini",
+        validation_alias=AliasChoices("OPENROUTER_MODEL", "OPEN_ROUTER_MODEL"),
+    )
+
     local_llm_url: Optional[str] = Field(
         default=None, alias="LOCAL_LLM_URL"
     )
@@ -203,6 +220,8 @@ class Settings(BaseSettings):
     def model_post_init(self, __context: object) -> None:
         self.gemini_api_key = self.gemini_api_key or self._read_secret_file(self.gemini_api_key_file)
         self.deepseek_api_key = self.deepseek_api_key or self._read_secret_file(self.deepseek_api_key_file)
+        self.groq_api_key = self.groq_api_key or self._read_secret_file(self.groq_api_key_file)
+        self.openrouter_api_key = self.openrouter_api_key or self._read_secret_file(self.openrouter_api_key_file)
 
         """Warn if insecure defaults are used in non-development environments."""
         import logging
