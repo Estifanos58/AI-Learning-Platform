@@ -1,44 +1,24 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { FileItem } from '@/src/lib/types';
-import { FileViewerShell } from '@/src/features/file-viewer';
-import { useAuth } from '@/src/contexts/auth';
-import { useWorkspace } from '@/src/features/workspace/workspace-context';
-import { useFilePagePreview } from '@/src/hooks/app/use-file-page-preview';
+import { useWorkspaceLayout } from '@/src/features/workspace/components/workspace-layout/workspace-layout-context';
+import { WorkspaceRoot } from '@/src/features/workspace/components/workspace-layout/workspace-root';
 
 interface FilePageClientProps {
   file: FileItem;
 }
 
 export function FilePageClient({ file }: FilePageClientProps) {
-  const { session } = useAuth();
-  const { setSelectedFileId, setChatroomId, setDraftOtherUserId } = useWorkspace();
-  const {
-    resolvedFile,
-    objectUrl,
-    textContent,
-    publicUrl,
-    handleDownload,
-  } = useFilePagePreview({ file, accessToken: session?.accessToken });
+  const { openTab, activePaneId } = useWorkspaceLayout();
+  const initRef = useRef(false);
 
-  // Sync selectedFileId in context so the sidebar highlights the correct file
   useEffect(() => {
-    setSelectedFileId(file.id);
-    setChatroomId(null);
-    setDraftOtherUserId(null);
-    return () => {
-      setSelectedFileId(null);
-    };
-  }, [file.id, setChatroomId, setDraftOtherUserId, setSelectedFileId]);
+    if (!initRef.current && file) {
+      initRef.current = true;
+      openTab({ id: file.id, title: file.originalName }, activePaneId);
+    }
+  }, [file, openTab, activePaneId]);
 
-  return (
-    <FileViewerShell
-      file={resolvedFile}
-      src={objectUrl}
-      publicUrl={publicUrl}
-      textContent={textContent}
-      onDownload={handleDownload}
-    />
-  );
+  return <WorkspaceRoot />;
 }
