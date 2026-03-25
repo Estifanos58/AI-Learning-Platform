@@ -411,8 +411,7 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
     fileContentType?: string;
   }) => {
     if (!token) throw new Error('Not authenticated');
-
-    const result = await gatewayApi.chat.sendMessage(token, input);
+        const result = await gatewayApi.chat.sendMessage(token, input);
     upsertMessage(result.message);
 
     // AI streaming is triggered when aiModelId is provided

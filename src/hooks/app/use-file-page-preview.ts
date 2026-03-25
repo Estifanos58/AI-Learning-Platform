@@ -38,7 +38,8 @@ interface UseFilePagePreviewOptions {
   accessToken?: string;
 }
 
-function getFileExtension(filename: string): string {
+function getFileExtension(filename?: string): string {
+  if (!filename) return '';
   const parts = filename.split('.');
   return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : '';
 }

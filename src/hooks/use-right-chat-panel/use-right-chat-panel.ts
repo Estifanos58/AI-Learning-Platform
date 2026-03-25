@@ -163,7 +163,7 @@ export function useRightChatPanel() {
       toast.error('Select an AI model before sending a message');
       return;
     }
-
+    
     // if (resolvedAiModelId) {
     //   const selectedModel = aiModels.find((model) => model.id === resolvedAiModelId || model.modelId === resolvedAiModelId);
     //   if (selectedModel && selectedModel.platformKeyAvailable === false && !selectedModel.userKeyConfigured) {
