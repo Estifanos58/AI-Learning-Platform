@@ -17,7 +17,7 @@ def test_route_openai_keyword():
 def test_route_gemini_keyword():
     router = ProviderRouter()
     try:
-        provider = router.route("gemini-1.5-flash")
+        provider = router.route("gemini-3.0")
     except RuntimeError:
         pass
 
