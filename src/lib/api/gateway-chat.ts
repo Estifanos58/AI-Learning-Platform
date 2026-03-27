@@ -150,47 +150,49 @@ export const chatApi = {
       },
       signal: options.signal,
       onmessage(event) {
-        if (event.event !== 'ai_chunk') return;
+        if (!event.data) return;
 
-        let envelope: StreamEnvelope;
+        let envelope: any;
         try {
-          envelope = JSON.parse(event.data) as StreamEnvelope;
+          envelope = JSON.parse(event.data);
         } catch {
           return;
         }
 
-        const resolvedMessageId = envelope.data.messageId ?? options.messageId;
+        const eventType = envelope.event_type || envelope.type;
+        const payload = envelope.payload || envelope.data || {};
+        const resolvedMessageId = envelope.message_id || payload.messageId || options.messageId;
 
-        if (envelope.type === 'AI_CHUNK') {
-          const delta = envelope.data.contentDelta ?? '';
+        if (eventType === 'chunk' || eventType === 'AI_CHUNK') {
+          const delta = payload.content_delta ?? payload.contentDelta ?? '';
           accumulated += delta;
           options.onChunk({
             messageId: resolvedMessageId,
             contentDelta: delta,
-            sequence: envelope.data.sequence,
-            done: envelope.data.done,
+            sequence: envelope.sequence || payload.sequence,
+            done: payload.done,
           });
           return;
         }
 
-        if (envelope.type === 'AI_COMPLETED') {
+        if (eventType === 'final' || eventType === 'AI_COMPLETED') {
           options.onCompleted({
             messageId: resolvedMessageId,
-            finalContent: envelope.data.finalContent ?? accumulated,
-            done: envelope.data.done,
+            finalContent: payload.final_content ?? payload.finalContent ?? accumulated,
+            done: true,
           });
           return;
         }
 
-        if (envelope.type === 'AI_FAILED') {
+        if (eventType === 'error' || eventType === 'AI_FAILED') {
           options.onFailed({
             messageId: resolvedMessageId,
-            error: envelope.data.error ?? 'AI generation failed',
+            error: payload.error_message ?? payload.error ?? 'AI generation failed',
           });
           return;
         }
 
-        if (envelope.type === 'AI_CANCELLED') {
+        if (eventType === 'cancelled' || eventType === 'AI_CANCELLED') {
           options.onCancelled({
             messageId: resolvedMessageId,
           });
@@ -297,16 +299,14 @@ export const chatApi = {
   },
 
   async updateUserApiKey(token: string, input: UpsertUserAiApiKeyInput): Promise<UserAiApiKeyResponse> {
-    const candidateEndpoints = [
-      `ai/api-keys/${encodeURIComponent(input.modelId)}`
-      
-    ];
+    const candidateEndpoints = ['ai/api-keys'];
 
     for (const endpoint of candidateEndpoints) {
       try {
         return await chatRequest<UserAiApiKeyResponse>(endpoint, token, {
           method: 'PUT',
           body: {
+            model_id: input.modelId,
             api_key: input.apiKey,
           },
         });
@@ -318,21 +318,137 @@ export const chatApi = {
     throw new Error('Failed to update AI API key');
   },
 
-  async deleteUserApiKey(token: string, modelId: string): Promise<UserAiApiKeyResponse> {
-    const candidateEndpoints = [
-      `ai/api-keys/${encodeURIComponent(modelId)}`
-    ];
+  async deleteUserApiKey(token: string, modelId: string): Promise<void> {
+    const candidateEndpoints = [`ai/api-keys/${modelId}`, `ai/models/${modelId}/api-keys`];
 
     for (const endpoint of candidateEndpoints) {
       try {
-        return await chatRequest<UserAiApiKeyResponse>(endpoint, token, {
-          method: 'DELETE',
-        });
+        await chatRequest<void>(endpoint, token, { method: 'DELETE' });
+        return;
       } catch {
-        // try next candidate endpoint
+        // try next
       }
     }
-
     throw new Error('Failed to delete AI API key');
   },
+
+  async createAiModel(token: string, input: { modelName: string; provider: string; contextLength?: number; description?: string }): Promise<AIModel> {
+    return await chatRequest<AIModel>('ai/models', token, {
+      method: 'POST',
+      body: {
+        model_name: input.modelName,
+        provider: input.provider,
+        context_length: input.contextLength || 8192,
+        description: input.description,
+      },
+    });
+  },
+
+  async upsertPlatformApiKey(token: string, input: { provider: string; apiKey: string }): Promise<void> {
+    await chatRequest<void>('ai/platform-keys', token, {
+      method: 'POST',
+      body: {
+        provider: input.provider,
+        api_key: input.apiKey,
+      },
+    });
+  },
+
+  async streamAiExecution(options: {
+    token: string;
+    requestId: string;
+    signal?: AbortSignal;
+    onChunk: (payload: { requestId: string; contentDelta: string; sequence?: number; done?: boolean }) => void;
+    onStage?: (payload: { requestId: string; stageName: string; stageStatus: string }) => void;
+    onCompleted: (payload: { requestId: string; finalContent?: string; done?: boolean }) => void;
+    onFailed: (payload: { requestId: string; error: string }) => void;
+    onCancelled: (payload: { requestId: string }) => void;
+  }): Promise<void> {
+    const streamUrl = `${API_BASE_URL}/ai/executions/${encodeURIComponent(options.requestId)}/stream`;
+    let accumulated = '';
+
+    await fetchEventSource(streamUrl, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${options.token}`,
+        Accept: 'text/event-stream',
+      },
+      signal: options.signal,
+      onmessage(event) {
+        if (!event.data) return;
+
+        try {
+          const envelope = JSON.parse(event.data);
+          const eventType = envelope.event_type || envelope.type;
+          const requestId = envelope.request_id || options.requestId;
+          const payload = envelope.payload || envelope.data || {};
+
+          if (eventType === 'chunk' || eventType === 'AI_CHUNK') {
+            const delta = payload.content_delta ?? payload.contentDelta ?? '';
+            accumulated += delta;
+            options.onChunk({
+              requestId,
+              contentDelta: delta,
+              sequence: envelope.sequence,
+              done: payload.done,
+            });
+            return;
+          }
+
+          if (eventType === 'stage') {
+            options.onStage?.({
+              requestId,
+              stageName: payload.stage_name ?? '',
+              stageStatus: payload.stage_status ?? '',
+            });
+            return;
+          }
+
+          if (eventType === 'final' || eventType === 'AI_COMPLETED') {
+            options.onCompleted({
+              requestId,
+              finalContent: payload.final_content ?? payload.finalContent ?? accumulated,
+              done: true,
+            });
+            return;
+          }
+
+          if (eventType === 'error' || eventType === 'AI_FAILED') {
+            options.onFailed({
+              requestId,
+              error: payload.error_message ?? payload.error ?? 'AI generation failed',
+            });
+            return;
+          }
+
+          if (eventType === 'cancelled' || eventType === 'AI_CANCELLED') {
+            options.onCancelled({
+              requestId,
+            });
+          }
+        } catch {
+          // ignore parsing errors
+        }
+      },
+      onerror(error) {
+        throw error;
+      },
+    });
+  },
+
+  startAiExecution: (token: string, input: {
+    requestId?: string;
+    prompt: string;
+    mode?: 'chat' | 'deep' | string;
+    aiModelId?: string;
+    fileIds?: string[];
+    chatroomId?: string;
+    messageId?: string;
+    options?: Record<string, string>;
+  }) =>
+    chatRequest<{ status: string; requestId: string; streamKey: string; accepted: boolean }>('ai/executions', token, {
+      method: 'POST',
+      body: input,
+    }),
 };
+
