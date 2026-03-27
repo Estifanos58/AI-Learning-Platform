@@ -97,6 +97,38 @@ export function useAiSettings({ accessToken }: UseAiSettingsOptions) {
     }
   }, [accessToken, loadAiModels, selectedAiModel]);
 
+  const [isCreatingModel, setIsCreatingModel] = useState(false);
+  const handleCreateModel = useCallback(async (input: { modelName: string; provider: string; contextLength?: number; description?: string }) => {
+    if (!accessToken) return;
+    setIsCreatingModel(true);
+    try {
+      await gatewayApi.chat.createAiModel(accessToken, input);
+      await loadAiModels();
+      toast.success('AI Model created');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to create AI Model');
+      throw error;
+    } finally {
+      setIsCreatingModel(false);
+    }
+  }, [accessToken, loadAiModels]);
+
+  const [isSavingPlatformKey, setIsSavingPlatformKey] = useState(false);
+  const handleSavePlatformKey = useCallback(async (input: { provider: string; apiKey: string }) => {
+    if (!accessToken) return;
+    setIsSavingPlatformKey(true);
+    try {
+      await gatewayApi.chat.upsertPlatformApiKey(accessToken, input);
+      await loadAiModels();
+      toast.success('Platform API key saved');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save Platform API key');
+      throw error;
+    } finally {
+      setIsSavingPlatformKey(false);
+    }
+  }, [accessToken, loadAiModels]);
+
   return {
     aiModels,
     isAiModelsLoading,
@@ -109,5 +141,9 @@ export function useAiSettings({ accessToken }: UseAiSettingsOptions) {
     isDeletingApiKey,
     handleSaveApiKey,
     handleDeleteApiKey,
+    isCreatingModel,
+    handleCreateModel,
+    isSavingPlatformKey,
+    handleSavePlatformKey,
   };
 }

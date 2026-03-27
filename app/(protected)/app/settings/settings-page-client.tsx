@@ -13,7 +13,7 @@ import { Bell, Lock, Layout, Info, ChevronLeft, Moon, Sun, Monitor, Paintbrush, 
 import { useWorkspace } from '@/src/features/workspace/workspace-context';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useAuth } from '@/src/contexts/auth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -35,7 +35,42 @@ export function SettingsPageClient() {
     isDeletingApiKey,
     handleSaveApiKey,
     handleDeleteApiKey,
+    isCreatingModel,
+    handleCreateModel,
+    isSavingPlatformKey,
+    handleSavePlatformKey,
   } = useAiSettings({ accessToken: session?.accessToken });
+
+  const [newModelOpen, setNewModelOpen] = useState(false);
+  const [newModelName, setNewModelName] = useState('');
+  const [newModelProvider, setNewModelProvider] = useState('');
+  const [newModelDescription, setNewModelDescription] = useState('');
+
+  const [platformKeyProvider, setPlatformKeyProvider] = useState('');
+  const [platformKeyInput, setPlatformKeyInput] = useState('');
+
+  const onCreateModel = async () => {
+    if (!newModelName || !newModelProvider) return;
+    try {
+      await handleCreateModel({
+        modelName: newModelName,
+        provider: newModelProvider,
+        description: newModelDescription,
+      });
+      setNewModelOpen(false);
+      setNewModelName('');
+      setNewModelProvider('');
+      setNewModelDescription('');
+    } catch {}
+  };
+
+  const onSavePlatformKey = async () => {
+    if (!platformKeyProvider || !platformKeyInput) return;
+    try {
+      await handleSavePlatformKey({ provider: platformKeyProvider, apiKey: platformKeyInput });
+      setPlatformKeyInput('');
+    } catch {}
+  };
 
   const colors = [
     { name: 'zinc', class: 'bg-zinc-950 dark:bg-zinc-500', label: 'Zinc' },
@@ -158,6 +193,105 @@ export function SettingsPageClient() {
                   </div>
                 </div>
               ) : null}
+            </CardContent>
+          </Card>
+
+          {/* Platform AI Settings */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Lock className="h-5 w-5 text-primary" />
+                <CardTitle className="text-lg">Platform AI Configuration</CardTitle>
+              </div>
+              <CardDescription>Register new models and configure platform-wide API keys</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold">Register New Model</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs">Model Name / ID</Label>
+                    <Input 
+                      placeholder="e.g., gpt-4" 
+                      value={newModelName} 
+                      onChange={(e) => setNewModelName(e.target.value)} 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Provider</Label>
+                    <Select value={newModelProvider} onValueChange={setNewModelProvider}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select Provider" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="openai">OpenAI</SelectItem>
+                        <SelectItem value="anthropic">Anthropic</SelectItem>
+                        <SelectItem value="google">Google</SelectItem>
+                        <SelectItem value="cohere">Cohere</SelectItem>
+                        <SelectItem value="local">Local/Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label className="text-xs">Description (Optional)</Label>
+                    <Input 
+                      placeholder="e.g., GPT-4 model from OpenAI" 
+                      value={newModelDescription} 
+                      onChange={(e) => setNewModelDescription(e.target.value)} 
+                    />
+                  </div>
+                </div>
+                <Button 
+                  size="sm" 
+                  onClick={onCreateModel} 
+                  disabled={!newModelName || !newModelProvider || isCreatingModel}
+                >
+                  {isCreatingModel ? 'Registering...' : 'Register Model'}
+                </Button>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold">Platform API Keys</h3>
+                <div className="grid gap-3">
+                  <div className="space-y-2 max-w-sm">
+                    <Label className="text-xs">Provider</Label>
+                    <Select value={platformKeyProvider} onValueChange={setPlatformKeyProvider}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select Provider" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="openai">OpenAI</SelectItem>
+                        <SelectItem value="anthropic">Anthropic</SelectItem>
+                        <SelectItem value="google">Google</SelectItem>
+                        <SelectItem value="cohere">Cohere</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">API Key</Label>
+                    <div className="flex items-center gap-2">
+                      <Input 
+                        type="password"
+                        placeholder="Enter platform API key" 
+                        value={platformKeyInput} 
+                        onChange={(e) => setPlatformKeyInput(e.target.value)} 
+                        className="max-w-md"
+                      />
+                      <Button 
+                        size="sm" 
+                        onClick={onSavePlatformKey} 
+                        disabled={!platformKeyProvider || !platformKeyInput || isSavingPlatformKey}
+                      >
+                        {isSavingPlatformKey ? 'Saving...' : 'Save Platform Key'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
             </CardContent>
           </Card>
 
