@@ -8,6 +8,7 @@ import { useAuth } from '@/src/contexts/auth';
 import { useWorkspace } from '@/src/features/workspace/workspace-context';
 import { useGatewayFiles } from '@/src/hooks/use-gateway';
 import { useWorkspaceFileUpload } from '@/src/features/workspace/use-workspace-file-upload';
+import { useWorkspaceLayout, LayoutNode } from '@/src/features/workspace/components/workspace-layout/workspace-layout-context';
 
 export function useLeftSidebar() {
   const { user, session } = useAuth();
@@ -20,6 +21,7 @@ export function useLeftSidebar() {
     chatPanelOpen,
     toggleChatPanel,
   } = useWorkspace();
+  const { openTab, activePaneId, layoutTree, splitPane } = useWorkspaceLayout();
   const router = useRouter();
   const {
     folders,
@@ -234,9 +236,27 @@ export function useLeftSidebar() {
   };
 
   const openNewAiChat = () => {
-    setChatroomId('draft-ai');
-    setDraftOtherUserId(null);
-    if (!chatPanelOpen) toggleChatPanel();
+    // Check if there's any file currently opened
+    let hasOpenFile = false;
+    const checkFileOpen = (node: LayoutNode) => {
+      if (node.type === 'pane' && node.tabs && node.tabs.length > 0) {
+        hasOpenFile = true;
+      } else if (node.type === 'split') {
+        node.children.forEach(checkFileOpen);
+      }
+    };
+    checkFileOpen(layoutTree);
+
+    const chatId = `chat-${Date.now()}`;
+    const chatTab = { id: chatId, title: 'New AI Chat', type: 'chat' as const };
+
+    if (hasOpenFile) {
+      splitPane(activePaneId, 'horizontal');
+      // The split action synchronously transitions activePaneId to the new pane in state reducer
+      openTab(chatTab);
+    } else {
+      openTab(chatTab, activePaneId);
+    }
   };
 
   return {

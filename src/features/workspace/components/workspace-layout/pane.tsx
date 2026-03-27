@@ -5,12 +5,15 @@ import { PaneNode, useWorkspaceLayout } from './workspace-layout-context';
 import { TabBar } from './tab-bar';
 import { FileTabPreview } from './file-tab-preview';
 import { EmptyStateWithUpload } from '../empty-state-with-upload';
+import { DirectAiChat } from '../../chat/direct-ai-chat';
 
 const WORKSPACE_CHAT_FILE_MIME = 'application/x-workspace-file';
 
 export function Pane({ node }: { node: PaneNode }) {
   const { openTab, setActivePane, activePaneId } = useWorkspaceLayout();
   const isActive = activePaneId === node.id;
+
+  const activeTab = node.tabs.find(t => t.id === node.activeTabId);
 
   const handleDragOver = (e: React.DragEvent) => {
     if (e.dataTransfer.types.includes(WORKSPACE_CHAT_FILE_MIME)) {
@@ -43,7 +46,11 @@ export function Pane({ node }: { node: PaneNode }) {
       
       <div className="flex-1 overflow-hidden relative">
         {node.activeTabId ? (
-          <FileTabPreview key={node.activeTabId} fileId={node.activeTabId} />
+          activeTab?.type === 'chat' ? (
+            <DirectAiChat key={node.activeTabId} tabId={node.activeTabId} />
+          ) : (
+            <FileTabPreview key={node.activeTabId} fileId={node.activeTabId} />
+          )
         ) : (
           <div className="flex-1 w-full h-full overflow-y-auto overflow-x-hidden">
             <EmptyStateWithUpload />

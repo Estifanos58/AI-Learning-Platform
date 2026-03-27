@@ -7,6 +7,7 @@ export type SplitDirection = 'horizontal' | 'vertical';
 export interface TabData {
   id: string;
   title: string;
+  type?: 'file' | 'chat';
 }
 
 export interface PaneNode {
