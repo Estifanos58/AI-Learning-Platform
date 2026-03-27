@@ -1,25 +1,50 @@
-"""Streaming – Kafka producer for RAG response events."""
+"""Streaming – publishes RAG response events to configured sinks."""
 
 from __future__ import annotations
 
 import json
 import logging
-import time
 import uuid
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 from app.config import get_settings
+from app.streaming.sinks.base import StreamSink
+from app.streaming.sinks.redis_stream_sink import RedisStreamSink
 
 log = logging.getLogger(__name__)
 settings = get_settings()
 
 
 class ResponseStreamer:
-    """Publishes streaming response events to Kafka."""
+    """Publishes streaming response events to configured backends."""
 
     def __init__(self) -> None:
-        self._producer = get_producer()
+        self._sinks: List[StreamSink] = self._build_sinks()
+
+    @staticmethod
+    def _build_sinks() -> List[StreamSink]:
+        backend = (settings.stream_backend or "dual").lower()
+        sinks: List[StreamSink] = []
+
+        if backend in {"kafka", "dual"}:
+            sinks.append(_KafkaSink())
+        if backend in {"redis", "dual"}:
+            sinks.append(RedisStreamSink())
+
+        if not sinks:
+            sinks.append(_KafkaSink())
+        return sinks
+
+    async def _publish(self, event: Dict[str, Any]) -> None:
+        for sink in self._sinks:
+            await sink.publish(event)
+
+    @staticmethod
+    def _stream_key(chatroom_id: str, request_id: str) -> str:
+        if chatroom_id:
+            return f"stream:chat:{chatroom_id}"
+        return f"stream:ai:{request_id}"
 
     async def publish_chunk(
         self,
@@ -35,6 +60,10 @@ class ResponseStreamer:
             "event_id": str(uuid.uuid4()),
             "event_type": "ai.message.chunk.v2",
             "timestamp": _now(),
+            "request_id": request_id,
+            "message_id": message_id,
+            "sequence": sequence,
+            "stream_key": self._stream_key(chatroom_id, request_id),
             "payload": {
                 "chatroom_id": chatroom_id,
                 "message_id": message_id,
@@ -45,11 +74,7 @@ class ResponseStreamer:
                 "done": done,
             },
         }
-        self._producer.send(
-            topic=settings.topic_ai_message_chunk_v2,
-            key=request_id,
-            value=event,
-        )
+        await self._publish(event)
 
     async def publish_completed(
         self,
@@ -65,6 +90,10 @@ class ResponseStreamer:
             "event_id": str(uuid.uuid4()),
             "event_type": "ai.message.completed.v2",
             "timestamp": _now(),
+            "request_id": request_id,
+            "message_id": message_id,
+            "sequence": 0,
+            "stream_key": self._stream_key(chatroom_id, request_id),
             "payload": {
                 "chatroom_id": chatroom_id,
                 "message_id": message_id,
@@ -75,11 +104,7 @@ class ResponseStreamer:
                 "model_used": model_used,
             },
         }
-        self._producer.send(
-            topic=settings.topic_ai_message_completed_v2,
-            key=request_id,
-            value=event,
-        )
+        await self._publish(event)
 
     async def publish_failed(
         self,
@@ -92,6 +117,10 @@ class ResponseStreamer:
             "event_id": str(uuid.uuid4()),
             "event_type": "ai.message.failed.v2",
             "timestamp": _now(),
+            "request_id": request_id,
+            "message_id": message_id,
+            "sequence": 0,
+            "stream_key": self._stream_key(chatroom_id, request_id),
             "payload": {
                 "chatroom_id": chatroom_id,
                 "message_id": message_id,
@@ -99,11 +128,7 @@ class ResponseStreamer:
                 "error": error,
             },
         }
-        self._producer.send(
-            topic=settings.topic_ai_message_failed_v2,
-            key=request_id,
-            value=event,
-        )
+        await self._publish(event)
 
     async def publish_cancelled(
         self,
@@ -115,17 +140,44 @@ class ResponseStreamer:
             "event_id": str(uuid.uuid4()),
             "event_type": "ai.message.cancelled.v2",
             "timestamp": _now(),
+            "request_id": request_id,
+            "message_id": message_id,
+            "sequence": 0,
+            "stream_key": self._stream_key(chatroom_id, request_id),
             "payload": {
                 "chatroom_id": chatroom_id,
                 "message_id": message_id,
                 "request_id": request_id,
             },
         }
+        await self._publish(event)
+
+
+class _KafkaSink(StreamSink):
+    def __init__(self) -> None:
+        self._producer = get_producer()
+
+    async def publish(self, event: Dict[str, Any]) -> None:
+        topic = self._topic_for_event(event.get("event_type"))
+        if not topic:
+            return
         self._producer.send(
-            topic=settings.topic_ai_message_cancelled_v2,
-            key=request_id,
+            topic=topic,
+            key=str(event.get("request_id", "")),
             value=event,
         )
+
+    @staticmethod
+    def _topic_for_event(event_type: str | None) -> str | None:
+        if event_type == "ai.message.chunk.v2":
+            return settings.topic_ai_message_chunk_v2
+        if event_type == "ai.message.completed.v2":
+            return settings.topic_ai_message_completed_v2
+        if event_type == "ai.message.failed.v2":
+            return settings.topic_ai_message_failed_v2
+        if event_type == "ai.message.cancelled.v2":
+            return settings.topic_ai_message_cancelled_v2
+        return None
 
 
 def _now() -> str:

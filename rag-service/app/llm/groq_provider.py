@@ -25,7 +25,7 @@ class GroqProvider(BaseLLMProvider):
 
     @property
     def default_model(self) -> str:
-        return settings.groq_model
+        return "llama-3.3-70b-versatile"
 
     def is_available(self) -> bool:
         return bool(settings.groq_api_key)

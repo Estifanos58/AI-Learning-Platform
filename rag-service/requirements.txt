@@ -7,6 +7,7 @@ pydantic-settings==2.7.1
 
 # Kafka
 kafka-python==2.2.15
+redis==5.2.1
 
 # gRPC
 grpcio==1.69.0

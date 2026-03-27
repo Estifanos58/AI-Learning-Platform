@@ -23,7 +23,7 @@ class OpenAIProvider(BaseLLMProvider):
 
     @property
     def default_model(self) -> str:
-        return settings.openai_model
+        return "gpt-4o-mini"
 
     def is_available(self) -> bool:
         return bool(settings.openai_api_key)

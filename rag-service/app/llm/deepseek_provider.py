@@ -25,7 +25,7 @@ class DeepSeekProvider(BaseLLMProvider):
 
     @property
     def default_model(self) -> str:
-        return settings.deepseek_model
+        return "deepseek-chat"
 
     def is_available(self) -> bool:
         return bool(settings.deepseek_api_key)

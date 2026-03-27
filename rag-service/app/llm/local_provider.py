@@ -23,7 +23,7 @@ class LocalProvider(BaseLLMProvider):
 
     @property
     def default_model(self) -> str:
-        return settings.local_llm_model
+        return "mistral"
 
     def is_available(self) -> bool:
         return bool(settings.local_llm_url)

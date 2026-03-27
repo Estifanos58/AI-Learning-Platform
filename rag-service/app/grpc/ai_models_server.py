@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib
+import json
 import logging
+import uuid
+from datetime import datetime
 
 import grpc  # type: ignore[import]
 
@@ -12,10 +15,9 @@ from app.ingestion.chunker import RecursiveCharacterTextSplitter
 from app.ingestion.embedding_pipeline import EmbeddingPipeline
 from app.ingestion.extractor import TextExtractor
 from app.ingestion.file_loader import FileLoader
-from app.llm.provider_router import ProviderRouter
+from app.llm.provider_executor import ProviderExecutor
 from app.orchestration.pipeline_executor import PipelineExecutor
-from app.repositories.ai_model_repository import AIModelRepository
-from app.repositories.user_key_repository import UserKeyRepository
+from app.repositories.model_orchestration_repository import ModelOrchestrationRepository
 from app.retrieval.reranker import Reranker
 from app.retrieval.vector_search import VectorSearch
 from app.security.encryption import encrypt_key
@@ -24,6 +26,12 @@ from app.storage.qdrant_client import get_qdrant_client
 
 log = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def _format_dt(value: object | None) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return ""
 
 
 def _metadata_value(context: grpc.aio.ServicerContext, key: str) -> str:
@@ -46,70 +54,180 @@ async def _require_service_auth(context: grpc.aio.ServicerContext) -> str:
 
 class _AiModelService:
     async def ListModels(self, request, context):  # noqa: N802
-        user_id = await _require_service_auth(context)
+        await _require_service_auth(context)
 
         async with AsyncSessionLocal() as session:
-            repo = AIModelRepository(session)
-            models = await repo.list_active_with_user_key_flag(user_id)
+            repo = ModelOrchestrationRepository(session)
+            models = await repo.list_models()
 
         pb2 = importlib.import_module("app.grpc_stubs.ai_models_pb2")
         model_items = [
             pb2.AiModelDto(
                 model_id=item["model_id"],
                 model_name=item["model_name"],
-                provider=item["provider"],
+                family=item["family"],
                 context_length=item["context_length"],
-                supports_streaming=item["supports_streaming"],
-                user_key_configured=item["user_key_configured"],
-                platform_key_available=item["platform_key_available"],
-                description=item.get("description") or "",
+                capabilities_json=json.dumps(item.get("capabilities") or {}),
+                active=bool(item.get("active", True)),
+                provider_count=int(item.get("provider_count") or 0),
             )
             for item in models
         ]
         return pb2.ListModelsResponse(models=model_items)
 
-    async def CreateUserApiKey(self, request, context):  # noqa: N802
-        return await self._upsert_key(request, context, status_text="created")
+    async def CreateModelDefinition(self, request, context):  # noqa: N802
+        await _require_service_auth(context)
+        if not request.model_name or not request.family:
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                "model_name and family are required",
+            )
 
-    async def UpdateUserApiKey(self, request, context):  # noqa: N802
-        return await self._upsert_key(request, context, status_text="updated")
-
-    async def DeleteUserApiKey(self, request, context):  # noqa: N802
-        user_id = await _require_service_auth(context)
-        if not request.model_id:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "model_id is required")
-
-        async with AsyncSessionLocal() as session:
-            key_repo = UserKeyRepository(session)
-            deleted = await key_repo.delete(user_id=user_id, model_id=request.model_id)
-
-        if not deleted:
-            await context.abort(grpc.StatusCode.NOT_FOUND, "API key not found")
-
-        pb2 = importlib.import_module("app.grpc_stubs.ai_models_pb2")
-        return pb2.ApiKeyResponse(model_id=request.model_id, status="deleted")
-
-    async def _upsert_key(self, request, context, status_text: str):
-        user_id = await _require_service_auth(context)
-        if not request.model_id or not request.api_key:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "model_id and api_key are required")
+        try:
+            capabilities = json.loads(request.capabilities_json or "{}")
+        except json.JSONDecodeError:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "capabilities_json must be valid JSON")
 
         async with AsyncSessionLocal() as session:
-            model_repo = AIModelRepository(session)
-            model = await model_repo.get_by_id(request.model_id)
-            if model is None:
-                await context.abort(grpc.StatusCode.NOT_FOUND, "Model not found")
-
-            encrypted = encrypt_key(request.api_key)
-            key_repo = UserKeyRepository(session)
-            await key_repo.upsert(
-                user_id=user_id,
-                model_id=request.model_id,
-                encrypted_api_key=encrypted,
+            repo = ModelOrchestrationRepository(session)
+            model = await repo.create_model_definition(
+                model_name=request.model_name,
+                family=request.family,
+                context_length=max(0, int(request.context_length or 0)),
+                capabilities=capabilities if isinstance(capabilities, dict) else {},
+                active=bool(request.active),
             )
 
         pb2 = importlib.import_module("app.grpc_stubs.ai_models_pb2")
-        return pb2.ApiKeyResponse(model_id=request.model_id, status=status_text)
+        dto = pb2.AiModelDto(
+            model_id=model.id,
+            model_name=model.model_name,
+            family=model.family,
+            context_length=model.context_length,
+            capabilities_json=json.dumps(model.capabilities or {}),
+            active=model.active,
+            provider_count=0,
+        )
+        return pb2.ModelDefinitionResponse(model=dto, status="created")
+
+    async def AttachProviderToModel(self, request, context):  # noqa: N802
+        await _require_service_auth(context)
+        if not request.model_id or not request.provider_name or not request.provider_model_name:
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                "model_id, provider_name and provider_model_name are required",
+            )
+
+        async with AsyncSessionLocal() as session:
+            repo = ModelOrchestrationRepository(session)
+            model = await repo.get_model_definition(request.model_id)
+            if model is None:
+                await context.abort(grpc.StatusCode.NOT_FOUND, "Model not found")
+
+            provider = await repo.attach_provider(
+                model_definition_id=request.model_id,
+                provider_name=request.provider_name.lower(),
+                provider_model_name=request.provider_model_name,
+                priority=int(request.priority or 100),
+                active=bool(request.active),
+            )
+            await repo.ensure_endpoints_for_provider(provider.id)
+
+        pb2 = importlib.import_module("app.grpc_stubs.ai_models_pb2")
+        provider_dto = pb2.ModelProviderDto(
+            provider_id=provider.id,
+            model_id=provider.model_definition_id,
+            provider_name=provider.provider_name,
+            provider_model_name=provider.provider_model_name,
+            priority=provider.priority,
+            active=provider.active,
+        )
+        return pb2.ModelProviderResponse(provider=provider_dto, status="created")
+
+    async def CreateProviderAccount(self, request, context):  # noqa: N802
+        await _require_service_auth(context)
+        if not request.provider_name or not request.account_label or not request.api_key:
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                "provider_name, account_label and api_key are required",
+            )
+
+        async with AsyncSessionLocal() as session:
+            repo = ModelOrchestrationRepository(session)
+            account = await repo.create_provider_account(
+                provider_name=request.provider_name.lower(),
+                account_label=request.account_label,
+                encrypted_api_key=encrypt_key(request.api_key),
+                rate_limit_per_minute=max(1, int(request.rate_limit_per_minute or 60)),
+                daily_quota=max(1, int(request.daily_quota or 200000)),
+                is_active=bool(request.is_active),
+            )
+
+            providers = await repo.list_providers(model_id=None)
+            for provider in providers:
+                if provider.provider_name == account.provider_name:
+                    await repo.ensure_endpoints_for_provider(provider.id)
+
+        pb2 = importlib.import_module("app.grpc_stubs.ai_models_pb2")
+        dto = pb2.ProviderAccountDto(
+            account_id=account.id,
+            provider_name=account.provider_name,
+            account_label=account.account_label,
+            rate_limit_per_minute=account.rate_limit_per_minute,
+            daily_quota=account.daily_quota,
+            used_today=account.used_today,
+            last_used_at="",
+            last_reset_at=_format_dt(account.last_reset_at),
+            is_active=account.is_active,
+            health_status=account.health_status,
+        )
+        return pb2.ProviderAccountResponse(account=dto, status="created")
+
+    async def ListProviders(self, request, context):  # noqa: N802
+        await _require_service_auth(context)
+        model_id = request.model_id or None
+        async with AsyncSessionLocal() as session:
+            repo = ModelOrchestrationRepository(session)
+            providers = await repo.list_providers(model_id=model_id)
+
+        pb2 = importlib.import_module("app.grpc_stubs.ai_models_pb2")
+        items = [
+            pb2.ModelProviderDto(
+                provider_id=item.id,
+                model_id=item.model_definition_id,
+                provider_name=item.provider_name,
+                provider_model_name=item.provider_model_name,
+                priority=item.priority,
+                active=item.active,
+            )
+            for item in providers
+        ]
+        return pb2.ListProvidersResponse(providers=items)
+
+    async def ListAccounts(self, request, context):  # noqa: N802
+        await _require_service_auth(context)
+        provider_name = (request.provider_name or "").lower() or None
+        async with AsyncSessionLocal() as session:
+            repo = ModelOrchestrationRepository(session)
+            accounts = await repo.list_accounts(provider_name=provider_name)
+
+        pb2 = importlib.import_module("app.grpc_stubs.ai_models_pb2")
+        items = [
+            pb2.ProviderAccountDto(
+                account_id=item.id,
+                provider_name=item.provider_name,
+                account_label=item.account_label,
+                rate_limit_per_minute=item.rate_limit_per_minute,
+                daily_quota=item.daily_quota,
+                used_today=item.used_today,
+                last_used_at=_format_dt(item.last_used_at),
+                last_reset_at=_format_dt(item.last_reset_at),
+                is_active=item.is_active,
+                health_status=item.health_status,
+            )
+            for item in accounts
+        ]
+        return pb2.ListAccountsResponse(accounts=items)
 
 
 class _RagService:
@@ -215,12 +333,53 @@ class _RagService:
             request_id=request.request_id,
         )
 
+    async def ExecuteDirect(self, request, context):  # noqa: N802
+        user_id = await _require_service_auth(context)
+        prompt = (request.prompt or "").strip()
+        if not prompt:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "prompt is required")
+
+        pb2 = importlib.import_module("app.grpc_stubs.rag_pb2")
+        request_id = (request.request_id or request.message_id or str(uuid.uuid4())).strip()
+
+        mode = "deep"
+        if request.mode == pb2.CHAT:
+            mode = "chat"
+
+        payload = {
+            "message_id": request.message_id or request_id,
+            "chatroom_id": request.chatroom_id,
+            "user_id": request.user_id or user_id,
+            "ai_model_id": request.ai_model_id,
+            "content": prompt,
+            "file_ids": list(request.file_ids),
+            "options": dict(request.options),
+            "mode": mode,
+        }
+
+        executor = PipelineExecutor()
+        import asyncio
+
+        asyncio.create_task(executor.execute(payload))
+
+        stream_key = (
+            f"stream:chat:{request.chatroom_id}"
+            if request.chatroom_id
+            else f"stream:ai:{request_id}"
+        )
+        return pb2.ExecuteAcceptedResponse(
+            status="accepted",
+            request_id=request_id,
+            stream_key=stream_key,
+            accepted=True,
+        )
+
     async def ListProviders(self, request, context):  # noqa: N802
         await _require_service_auth(context)
-        router_inst = ProviderRouter()
+        executor = ProviderExecutor()
         pb2 = importlib.import_module("app.grpc_stubs.rag_pb2")
         return pb2.ListProvidersResponse(
-            available_providers=router_inst.available_providers()
+            available_providers=executor.supported_providers()
         )
 
     async def CollectionInfo(self, request, context):  # noqa: N802

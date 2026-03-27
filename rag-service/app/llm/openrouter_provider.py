@@ -25,7 +25,7 @@ class OpenRouterProvider(BaseLLMProvider):
 
     @property
     def default_model(self) -> str:
-        return settings.openrouter_model
+        return "openai/gpt-4o-mini"
 
     def is_available(self) -> bool:
         return bool(settings.openrouter_api_key)

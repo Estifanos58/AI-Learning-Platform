@@ -153,21 +153,15 @@ class Settings(BaseSettings):
 
     # ── LLM providers ────────────────────────────────────────────────────────
     openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
-    openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
 
     gemini_api_key_file: Optional[str] = Field(default=None, alias="GEMINI_API_KEY_FILE")
     gemini_api_key: Optional[str] = Field(default=None, alias="GEMINI_API_KEY")
-    gemini_model: str = Field(default="gemini-1.5-flash", alias="GEMINI_MODEL")
 
     deepseek_api_key_file: Optional[str] = Field(default=None, alias="DEEPSEEK_API_KEY_FILE")
     deepseek_api_key: Optional[str] = Field(default=None, alias="DEEPSEEK_API_KEY")
-    deepseek_model: str = Field(
-        default="deepseek-chat", alias="DEEPSEEK_MODEL"
-    )
 
     groq_api_key_file: Optional[str] = Field(default=None, alias="GROQ_API_KEY_FILE")
     groq_api_key: Optional[str] = Field(default=None, alias="GROQ_API_KEY")
-    groq_model: str = Field(default="llama-3.3-70b-versatile", alias="GROQ_MODEL")
 
     openrouter_api_key_file: Optional[str] = Field(
         default=None,
@@ -177,15 +171,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY"),
     )
-    openrouter_model: str = Field(
-        default="openai/gpt-4o-mini",
-        validation_alias=AliasChoices("OPENROUTER_MODEL", "OPEN_ROUTER_MODEL"),
-    )
 
     local_llm_url: Optional[str] = Field(
         default=None, alias="LOCAL_LLM_URL"
     )
-    local_llm_model: str = Field(default="mistral", alias="LOCAL_LLM_MODEL")
 
     # ── Security ─────────────────────────────────────────────────────────────
     encryption_key: str = Field(
@@ -208,6 +197,11 @@ class Settings(BaseSettings):
     kafka_consumer_enabled: bool = Field(
         default=True, alias="KAFKA_CONSUMER_ENABLED"
     )
+
+    # ── Streaming backend ───────────────────────────────────────────────────
+    stream_backend: str = Field(default="dual", alias="STREAM_BACKEND")
+    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    redis_stream_maxlen: int = Field(default=5000, alias="REDIS_STREAM_MAXLEN")
 
     @field_validator("environment")
     @classmethod

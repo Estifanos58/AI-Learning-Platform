@@ -5,8 +5,7 @@ from __future__ import annotations
 import logging
 
 from app.agents.base_agent import AgentContext, AgentResult, BaseAgent
-from app.llm.base_provider import LLMMessage, LLMRequest
-from app.llm.provider_router import ProviderRouter
+from app.llm.base_provider import LLMMessage
 
 log = logging.getLogger(__name__)
 
@@ -25,49 +24,49 @@ class ResearchAgent(BaseAgent):
         ctx_text = self._build_context_text(context.chunks)
         citations = self._extract_citations(context.chunks)
 
+        history_parts = []
+        for msg in context.options.get("context_window", []):
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            history_parts.append(LLMMessage(role=role, content=content))
+
+        if ctx_text:
+            system_prompt = (
+                "You are an expert research assistant. "
+                "Answer the user's question using ONLY the provided document excerpts. "
+                "Cite sources using [N] notation. "
+                "If the answer is not in the excerpts, say so clearly."
+            )
+            user_content = f"Document excerpts:\n{ctx_text}\n\nQuestion: {context.question}"
+        else:
+            system_prompt = (
+                "You are a helpful and expert AI assistant. "
+                "Provide a clear and accurate answer to the user's question."
+            )
+            user_content = context.question
+
         messages = [
             LLMMessage(
                 role="system",
-                content=(
-                    "You are an expert research assistant. "
-                    "Answer the user's question using ONLY the provided document excerpts. "
-                    "Cite sources using [N] notation. "
-                    "If the answer is not in the excerpts, say so clearly."
-                ),
+                content=system_prompt,
             ),
+            *history_parts,
             LLMMessage(
                 role="user",
-                content=(
-                    f"Document excerpts:\n{ctx_text}\n\n"
-                    f"Question: {context.question}"
-                ),
+                content=user_content,
             ),
         ]
 
-        router = ProviderRouter()
-        selected_model = context.model_name or context.model_id
-        provider = router.route(
-            selected_model,
-            context.user_api_key,
-            preferred_provider=context.provider_name,
-            allow_fallback=not bool(selected_model or context.provider_name),
-        )
-        request = LLMRequest(
+        content = await self._execute_llm(
+            context=context,
             messages=messages,
-            model=selected_model,
             max_tokens=context.options.get("max_tokens", 2048),
             temperature=context.options.get("temperature", 0.2),
-            stream=False,
-            user_api_key=context.user_api_key,
         )
-
-        content_parts = []
-        async for chunk in provider.stream(request):
-            content_parts.append(chunk.delta)
 
         return AgentResult(
             agent_name=self.name,
-            content="".join(content_parts),
+            content=content,
             citations=citations,
             confidence=0.9,
         )

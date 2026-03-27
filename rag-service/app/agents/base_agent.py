@@ -6,6 +6,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from app.llm.base_provider import LLMMessage
+from app.llm.provider_executor import ProviderExecutor
+
 
 @dataclass
 class AgentContext:
@@ -18,7 +21,10 @@ class AgentContext:
     model_id: Optional[str] = None
     model_name: Optional[str] = None
     provider_name: Optional[str] = None
-    user_api_key: Optional[str] = None
+    provider_model_name: Optional[str] = None
+    api_key: Optional[str] = None
+    endpoint_id: Optional[str] = None
+    account_id: Optional[str] = None
     options: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -77,3 +83,30 @@ class BaseAgent(ABC):
                 }
             )
         return citations
+
+    async def _execute_llm(
+        self,
+        context: AgentContext,
+        messages: List[LLMMessage],
+        max_tokens: int,
+        temperature: float,
+    ) -> str:
+        if not context.provider_name or not context.provider_model_name:
+            raise RuntimeError("Missing provider routing details in agent context")
+        if not context.api_key:
+            raise RuntimeError("Missing provider API key in agent context")
+        if not context.endpoint_id or not context.account_id:
+            raise RuntimeError("Missing endpoint/account identifiers in agent context")
+
+        executor = ProviderExecutor()
+        result = await executor.execute(
+            provider_name=context.provider_name,
+            provider_model_name=context.provider_model_name,
+            api_key=context.api_key,
+            messages=messages,
+            endpoint_id=context.endpoint_id,
+            account_id=context.account_id,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        return result.content

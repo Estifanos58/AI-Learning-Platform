@@ -30,12 +30,16 @@ class ResponseAggregator:
         all_citations: List[Dict[str, Any]] = []
         seen_citations: set = set()
 
-        for result in results:
-            if len(results) > 1:
+        # filter out empty results
+        meaningful_results = [r for r in results if r.content.strip()]
+        
+        for result in meaningful_results:
+            if len(meaningful_results) > 1:
                 content_parts.append(f"### {result.agent_name.capitalize()}\n{result.content}")
             else:
                 content_parts.append(result.content)
 
+        for result in results:
             for c in result.citations:
                 key = (c.get("file_id", ""), c.get("page_number"))
                 if key not in seen_citations:

@@ -11,8 +11,34 @@ service RagService {
   rpc RetrieveChunks(RetrieveChunksRequest) returns (RetrieveChunksResponse);
   rpc DeleteFileVectors(DeleteFileVectorsRequest) returns (DeleteFileVectorsResponse);
   rpc CancelGeneration(CancelGenerationRequest) returns (CancelGenerationResponse);
+  rpc ExecuteDirect(ExecuteDirectRequest) returns (ExecuteAcceptedResponse);
   rpc ListProviders(ListProvidersRequest) returns (ListProvidersResponse);
   rpc CollectionInfo(CollectionInfoRequest) returns (CollectionInfoResponse);
+}
+
+enum ExecutionMode {
+  EXECUTION_MODE_UNSPECIFIED = 0;
+  CHAT = 1;
+  DEEP = 2;
+}
+
+message ExecuteDirectRequest {
+  string request_id = 1;
+  string user_id = 2;
+  string prompt = 3;
+  string ai_model_id = 4;
+  repeated string file_ids = 5;
+  ExecutionMode mode = 6;
+  string chatroom_id = 7;
+  string message_id = 8;
+  map<string, string> options = 9;
+}
+
+message ExecuteAcceptedResponse {
+  string status = 1;
+  string request_id = 2;
+  string stream_key = 3;
+  bool accepted = 4;
 }
 
 message IngestFileRequest {

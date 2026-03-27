@@ -8,9 +8,11 @@ option java_outer_classname = "AiModelsProto";
 
 service AiModelService {
   rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
-  rpc CreateUserApiKey(CreateUserApiKeyRequest) returns (ApiKeyResponse);
-  rpc UpdateUserApiKey(UpdateUserApiKeyRequest) returns (ApiKeyResponse);
-  rpc DeleteUserApiKey(DeleteUserApiKeyRequest) returns (ApiKeyResponse);
+  rpc CreateModelDefinition(CreateModelDefinitionRequest) returns (ModelDefinitionResponse);
+  rpc AttachProviderToModel(AttachProviderToModelRequest) returns (ModelProviderResponse);
+  rpc CreateProviderAccount(CreateProviderAccountRequest) returns (ProviderAccountResponse);
+  rpc ListProviders(ListProvidersRequest) returns (ListProvidersResponse);
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
 }
 
 message ListModelsRequest {}
@@ -18,33 +20,91 @@ message ListModelsRequest {}
 message AiModelDto {
   string model_id = 1;
   string model_name = 2;
-  string provider = 3;
+  string family = 3;
   int32 context_length = 4;
-  bool supports_streaming = 5;
-  bool user_key_configured = 6;
-  bool platform_key_available = 7;
-  string description = 8;
+  string capabilities_json = 5;
+  bool active = 6;
+  int32 provider_count = 7;
 }
 
 message ListModelsResponse {
   repeated AiModelDto models = 1;
 }
 
-message CreateUserApiKeyRequest {
-  string model_id = 1;
-  string api_key = 2;
+message CreateModelDefinitionRequest {
+  string model_name = 1;
+  string family = 2;
+  int32 context_length = 3;
+  string capabilities_json = 4;
+  bool active = 5;
 }
 
-message UpdateUserApiKeyRequest {
+message AttachProviderToModelRequest {
   string model_id = 1;
-  string api_key = 2;
+  string provider_name = 2;
+  string provider_model_name = 3;
+  int32 priority = 4;
+  bool active = 5;
 }
 
-message DeleteUserApiKeyRequest {
+message CreateProviderAccountRequest {
+  string provider_name = 1;
+  string account_label = 2;
+  string api_key = 3;
+  int32 rate_limit_per_minute = 4;
+  int32 daily_quota = 5;
+  bool is_active = 6;
+}
+
+message ListProvidersRequest {
   string model_id = 1;
 }
 
-message ApiKeyResponse {
-  string model_id = 1;
+message ListAccountsRequest {
+  string provider_name = 1;
+}
+
+message ModelProviderDto {
+  string provider_id = 1;
+  string model_id = 2;
+  string provider_name = 3;
+  string provider_model_name = 4;
+  int32 priority = 5;
+  bool active = 6;
+}
+
+message ProviderAccountDto {
+  string account_id = 1;
+  string provider_name = 2;
+  string account_label = 3;
+  int32 rate_limit_per_minute = 4;
+  int32 daily_quota = 5;
+  int32 used_today = 6;
+  string last_used_at = 7;
+  string last_reset_at = 8;
+  bool is_active = 9;
+  string health_status = 10;
+}
+
+message ModelDefinitionResponse {
+  AiModelDto model = 1;
   string status = 2;
+}
+
+message ModelProviderResponse {
+  ModelProviderDto provider = 1;
+  string status = 2;
+}
+
+message ProviderAccountResponse {
+  ProviderAccountDto account = 1;
+  string status = 2;
+}
+
+message ListProvidersResponse {
+  repeated ModelProviderDto providers = 1;
+}
+
+message ListAccountsResponse {
+  repeated ProviderAccountDto accounts = 1;
 }

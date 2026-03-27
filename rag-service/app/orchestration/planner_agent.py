@@ -7,8 +7,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from app.llm.base_provider import LLMMessage, LLMRequest
-from app.llm.provider_router import ProviderRouter
+from app.llm.base_provider import LLMMessage
+from app.llm.provider_executor import ProviderExecutor
 
 log = logging.getLogger(__name__)
 
@@ -53,23 +53,26 @@ class PlannerAgent:
         question: str,
         context_summary: str,
         model_id: Optional[str] = None,
-        model_name: Optional[str] = None,
         provider_name: Optional[str] = None,
-        user_api_key: Optional[str] = None,
+        provider_model_name: Optional[str] = None,
+        api_key: Optional[str] = None,
+        endpoint_id: Optional[str] = None,
+        account_id: Optional[str] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> ExecutionPlan:
         opts = options or {}
 
-        # Try LLM-based planning if model available
-        if model_id or model_name or provider_name or user_api_key:
+        # Try LLM-based planning only if endpoint execution details are provided.
+        if provider_name and provider_model_name and api_key and endpoint_id and account_id:
             try:
                 return await self._llm_plan(
                     question,
                     context_summary,
-                    model_id,
-                    model_name,
                     provider_name,
-                    user_api_key,
+                    provider_model_name,
+                    api_key,
+                    endpoint_id,
+                    account_id,
                     opts,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -104,10 +107,11 @@ class PlannerAgent:
         self,
         question: str,
         context_summary: str,
-        model_id: Optional[str],
-        model_name: Optional[str],
         provider_name: Optional[str],
-        user_api_key: Optional[str],
+        provider_model_name: Optional[str],
+        api_key: Optional[str],
+        endpoint_id: Optional[str],
+        account_id: Optional[str],
         options: Dict[str, Any],
     ) -> ExecutionPlan:
         agent_list = "\n".join(
@@ -133,28 +137,22 @@ class PlannerAgent:
             ),
         ]
 
-        router = ProviderRouter()
-        selected_model = model_name or model_id
-        provider = router.route(
-            selected_model,
-            user_api_key,
-            preferred_provider=provider_name,
-            allow_fallback=not bool(selected_model or provider_name),
-        )
-        request = LLMRequest(
+        if not provider_name or not provider_model_name or not api_key or not endpoint_id or not account_id:
+            return self._heuristic_plan(question)
+
+        executor = ProviderExecutor()
+        result = await executor.execute(
+            provider_name=provider_name,
+            provider_model_name=provider_model_name,
+            api_key=api_key,
             messages=messages,
-            model=selected_model,
+            endpoint_id=endpoint_id,
+            account_id=account_id,
             max_tokens=256,
             temperature=0.0,
-            stream=False,
-            user_api_key=user_api_key,
         )
 
-        parts = []
-        async for chunk in provider.stream(request):
-            parts.append(chunk.delta)
-
-        raw = "".join(parts)
+        raw = result.content
         import json
 
         match = re.search(r"\{.*\}", raw, re.DOTALL)
