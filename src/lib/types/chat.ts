@@ -117,8 +117,58 @@ export interface AIModel {
   id: string;
   name: string;
   provider: string;
+  family?: string;
+  capabilitiesJson?: string;
+  providerCount?: number;
   description?: string;
   platformKeyAvailable?: boolean;
+  active?: boolean;
+}
+
+export interface AiModelCreateInput {
+  modelName: string;
+  family: string;
+  contextLength?: number;
+  capabilitiesJson?: string;
+  active?: boolean;
+}
+
+export interface AiProvider {
+  providerId: string;
+  modelId: string;
+  providerName: string;
+  providerModelName: string;
+  priority: number;
+  active: boolean;
+}
+
+export interface AiProviderAttachInput {
+  modelId: string;
+  providerName: string;
+  providerModelName: string;
+  priority?: number;
+  active?: boolean;
+}
+
+export interface AiProviderAccount {
+  accountId: string;
+  providerName: string;
+  accountLabel: string;
+  rateLimitPerMinute: number;
+  dailyQuota: number;
+  usedToday: number;
+  lastUsedAt: string | null;
+  lastResetAt: string | null;
+  active: boolean;
+  healthStatus: string;
+}
+
+export interface AiProviderAccountCreateInput {
+  providerName: string;
+  accountLabel: string;
+  apiKey: string;
+  rateLimitPerMinute: number;
+  dailyQuota: number;
   active?: boolean;
 }
 

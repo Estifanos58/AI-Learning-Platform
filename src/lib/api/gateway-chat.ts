@@ -1,5 +1,10 @@
 import {
   AIModel,
+  AiModelCreateInput,
+  AiProvider,
+  AiProviderAccount,
+  AiProviderAccountCreateInput,
+  AiProviderAttachInput,
   ChatMessage,
   AIStreamEventType,
   ChatRealtimeEvent,
@@ -228,7 +233,8 @@ export const chatApi = {
         return null;
       }
 
-      const provider = typeof input.provider === 'string' ? input.provider : 'unknown';
+      const family = typeof input.family === 'string' ? input.family : undefined;
+      const provider = typeof input.provider === 'string' ? input.provider : family ?? 'unknown';
       const contextLengthRaw = input.context_length ?? input.contextLength;
       const contextLength = typeof contextLengthRaw === 'number' ? contextLengthRaw : 0;
       const supportsStreamingRaw = input.supports_streaming ?? input.supportsStreaming;
@@ -237,6 +243,8 @@ export const chatApi = {
       const userKeyConfigured = typeof userKeyConfiguredRaw === 'boolean' ? userKeyConfiguredRaw : false;
       const platformKeyAvailableRaw = input.platform_key_available ?? input.platformKeyAvailable;
       const activeRaw = input.active;
+      const providerCountRaw = input.provider_count ?? input.providerCount;
+      const capabilitiesJsonRaw = input.capabilities_json ?? input.capabilitiesJson;
 
       return {
         modelId,
@@ -244,6 +252,9 @@ export const chatApi = {
         id: modelId,
         name: modelName,
         provider,
+        family,
+        capabilitiesJson: typeof capabilitiesJsonRaw === 'string' ? capabilitiesJsonRaw : undefined,
+        providerCount: typeof providerCountRaw === 'number' ? providerCountRaw : undefined,
         description: typeof input.description === 'string' ? input.description : undefined,
         contextLength,
         supportsStreaming,
@@ -336,13 +347,148 @@ export const chatApi = {
     return await chatRequest<AIModel>('ai/models', token, {
       method: 'POST',
       body: {
-        model_name: input.modelName,
-        provider: input.provider,
-        context_length: input.contextLength || 8192,
-        description: input.description,
+        modelName: input.modelName,
+        family: input.provider,
+        contextLength: input.contextLength || 8192,
+        capabilitiesJson: input.description,
+        active: true,
       },
     });
   },
+
+  async createAiModelV2(token: string, input: AiModelCreateInput): Promise<AIModel> {
+    const created = await chatRequest<Record<string, unknown>>('ai/models', token, {
+      method: 'POST',
+      body: {
+        modelName: input.modelName,
+        family: input.family,
+        contextLength: input.contextLength ?? 8192,
+        capabilitiesJson: input.capabilitiesJson,
+        active: input.active ?? true,
+      },
+    });
+
+    const models = await this.listAiModels(token);
+    const createdId = typeof created.modelId === 'string' ? created.modelId : typeof created.id === 'string' ? created.id : null;
+    if (createdId) {
+      const match = models.find((model) => model.modelId === createdId || model.id === createdId);
+      if (match) {
+        return match;
+      }
+    }
+
+    return models[0] ?? {
+      modelId: '',
+      modelName: input.modelName,
+      contextLength: input.contextLength ?? 8192,
+      supportsStreaming: false,
+      userKeyConfigured: false,
+      id: '',
+      name: input.modelName,
+      provider: input.family,
+      family: input.family,
+      active: input.active ?? true,
+    };
+  },
+
+  async listAiProviders(token: string, modelId?: string): Promise<AiProvider[]> {
+    const query = modelId ? `?modelId=${encodeURIComponent(modelId)}` : '';
+    const payload = await chatRequest<unknown>(`ai/providers${query}`, token);
+    const rows = Array.isArray(payload)
+      ? payload
+      : payload && typeof payload === 'object' && Array.isArray((payload as { providers?: unknown[] }).providers)
+        ? (payload as { providers: unknown[] }).providers
+        : [];
+
+    return rows
+      .map((row) => {
+        if (!row || typeof row !== 'object') {
+          return null;
+        }
+        const input = row as Record<string, unknown>;
+        const providerId = typeof input.providerId === 'string' ? input.providerId : null;
+        const resolvedModelId = typeof input.modelId === 'string' ? input.modelId : null;
+        const providerName = typeof input.providerName === 'string' ? input.providerName : null;
+        const providerModelName = typeof input.providerModelName === 'string' ? input.providerModelName : null;
+
+        if (!providerId || !resolvedModelId || !providerName || !providerModelName) {
+          return null;
+        }
+
+        return {
+          providerId,
+          modelId: resolvedModelId,
+          providerName,
+          providerModelName,
+          priority: typeof input.priority === 'number' ? input.priority : 0,
+          active: typeof input.active === 'boolean' ? input.active : true,
+        } satisfies AiProvider;
+      })
+      .filter((provider): provider is AiProvider => Boolean(provider));
+  },
+
+  attachAiProvider: (token: string, input: AiProviderAttachInput) =>
+    chatRequest<AiProvider>('ai/providers', token, {
+      method: 'POST',
+      body: {
+        modelId: input.modelId,
+        providerName: input.providerName,
+        providerModelName: input.providerModelName,
+        priority: input.priority ?? 0,
+        active: input.active ?? true,
+      },
+    }),
+
+  async listAiProviderAccounts(token: string, providerName?: string): Promise<AiProviderAccount[]> {
+    const query = providerName ? `?providerName=${encodeURIComponent(providerName)}` : '';
+    const payload = await chatRequest<unknown>(`ai/accounts${query}`, token);
+    const rows = Array.isArray(payload)
+      ? payload
+      : payload && typeof payload === 'object' && Array.isArray((payload as { accounts?: unknown[] }).accounts)
+        ? (payload as { accounts: unknown[] }).accounts
+        : [];
+
+    return rows
+      .map((row) => {
+        if (!row || typeof row !== 'object') {
+          return null;
+        }
+        const input = row as Record<string, unknown>;
+        const accountId = typeof input.accountId === 'string' ? input.accountId : null;
+        const resolvedProviderName = typeof input.providerName === 'string' ? input.providerName : null;
+        const accountLabel = typeof input.accountLabel === 'string' ? input.accountLabel : null;
+        if (!accountId || !resolvedProviderName || !accountLabel) {
+          return null;
+        }
+
+        return {
+          accountId,
+          providerName: resolvedProviderName,
+          accountLabel,
+          rateLimitPerMinute: typeof input.rateLimitPerMinute === 'number' ? input.rateLimitPerMinute : 0,
+          dailyQuota: typeof input.dailyQuota === 'number' ? input.dailyQuota : 0,
+          usedToday: typeof input.usedToday === 'number' ? input.usedToday : 0,
+          lastUsedAt: typeof input.lastUsedAt === 'string' || input.lastUsedAt === null ? input.lastUsedAt : null,
+          lastResetAt: typeof input.lastResetAt === 'string' || input.lastResetAt === null ? input.lastResetAt : null,
+          active: typeof input.active === 'boolean' ? input.active : true,
+          healthStatus: typeof input.healthStatus === 'string' ? input.healthStatus : 'UNKNOWN',
+        } satisfies AiProviderAccount;
+      })
+      .filter((account): account is AiProviderAccount => Boolean(account));
+  },
+
+  createAiProviderAccount: (token: string, input: AiProviderAccountCreateInput) =>
+    chatRequest<AiProviderAccount>('ai/accounts', token, {
+      method: 'POST',
+      body: {
+        providerName: input.providerName,
+        accountLabel: input.accountLabel,
+        apiKey: input.apiKey,
+        rateLimitPerMinute: input.rateLimitPerMinute,
+        dailyQuota: input.dailyQuota,
+        active: input.active ?? true,
+      },
+    }),
 
   async upsertPlatformApiKey(token: string, input: { provider: string; apiKey: string }): Promise<void> {
     await chatRequest<void>('ai/platform-keys', token, {
