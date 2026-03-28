@@ -7,8 +7,8 @@ interface UseLoginFormOptions {
 }
 
 export function useLoginForm({ login, clearError, onSuccess }: UseLoginFormOptions) {
-  const [email, setEmail] = useState('demo@example.com');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('estifkebe08@gmail.com');
+  const [password, setPassword] = useState('1234567890');
   const [localError, setLocalError] = useState<string | null>(null);
 
   const handleSubmit = async (event: React.FormEvent) => {
