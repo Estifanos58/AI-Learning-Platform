@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AIModel } from '@/src/lib/types';
+import { AIModel, AiProvider, AiProviderAccount } from '@/src/lib/types';
 import { gatewayApi } from '@/src/lib/api/gateway';
 import { toast } from 'sonner';
 
@@ -9,15 +9,18 @@ interface UseAiSettingsOptions {
 
 export function useAiSettings({ accessToken }: UseAiSettingsOptions) {
   const [aiModels, setAiModels] = useState<AIModel[]>([]);
+  const [providers, setProviders] = useState<AiProvider[]>([]);
+  const [providerAccounts, setProviderAccounts] = useState<AiProviderAccount[]>([]);
   const [isAiModelsLoading, setIsAiModelsLoading] = useState(false);
+  const [isProvidersLoading, setIsProvidersLoading] = useState(false);
+  const [isAccountsLoading, setIsAccountsLoading] = useState(false);
   const [selectedAiModelId, setSelectedAiModelId] = useState<string>('');
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [isSavingApiKey, setIsSavingApiKey] = useState(false);
-  const [isDeletingApiKey, setIsDeletingApiKey] = useState(false);
 
   const loadAiModels = useCallback(async () => {
     if (!accessToken) {
       setAiModels([]);
+      setProviders([]);
+      setProviderAccounts([]);
       return;
     }
 
@@ -40,6 +43,27 @@ export function useAiSettings({ accessToken }: UseAiSettingsOptions) {
     loadAiModels();
   }, [loadAiModels]);
 
+  const loadProviderAccounts = useCallback(async () => {
+    if (!accessToken) {
+      setProviderAccounts([]);
+      return;
+    }
+
+    setIsAccountsLoading(true);
+    try {
+      const accounts = await gatewayApi.chat.listAiProviderAccounts(accessToken);
+      setProviderAccounts(accounts);
+    } catch {
+      setProviderAccounts([]);
+    } finally {
+      setIsAccountsLoading(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    loadProviderAccounts();
+  }, [loadProviderAccounts]);
+
   const selectedAiModel = useMemo(() => {
     if (selectedAiModelId) {
       return aiModels.find((model) => model.id === selectedAiModelId || model.modelId === selectedAiModelId) ?? null;
@@ -48,61 +72,45 @@ export function useAiSettings({ accessToken }: UseAiSettingsOptions) {
     return aiModels[0] ?? null;
   }, [aiModels, selectedAiModelId]);
 
+  const loadProvidersForModel = useCallback(async (modelId: string) => {
+    if (!accessToken || !modelId) {
+      setProviders([]);
+      return;
+    }
+
+    setIsProvidersLoading(true);
+    try {
+      const modelProviders = await gatewayApi.chat.listAiProviders(accessToken, modelId);
+      setProviders(modelProviders);
+    } catch {
+      setProviders([]);
+    } finally {
+      setIsProvidersLoading(false);
+    }
+  }, [accessToken]);
+
   useEffect(() => {
-    if (selectedAiModel && !selectedAiModel.userKeyConfigured) {
-      setApiKeyInput('');
-    }
-  }, [selectedAiModelId, selectedAiModel]);
-
-  const handleSaveApiKey = useCallback(async () => {
-    if (!accessToken || !selectedAiModel || !apiKeyInput.trim()) {
+    const resolvedModelId = selectedAiModelId || selectedAiModel?.modelId || selectedAiModel?.id;
+    if (!resolvedModelId) {
+      setProviders([]);
       return;
     }
 
-    const modelId = selectedAiModel.modelId || selectedAiModel.id;
-
-    setIsSavingApiKey(true);
-    try {
-      if (selectedAiModel.userKeyConfigured) {
-        await gatewayApi.chat.updateUserApiKey(accessToken, { modelId, apiKey: apiKeyInput.trim() });
-      } else {
-        await gatewayApi.chat.createUserApiKey(accessToken, { modelId, apiKey: apiKeyInput.trim() });
-      }
-      setApiKeyInput('');
-      await loadAiModels();
-      toast.success('AI API key saved');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save AI API key');
-    } finally {
-      setIsSavingApiKey(false);
-    }
-  }, [accessToken, apiKeyInput, loadAiModels, selectedAiModel]);
-
-  const handleDeleteApiKey = useCallback(async () => {
-    if (!accessToken || !selectedAiModel) {
-      return;
-    }
-
-    const modelId = selectedAiModel.modelId || selectedAiModel.id;
-
-    setIsDeletingApiKey(true);
-    try {
-      await gatewayApi.chat.deleteUserApiKey(accessToken, modelId);
-      await loadAiModels();
-      toast.success('AI API key removed');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to remove AI API key');
-    } finally {
-      setIsDeletingApiKey(false);
-    }
-  }, [accessToken, loadAiModels, selectedAiModel]);
+    loadProvidersForModel(resolvedModelId);
+  }, [loadProvidersForModel, selectedAiModel?.id, selectedAiModel?.modelId, selectedAiModelId]);
 
   const [isCreatingModel, setIsCreatingModel] = useState(false);
-  const handleCreateModel = useCallback(async (input: { modelName: string; provider: string; contextLength?: number; description?: string }) => {
+  const handleCreateModel = useCallback(async (input: {
+    modelName: string;
+    family: string;
+    contextLength?: number;
+    capabilitiesJson?: string;
+    active?: boolean;
+  }) => {
     if (!accessToken) return;
     setIsCreatingModel(true);
     try {
-      await gatewayApi.chat.createAiModel(accessToken, input);
+      await gatewayApi.chat.createAiModelV2(accessToken, input);
       await loadAiModels();
       toast.success('AI Model created');
     } catch (error) {
@@ -113,37 +121,68 @@ export function useAiSettings({ accessToken }: UseAiSettingsOptions) {
     }
   }, [accessToken, loadAiModels]);
 
-  const [isSavingPlatformKey, setIsSavingPlatformKey] = useState(false);
-  const handleSavePlatformKey = useCallback(async (input: { provider: string; apiKey: string }) => {
+  const [isAttachingProvider, setIsAttachingProvider] = useState(false);
+  const handleAttachProvider = useCallback(async (input: {
+    modelId: string;
+    providerName: string;
+    providerModelName: string;
+    priority?: number;
+    active?: boolean;
+  }) => {
     if (!accessToken) return;
-    setIsSavingPlatformKey(true);
+    setIsAttachingProvider(true);
     try {
-      await gatewayApi.chat.upsertPlatformApiKey(accessToken, input);
+      await gatewayApi.chat.attachAiProvider(accessToken, input);
+      await loadProvidersForModel(input.modelId);
       await loadAiModels();
-      toast.success('Platform API key saved');
+      toast.success('Provider attached to model');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save Platform API key');
+      toast.error(error instanceof Error ? error.message : 'Failed to attach provider');
       throw error;
     } finally {
-      setIsSavingPlatformKey(false);
+      setIsAttachingProvider(false);
     }
-  }, [accessToken, loadAiModels]);
+  }, [accessToken, loadAiModels, loadProvidersForModel]);
+
+  const [isCreatingProviderAccount, setIsCreatingProviderAccount] = useState(false);
+  const handleCreateProviderAccount = useCallback(async (input: {
+    providerName: string;
+    accountLabel: string;
+    apiKey: string;
+    rateLimitPerMinute: number;
+    dailyQuota: number;
+    active?: boolean;
+  }) => {
+    if (!accessToken) return;
+
+    setIsCreatingProviderAccount(true);
+    try {
+      await gatewayApi.chat.createAiProviderAccount(accessToken, input);
+      await loadProviderAccounts();
+      toast.success('Provider account created');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to create provider account');
+      throw error;
+    } finally {
+      setIsCreatingProviderAccount(false);
+    }
+  }, [accessToken, loadProviderAccounts]);
 
   return {
     aiModels,
+    providers,
+    providerAccounts,
     isAiModelsLoading,
+    isProvidersLoading,
+    isAccountsLoading,
     selectedAiModelId,
     setSelectedAiModelId,
     selectedAiModel,
-    apiKeyInput,
-    setApiKeyInput,
-    isSavingApiKey,
-    isDeletingApiKey,
-    handleSaveApiKey,
-    handleDeleteApiKey,
     isCreatingModel,
     handleCreateModel,
-    isSavingPlatformKey,
-    handleSavePlatformKey,
+    isAttachingProvider,
+    handleAttachProvider,
+    isCreatingProviderAccount,
+    handleCreateProviderAccount,
   };
 }

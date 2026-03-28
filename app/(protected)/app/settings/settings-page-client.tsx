@@ -13,7 +13,7 @@ import { Bell, Lock, Layout, Info, ChevronLeft, Moon, Sun, Monitor, Paintbrush, 
 import { useWorkspace } from '@/src/features/workspace/workspace-context';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/src/contexts/auth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -25,51 +25,97 @@ export function SettingsPageClient() {
   const { themeColor, setThemeColor } = useThemeColor();
   const {
     aiModels,
+    providers,
+    providerAccounts,
     isAiModelsLoading,
+    isProvidersLoading,
+    isAccountsLoading,
     selectedAiModelId,
     setSelectedAiModelId,
     selectedAiModel,
-    apiKeyInput,
-    setApiKeyInput,
-    isSavingApiKey,
-    isDeletingApiKey,
-    handleSaveApiKey,
-    handleDeleteApiKey,
     isCreatingModel,
     handleCreateModel,
-    isSavingPlatformKey,
-    handleSavePlatformKey,
+    isAttachingProvider,
+    handleAttachProvider,
+    isCreatingProviderAccount,
+    handleCreateProviderAccount,
   } = useAiSettings({ accessToken: session?.accessToken });
 
-  const [newModelOpen, setNewModelOpen] = useState(false);
   const [newModelName, setNewModelName] = useState('');
-  const [newModelProvider, setNewModelProvider] = useState('');
-  const [newModelDescription, setNewModelDescription] = useState('');
+  const [newModelFamily, setNewModelFamily] = useState('');
+  const [newModelContextLength, setNewModelContextLength] = useState('8192');
+  const [newModelCapabilitiesJson, setNewModelCapabilitiesJson] = useState('');
 
-  const [platformKeyProvider, setPlatformKeyProvider] = useState('');
-  const [platformKeyInput, setPlatformKeyInput] = useState('');
+  const [providerModelId, setProviderModelId] = useState('');
+  const [providerName, setProviderName] = useState('');
+  const [providerModelName, setProviderModelName] = useState('');
+  const [providerPriority, setProviderPriority] = useState('0');
+
+  const [accountProviderName, setAccountProviderName] = useState('');
+  const [accountLabel, setAccountLabel] = useState('');
+  const [accountApiKey, setAccountApiKey] = useState('');
+  const [accountRateLimitPerMinute, setAccountRateLimitPerMinute] = useState('60');
+  const [accountDailyQuota, setAccountDailyQuota] = useState('10000');
+
+  useEffect(() => {
+    if (!providerModelId && selectedAiModelId) {
+      setProviderModelId(selectedAiModelId);
+    }
+  }, [providerModelId, selectedAiModelId]);
 
   const onCreateModel = async () => {
-    if (!newModelName || !newModelProvider) return;
+    if (!newModelName || !newModelFamily) return;
     try {
       await handleCreateModel({
         modelName: newModelName,
-        provider: newModelProvider,
-        description: newModelDescription,
+        family: newModelFamily,
+        contextLength: Number(newModelContextLength) || 8192,
+        capabilitiesJson: newModelCapabilitiesJson || undefined,
+        active: true,
       });
-      setNewModelOpen(false);
       setNewModelName('');
-      setNewModelProvider('');
-      setNewModelDescription('');
-    } catch {}
+      setNewModelFamily('');
+      setNewModelContextLength('8192');
+      setNewModelCapabilitiesJson('');
+    } catch {
+      // handled in hook
+    }
   };
 
-  const onSavePlatformKey = async () => {
-    if (!platformKeyProvider || !platformKeyInput) return;
+  const onAttachProvider = async () => {
+    if (!providerModelId || !providerName || !providerModelName) return;
     try {
-      await handleSavePlatformKey({ provider: platformKeyProvider, apiKey: platformKeyInput });
-      setPlatformKeyInput('');
-    } catch {}
+      await handleAttachProvider({
+        modelId: providerModelId,
+        providerName,
+        providerModelName,
+        priority: Number(providerPriority) || 0,
+        active: true,
+      });
+      setProviderName('');
+      setProviderModelName('');
+      setProviderPriority('0');
+    } catch {
+      // handled in hook
+    }
+  };
+
+  const onCreateProviderAccount = async () => {
+    if (!accountProviderName || !accountLabel || !accountApiKey) return;
+    try {
+      await handleCreateProviderAccount({
+        providerName: accountProviderName,
+        accountLabel,
+        apiKey: accountApiKey,
+        rateLimitPerMinute: Number(accountRateLimitPerMinute) || 60,
+        dailyQuota: Number(accountDailyQuota) || 10000,
+        active: true,
+      });
+      setAccountLabel('');
+      setAccountApiKey('');
+    } catch {
+      // handled in hook
+    }
   };
 
   const colors = [
@@ -112,9 +158,9 @@ export function SettingsPageClient() {
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-primary" />
-                <CardTitle className="text-lg">AI Assistant</CardTitle>
+                <CardTitle className="text-lg">AI Models</CardTitle>
               </div>
-              <CardDescription>Manage your AI models and API keys</CardDescription>
+              <CardDescription>Select models and review provider bindings for each model</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-3">
@@ -132,7 +178,7 @@ export function SettingsPageClient() {
                       const modelValue = model.id || model.modelId;
                       return (
                         <SelectItem key={modelValue} value={modelValue}>
-                          {model.name} ({model.provider})
+                          {model.modelName} ({model.family || model.provider})
                         </SelectItem>
                       );
                     })}
@@ -141,157 +187,240 @@ export function SettingsPageClient() {
               </div>
 
               {selectedAiModel ? (
-                <div className="flex flex-col gap-3 pt-3 border-t">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span>Key Status:</span>
-                    <span
-                      className={cn(
-                        'rounded px-2 py-0.5 border text-xs font-medium',
-                        selectedAiModel.userKeyConfigured ? 'border-emerald-500/40 text-emerald-600' : 'border-border'
-                      )}
-                    >
-                      {selectedAiModel.userKeyConfigured ? 'Your key connected' : 'No user key'}
+                <div className="space-y-3 pt-3 border-t">
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <span className="rounded px-2 py-0.5 border text-xs font-medium border-primary/40 text-primary">
+                      {selectedAiModel.modelName}
                     </span>
-                    <span
-                      className={cn(
-                        'rounded px-2 py-0.5 border text-xs font-medium',
-                        selectedAiModel.platformKeyAvailable ? 'border-primary/40 text-primary' : 'border-border'
-                      )}
-                    >
-                      {selectedAiModel.platformKeyAvailable ? 'Platform key available' : 'Platform key unavailable'}
+                    <span className="rounded px-2 py-0.5 border text-xs font-medium border-border">
+                      Family: {selectedAiModel.family || selectedAiModel.provider}
+                    </span>
+                    <span className="rounded px-2 py-0.5 border text-xs font-medium border-border">
+                      Context: {selectedAiModel.contextLength}
+                    </span>
+                    <span className="rounded px-2 py-0.5 border text-xs font-medium border-border">
+                      Providers: {selectedAiModel.providerCount ?? providers.length}
                     </span>
                   </div>
 
                   <div className="space-y-2">
-                    <Label className="text-sm">Manage API Key</Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={apiKeyInput}
-                        onChange={(event) => setApiKeyInput(event.target.value)}
-                        placeholder={selectedAiModel?.userKeyConfigured ? 'Update API key' : 'Enter API key'}
-                        className="max-w-md"
-                        type="password"
-                      />
-                      <Button
-                        onClick={handleSaveApiKey}
-                        disabled={!selectedAiModel || !apiKeyInput.trim() || isSavingApiKey}
-                      >
-                        {isSavingApiKey ? 'Saving...' : selectedAiModel?.userKeyConfigured ? 'Update' : 'Save'}
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="pt-2">
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={handleDeleteApiKey}
-                      disabled={!selectedAiModel?.userKeyConfigured || isDeletingApiKey}
-                    >
-                      {isDeletingApiKey ? 'Removing...' : 'Remove user key'}
-                    </Button>
+                    <Label className="text-sm">Attached Providers</Label>
+                    {isProvidersLoading ? (
+                      <p className="text-sm text-muted-foreground">Loading providers...</p>
+                    ) : providers.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No providers attached to this model yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {providers.map((provider) => (
+                          <div key={provider.providerId} className="rounded-md border px-3 py-2 text-sm flex items-center justify-between">
+                            <div>
+                              <p className="font-medium">{provider.providerName}</p>
+                              <p className="text-xs text-muted-foreground">{provider.providerModelName}</p>
+                            </div>
+                            <span className="text-xs text-muted-foreground">Priority {provider.priority}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : null}
             </CardContent>
           </Card>
 
-          {/* Platform AI Settings */}
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
                 <Lock className="h-5 w-5 text-primary" />
-                <CardTitle className="text-lg">Platform AI Configuration</CardTitle>
+                <CardTitle className="text-lg">AI Endpoint Management</CardTitle>
               </div>
-              <CardDescription>Register new models and configure platform-wide API keys</CardDescription>
+              <CardDescription>Create models, attach providers, and insert provider account API keys</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold">Register New Model</h3>
+                <h3 className="text-sm font-semibold">Create AI Model</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label className="text-xs">Model Name / ID</Label>
-                    <Input 
-                      placeholder="e.g., gpt-4" 
-                      value={newModelName} 
-                      onChange={(e) => setNewModelName(e.target.value)} 
+                    <Label className="text-xs">Model Name</Label>
+                    <Input
+                      placeholder="e.g., Gemini-Advanced"
+                      value={newModelName}
+                      onChange={(event) => setNewModelName(event.target.value)}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs">Provider</Label>
-                    <Select value={newModelProvider} onValueChange={setNewModelProvider}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select Provider" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="openai">OpenAI</SelectItem>
-                        <SelectItem value="anthropic">Anthropic</SelectItem>
-                        <SelectItem value="google">Google</SelectItem>
-                        <SelectItem value="cohere">Cohere</SelectItem>
-                        <SelectItem value="local">Local/Other</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label className="text-xs">Family</Label>
+                    <Input
+                      placeholder="e.g., gemini"
+                      value={newModelFamily}
+                      onChange={(event) => setNewModelFamily(event.target.value)}
+                    />
                   </div>
-                  <div className="space-y-2 col-span-2">
-                    <Label className="text-xs">Description (Optional)</Label>
-                    <Input 
-                      placeholder="e.g., GPT-4 model from OpenAI" 
-                      value={newModelDescription} 
-                      onChange={(e) => setNewModelDescription(e.target.value)} 
+                  <div className="space-y-2">
+                    <Label className="text-xs">Context Length</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={newModelContextLength}
+                      onChange={(event) => setNewModelContextLength(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Capabilities JSON (Optional)</Label>
+                    <Input
+                      placeholder='{"streams":true}'
+                      value={newModelCapabilitiesJson}
+                      onChange={(event) => setNewModelCapabilitiesJson(event.target.value)}
                     />
                   </div>
                 </div>
-                <Button 
-                  size="sm" 
-                  onClick={onCreateModel} 
-                  disabled={!newModelName || !newModelProvider || isCreatingModel}
+                <Button
+                  size="sm"
+                  onClick={onCreateModel}
+                  disabled={!newModelName || !newModelFamily || isCreatingModel}
                 >
-                  {isCreatingModel ? 'Registering...' : 'Register Model'}
+                  {isCreatingModel ? 'Creating...' : 'Create Model'}
                 </Button>
               </div>
 
               <Separator />
 
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold">Platform API Keys</h3>
-                <div className="grid gap-3">
-                  <div className="space-y-2 max-w-sm">
-                    <Label className="text-xs">Provider</Label>
-                    <Select value={platformKeyProvider} onValueChange={setPlatformKeyProvider}>
+                <h3 className="text-sm font-semibold">Attach Provider To Model</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs">Model</Label>
+                    <Select value={providerModelId} onValueChange={setProviderModelId}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select Provider" />
+                        <SelectValue placeholder="Select model" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="openai">OpenAI</SelectItem>
-                        <SelectItem value="anthropic">Anthropic</SelectItem>
-                        <SelectItem value="google">Google</SelectItem>
-                        <SelectItem value="cohere">Cohere</SelectItem>
+                        {aiModels.map((model) => (
+                          <SelectItem key={model.modelId} value={model.modelId}>
+                            {model.modelName}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs">API Key</Label>
-                    <div className="flex items-center gap-2">
-                      <Input 
-                        type="password"
-                        placeholder="Enter platform API key" 
-                        value={platformKeyInput} 
-                        onChange={(e) => setPlatformKeyInput(e.target.value)} 
-                        className="max-w-md"
-                      />
-                      <Button 
-                        size="sm" 
-                        onClick={onSavePlatformKey} 
-                        disabled={!platformKeyProvider || !platformKeyInput || isSavingPlatformKey}
-                      >
-                        {isSavingPlatformKey ? 'Saving...' : 'Save Platform Key'}
-                      </Button>
-                    </div>
+                    <Label className="text-xs">Provider Name</Label>
+                    <Input
+                      placeholder="e.g., openai"
+                      value={providerName}
+                      onChange={(event) => setProviderName(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Provider Model Name</Label>
+                    <Input
+                      placeholder="e.g., gpt-4o-mini"
+                      value={providerModelName}
+                      onChange={(event) => setProviderModelName(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Priority</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={providerPriority}
+                      onChange={(event) => setProviderPriority(event.target.value)}
+                    />
                   </div>
                 </div>
+                <Button
+                  size="sm"
+                  onClick={onAttachProvider}
+                  disabled={!providerModelId || !providerName || !providerModelName || isAttachingProvider}
+                >
+                  {isAttachingProvider ? 'Attaching...' : 'Attach Provider'}
+                </Button>
               </div>
 
+              <Separator />
+
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold">Create Provider Account (API Key)</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs">Provider Name</Label>
+                    <Input
+                      placeholder="e.g., openai"
+                      value={accountProviderName}
+                      onChange={(event) => setAccountProviderName(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Account Label</Label>
+                    <Input
+                      placeholder="e.g., team-key-01"
+                      value={accountLabel}
+                      onChange={(event) => setAccountLabel(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label className="text-xs">API Key</Label>
+                    <Input
+                      type="password"
+                      placeholder="Enter provider API key"
+                      value={accountApiKey}
+                      onChange={(event) => setAccountApiKey(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Rate Limit / Minute</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={accountRateLimitPerMinute}
+                      onChange={(event) => setAccountRateLimitPerMinute(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Daily Quota</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={accountDailyQuota}
+                      onChange={(event) => setAccountDailyQuota(event.target.value)}
+                    />
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={onCreateProviderAccount}
+                  disabled={!accountProviderName || !accountLabel || !accountApiKey || isCreatingProviderAccount}
+                >
+                  {isCreatingProviderAccount ? 'Creating...' : 'Create Account'}
+                </Button>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">Provider Accounts</h3>
+                {isAccountsLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading accounts...</p>
+                ) : providerAccounts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No provider accounts found.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {providerAccounts.map((account) => (
+                      <div key={account.accountId} className="rounded-md border p-3 text-sm flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">{account.accountLabel}</p>
+                          <p className="text-xs text-muted-foreground">{account.providerName} • {account.healthStatus}</p>
+                        </div>
+                        <div className="text-xs text-muted-foreground text-right">
+                          <p>{account.usedToday}/{account.dailyQuota} used</p>
+                          <p>{account.rateLimitPerMinute}/min</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 
