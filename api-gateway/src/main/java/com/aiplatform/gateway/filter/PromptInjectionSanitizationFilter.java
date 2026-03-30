@@ -1,9 +1,11 @@
 package com.aiplatform.gateway.filter;
 
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
@@ -22,7 +24,7 @@ import java.util.regex.Pattern;
 /**
  * Prompt injection sanitization filter for AI message endpoints.
  *
- * <p>Applied to {@code POST /api/internal/chat/messages} only.
+ * <p>Applied to {@code POST /api/internal/chat/messages} and {@code POST /api/internal/ai/executions}.
  * Performs defensive normalization without mutating user intent semantically:
  * <ul>
  *   <li>Enforce maximum body size</li>
@@ -32,12 +34,14 @@ import java.util.regex.Pattern;
  *   <li>Attach {@code X-Sanitization-Flags} header for audit</li>
  * </ul>
  */
-@Slf4j
 @Component
 @Order(-10)
 public class PromptInjectionSanitizationFilter implements WebFilter {
 
+    private static final Logger log = LoggerFactory.getLogger(PromptInjectionSanitizationFilter.class);
+
     private static final String MESSAGES_PATH = "/api/internal/chat/messages";
+    private static final String EXECUTIONS_PATH = "/api/internal/ai/executions";
     private static final int DEFAULT_MAX_BODY_BYTES = 64 * 1024; // 64 KB
 
     @org.springframework.beans.factory.annotation.Value("${app.security.prompt-sanitization.max-body-bytes:65536}")
@@ -56,9 +60,10 @@ public class PromptInjectionSanitizationFilter implements WebFilter {
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
 
-        // Only apply to POST /api/internal/chat/messages
+        // Only apply to POST /api/internal/chat/messages and /api/internal/ai/executions
         if (!HttpMethod.POST.equals(request.getMethod())
-                || !request.getPath().value().equals(MESSAGES_PATH)) {
+            || !(request.getPath().value().equals(MESSAGES_PATH)
+            || request.getPath().value().equals(EXECUTIONS_PATH))) {
             return chain.filter(exchange);
         }
 
@@ -97,6 +102,18 @@ public class PromptInjectionSanitizationFilter implements WebFilter {
 
     private ServerWebExchange rebuildExchange(ServerWebExchange exchange, byte[] body, String flags) {
         ServerHttpRequest mutatedRequest = new ServerHttpRequestDecorator(exchange.getRequest()) {
+            @Override
+            public HttpHeaders getHeaders() {
+                HttpHeaders headers = new HttpHeaders();
+                headers.putAll(super.getHeaders());
+                headers.remove(HttpHeaders.CONTENT_LENGTH);
+                headers.setContentLength(body.length);
+                if (!headers.containsKey(HttpHeaders.CONTENT_TYPE)) {
+                    headers.setContentType(MediaType.APPLICATION_JSON);
+                }
+                return headers;
+            }
+
             @Override
             public Flux<DataBuffer> getBody() {
                 DataBuffer buffer = exchange.getResponse().bufferFactory().wrap(body);
