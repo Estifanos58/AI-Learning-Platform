@@ -4,5 +4,7 @@ public record StartAiExecutionResponse(
         String status,
         String requestId,
         String streamKey,
-        boolean accepted
+        boolean accepted,
+        String chatroomId,
+        String messageId
 ) {}

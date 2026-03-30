@@ -7,9 +7,9 @@ import com.aiplatform.gateway.security.JwtValidationService;
 import io.jsonwebtoken.Claims;
 import io.grpc.Metadata;
 import io.grpc.stub.MetadataUtils;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import net.devh.boot.grpc.client.inject.GrpcClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -23,6 +23,7 @@ import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.netty.channel.AbortedException;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.UUID;
@@ -35,10 +36,10 @@ import java.util.UUID;
  * <p>Optional query param {@code userId} subscribes to new chatroom notifications
  * (the server auto-derives userId from the JWT subject if not provided).
  */
-@Slf4j
 @Component
-@RequiredArgsConstructor
 public class ChatWebSocketHandler implements WebSocketHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatWebSocketHandler.class);
 
     private static final Metadata.Key<String> CORRELATION_ID_KEY = Metadata.Key.of("x-correlation-id", Metadata.ASCII_STRING_MARSHALLER);
     private static final Metadata.Key<String> SERVICE_SECRET_KEY = Metadata.Key.of("x-service-secret", Metadata.ASCII_STRING_MARSHALLER);
@@ -47,6 +48,16 @@ public class ChatWebSocketHandler implements WebSocketHandler {
     private final ChatRedisSubscriber redisSubscriber;
     private final JwtValidationService jwtValidationService;
     private final GrpcChatProperties grpcChatProperties;
+
+    public ChatWebSocketHandler(
+            ChatRedisSubscriber redisSubscriber,
+            JwtValidationService jwtValidationService,
+            GrpcChatProperties grpcChatProperties
+    ) {
+        this.redisSubscriber = redisSubscriber;
+        this.jwtValidationService = jwtValidationService;
+        this.grpcChatProperties = grpcChatProperties;
+    }
 
     @GrpcClient("chat-service")
     private ChatServiceGrpc.ChatServiceBlockingStub chatStub;
@@ -72,6 +83,10 @@ public class ChatWebSocketHandler implements WebSocketHandler {
                 .onErrorResume(ResponseStatusException.class, ex -> {
                     log.warn("WebSocket connection rejected: status={}, reason={}", ex.getStatusCode(), ex.getReason());
                     return session.close(CloseStatus.POLICY_VIOLATION);
+                })
+                .onErrorResume(AbortedException.class, ex -> {
+                    log.debug("WebSocket connection closed by client. sessionId={}", session.getId());
+                    return Mono.empty();
                 })
                 .onErrorResume(ex -> {
                     log.warn("Unexpected WebSocket error", ex);

@@ -1,15 +1,21 @@
 package com.aiplatform.gateway.controller;
 
 import com.aiplatform.gateway.config.GrpcRagProperties;
+import com.aiplatform.gateway.dto.ApiMessageResponse;
+import com.aiplatform.gateway.dto.ExecutionStatusResponse;
 import com.aiplatform.gateway.dto.StartAiExecutionRequest;
 import com.aiplatform.gateway.dto.StartAiExecutionResponse;
 import com.aiplatform.gateway.security.JwtValidationService;
 import com.aiplatform.gateway.util.GatewayPrincipal;
 import com.aiplatform.gateway.util.GatewayPrincipalResolver;
 import com.aiplatform.gateway.util.GrpcExceptionMapper;
+import com.aiplatform.rag.proto.CancelExecutionRequest;
+import com.aiplatform.rag.proto.CancelExecutionResponse;
 import com.aiplatform.rag.proto.ExecuteAcceptedResponse;
 import com.aiplatform.rag.proto.ExecuteDirectRequest;
 import com.aiplatform.rag.proto.ExecutionMode;
+import com.aiplatform.rag.proto.GetExecutionRequest;
+import com.aiplatform.rag.proto.GetExecutionResponse;
 import com.aiplatform.rag.proto.RagServiceGrpc;
 import io.grpc.Metadata;
 import io.grpc.stub.MetadataUtils;
@@ -17,6 +23,9 @@ import jakarta.validation.Valid;
 import net.devh.boot.grpc.client.inject.GrpcClient;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -41,7 +50,10 @@ public class GatewayAiExecutionController {
     private final GrpcRagProperties grpcRagProperties;
     private final JwtValidationService jwtValidationService;
 
-    public GatewayAiExecutionController(GrpcRagProperties grpcRagProperties, JwtValidationService jwtValidationService) {
+    public GatewayAiExecutionController(
+            GrpcRagProperties grpcRagProperties,
+            JwtValidationService jwtValidationService
+    ) {
         this.grpcRagProperties = grpcRagProperties;
         this.jwtValidationService = jwtValidationService;
     }
@@ -81,8 +93,52 @@ public class GatewayAiExecutionController {
                             response.getStatus(),
                             response.getRequestId(),
                             response.getStreamKey(),
-                            response.getAccepted()
+                            response.getAccepted(),
+                            response.getChatroomId(),
+                            response.getMessageId()
                     ));
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
+    @GetMapping("/executions/{executionId}")
+    public Mono<ResponseEntity<ExecutionStatusResponse>> getExecutionStatus(
+            @PathVariable String executionId,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
+    ) {
+        return Mono.fromCallable(() -> {
+                    GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
+                    GetExecutionResponse response = withMetadata(principal)
+                            .getExecution(GetExecutionRequest.newBuilder().setExecutionId(executionId).build());
+
+                    return ResponseEntity.ok(new ExecutionStatusResponse(
+                            response.getExecutionId(),
+                            response.getStatus(),
+                            response.getMessageId(),
+                            response.getChatroomId(),
+                            response.getCreatedAt(),
+                            response.getCompletedAt(),
+                            response.getError(),
+                            response.getStreamKey()
+                    ));
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
+    @DeleteMapping("/executions/{executionId}")
+    public Mono<ResponseEntity<ApiMessageResponse>> cancelExecution(
+            @PathVariable String executionId,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
+    ) {
+        return Mono.fromCallable(() -> {
+                    GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
+                    CancelExecutionResponse response = withMetadata(principal)
+                            .cancelExecution(CancelExecutionRequest.newBuilder().setExecutionId(executionId).build());
+                    return ResponseEntity.ok(new ApiMessageResponse(response.getStatus()));
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorMap(GrpcExceptionMapper::toResponseStatus);
