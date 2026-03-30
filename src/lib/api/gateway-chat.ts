@@ -24,7 +24,7 @@ async function chatRequest<T>(
   endpoint: string,
   token: string,
   options?: {
-    method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+    method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
     body?: unknown;
   },
 ): Promise<T> {
@@ -34,6 +34,15 @@ async function chatRequest<T>(
     body: options?.body,
     cache: 'no-store',
   });
+}
+
+function buildInternalAiUrl(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const normalizedBase = API_BASE_URL.replace(/\/+$/, '');
+  if (/\/api\/internal$/i.test(normalizedBase)) {
+    return `${normalizedBase}${normalizedPath}`;
+  }
+  return `${normalizedBase}/api/internal${normalizedPath}`;
 }
 
 export interface OpenChatSocketOptions {
@@ -118,6 +127,10 @@ export const chatApi = {
     return res.chatrooms;
   },
 
+  updateChatroom: (token: string, chatroomId: string, data: { name?: string }) =>
+    chatRequest<Chatroom>(`chat/chatrooms/${chatroomId}`, token, { method: 'PATCH', body: data }),
+  deleteChatroom: (token: string, chatroomId: string) =>
+    chatRequest<{ success: boolean }>(`chat/chatrooms/${chatroomId}`, token, { method: 'DELETE' }),
   getChatroom: (token: string, chatroomId: string) =>
     chatRequest<Chatroom>(`chat/chatrooms/${chatroomId}`, token),
 
@@ -504,13 +517,14 @@ export const chatApi = {
     token: string;
     requestId: string;
     signal?: AbortSignal;
-    onChunk: (payload: { requestId: string; contentDelta: string; sequence?: number; done?: boolean }) => void;
+    onChunk: (payload: { requestId: string; messageId?: string; contentDelta: string; sequence?: number; done?: boolean; sanitizationFlags?: string[] }) => void;
+    onReplay?: (payload: { requestId: string; messageId?: string; content: string; status?: string; sanitizationFlags?: string[] }) => void;
     onStage?: (payload: { requestId: string; stageName: string; stageStatus: string }) => void;
-    onCompleted: (payload: { requestId: string; finalContent?: string; done?: boolean }) => void;
-    onFailed: (payload: { requestId: string; error: string }) => void;
-    onCancelled: (payload: { requestId: string }) => void;
+    onCompleted: (payload: { requestId: string; messageId?: string; finalContent?: string; done?: boolean; sanitizationFlags?: string[] }) => void;
+    onFailed: (payload: { requestId: string; messageId?: string; error: string; sanitizationFlags?: string[] }) => void;
+    onCancelled: (payload: { requestId: string; messageId?: string }) => void;
   }): Promise<void> {
-    const streamUrl = `${API_BASE_URL}/ai/executions/${encodeURIComponent(options.requestId)}/stream`;
+    const streamUrl = buildInternalAiUrl(`/ai/executions/${encodeURIComponent(options.requestId)}/stream`);
     let accumulated = '';
 
     await fetchEventSource(streamUrl, {
@@ -523,25 +537,49 @@ export const chatApi = {
       onmessage(event) {
         if (!event.data) return;
 
+        // raw SSE event received
+
         try {
           const envelope = JSON.parse(event.data);
-          const eventType = envelope.event_type || envelope.type;
+          // parsed SSE envelope
+
+          const eventType = envelope.event_type;
           const requestId = envelope.request_id || options.requestId;
           const payload = envelope.payload || envelope.data || {};
+          const messageId = payload.message_id;
+          const sanitizationFlagsRaw = payload.sanitization_flags ?? payload.sanitizationFlags;
+          const sanitizationFlags = Array.isArray(sanitizationFlagsRaw)
+            ? sanitizationFlagsRaw.filter((value: unknown): value is string => typeof value === 'string')
+            : [];
 
-          if (eventType === 'chunk' || eventType === 'AI_CHUNK') {
-            const delta = payload.content_delta ?? payload.contentDelta ?? '';
-            accumulated += delta;
-            options.onChunk({
+          if (eventType === 'ai_replay.v2') {
+            const content = payload.content ?? "";
+            accumulated = content;
+            options.onReplay?.({
               requestId,
-              contentDelta: delta,
-              sequence: envelope.sequence,
-              done: payload.done,
+              messageId,
+              content,
+              status: payload.status,
+              sanitizationFlags,
             });
             return;
           }
 
-          if (eventType === 'stage') {
+          if (eventType === 'ai.message.chunk.v2') {
+            const delta = payload.content_delta ?? '';
+            accumulated += delta;
+            options.onChunk({
+              requestId,
+              messageId,
+              contentDelta: delta,
+              sequence: envelope.sequence,
+              done: payload.done,
+              sanitizationFlags,
+            });
+            return;
+          }
+
+          if (eventType === 'ai.stage.v2') {
             options.onStage?.({
               requestId,
               stageName: payload.stage_name ?? '',
@@ -550,26 +588,31 @@ export const chatApi = {
             return;
           }
 
-          if (eventType === 'final' || eventType === 'AI_COMPLETED') {
+          if (eventType === 'ai.message.completed.v2') {
             options.onCompleted({
               requestId,
-              finalContent: payload.final_content ?? payload.finalContent ?? accumulated,
+              messageId,
+              finalContent: payload.final_content ?? accumulated,
               done: true,
+              sanitizationFlags,
             });
             return;
           }
 
-          if (eventType === 'error' || eventType === 'AI_FAILED') {
+          if (eventType === 'ai.message.failed.v2') {
             options.onFailed({
               requestId,
-              error: payload.error_message ?? payload.error ?? 'AI generation failed',
+              messageId,
+              error: payload.error_message ?? 'AI generation failed',
+              sanitizationFlags,
             });
             return;
           }
 
-          if (eventType === 'cancelled' || eventType === 'AI_CANCELLED') {
+          if (eventType === 'ai.message.cancelled.v2') {
             options.onCancelled({
               requestId,
+              messageId,
             });
           }
         } catch {
@@ -592,9 +635,26 @@ export const chatApi = {
     messageId?: string;
     options?: Record<string, string>;
   }) =>
-    chatRequest<{ status: string; requestId: string; streamKey: string; accepted: boolean }>('ai/executions', token, {
+    chatRequest<{ status: string; requestId: string; streamKey?: string; accepted?: boolean; chatroomId?: string; messageId?: string }>(buildInternalAiUrl('/ai/executions'), token, {
       method: 'POST',
       body: input,
+    }),
+
+  getAiExecution: (token: string, executionId: string) =>
+    chatRequest<{
+      executionId?: string;
+      requestId?: string;
+      status?: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | string;
+      messageId?: string;
+      chatroomId?: string;
+      content?: string;
+      finalContent?: string;
+      error?: string;
+    }>(buildInternalAiUrl(`/ai/executions/${executionId}`), token),
+
+  cancelAiExecution: (token: string, executionId: string) =>
+    chatRequest<{ success?: boolean; status?: string; message?: string }>(buildInternalAiUrl(`/ai/executions/${executionId}`), token, {
+      method: 'DELETE',
     }),
 };
 
