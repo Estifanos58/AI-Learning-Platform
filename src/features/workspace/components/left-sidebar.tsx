@@ -6,6 +6,7 @@ import { useLeftSidebar } from '@/src/hooks/use-left-sidebar';
 import { UploadOverlay } from './left-sidebar/upload-overlay';
 import { SidebarToolbar } from './left-sidebar/sidebar-toolbar';
 import { FolderFileDialogs } from './left-sidebar/folder-file-dialogs';
+import { AiChatHistory } from "./left-sidebar/ai-chat-history/ai-chat-history";
 
 interface LeftSidebarProps {
   isOpen: boolean;
@@ -49,6 +50,7 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
     handleFolderDrop,
     handleFileSelect,
     openNewAiChat,
+    openOldAiChat,
     setSelectedFolderId,
   } = useLeftSidebar();
 
@@ -109,6 +111,9 @@ export function LeftSidebar({ isOpen }: LeftSidebarProps) {
               onFolderDrop={handleFolderDrop}
             />
           )}
+        </div>
+        <div className="h-1/3 min-h-[200px] shrink-0">
+          <AiChatHistory onSelectChat={openOldAiChat} isCompact={isCompact} />
         </div>
       </div>
 

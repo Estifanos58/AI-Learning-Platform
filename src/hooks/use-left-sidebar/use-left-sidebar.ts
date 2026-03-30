@@ -235,6 +235,11 @@ export function useLeftSidebar() {
     }
   };
 
+  const openOldAiChat = (chatroomId: string, title?: string) => {
+    const chatTab = { id: chatroomId, title: title || "AI Chat", type: "chat" as const };
+    openTab(chatTab, activePaneId);
+  };
+
   const openNewAiChat = () => {
     // Check if there's any file currently opened
     let hasOpenFile = false;
@@ -296,6 +301,7 @@ export function useLeftSidebar() {
     handleFolderDrop,
     handleFileSelect,
     openNewAiChat,
+    openOldAiChat,
     setSelectedFolderId,
   };
 }
