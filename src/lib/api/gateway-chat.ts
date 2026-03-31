@@ -9,12 +9,19 @@ import {
   AIStreamEventType,
   ChatRealtimeEvent,
   Chatroom,
+  DirectChatMessageResponse,
+  DirectChatroomResponse,
+  DirectChatroomDetailResponse,
+  ListDirectChatMessagesResponse,
+  ListDirectChatroomsResponse,
   ListChatroomsResponse,
   ListMessagesResponse,
   SendMessageRequest,
   SendMessageResponse,
+  UpdateChatroomTitleRequest,
   UpsertUserAiApiKeyInput,
   UserAiApiKeyResponse,
+  ApiMessageResponse,
 } from '@/src/lib/types';
 import { apiRequest, API_BASE_URL } from '@/src/lib/api/gateway-core';
 import { sendMessageSchema } from './gateway-schemas';
@@ -122,6 +129,22 @@ export function openChatSocket(options: OpenChatSocketOptions): WebSocket {
 }
 
 export const chatApi = {
+  async listDirectChatrooms(token: string, page = 0, size = 20): Promise<DirectChatroomResponse[]> {
+    const res = await chatRequest<ListDirectChatroomsResponse>(`chatrooms?page=${page}&size=${size}`, token);
+    return res.chatrooms;
+  },
+
+  updateDirectChatroomTitle: (token: string, chatroomId: string, data: UpdateChatroomTitleRequest) =>
+    chatRequest<DirectChatroomResponse>(`chatrooms/${chatroomId}`, token, { method: 'PATCH', body: data }),
+  deleteDirectChatroom: (token: string, chatroomId: string) =>
+    chatRequest<ApiMessageResponse>(`chatrooms/${chatroomId}`, token, { method: 'DELETE' }),
+  getDirectChatroom: (token: string, chatroomId: string) =>
+    chatRequest<DirectChatroomDetailResponse>(`chatrooms/${chatroomId}`, token),
+  async listDirectChatroomMessages(token: string, chatroomId: string, page = 0, size = 100): Promise<DirectChatMessageResponse[]> {
+    const res = await chatRequest<ListDirectChatMessagesResponse>(`chatrooms/${chatroomId}/messages?page=${page}&size=${size}`, token);
+    return res.messages;
+  },
+
   async listChatrooms(token: string, page = 0, size = 20): Promise<Chatroom[]> {
     const res = await chatRequest<ListChatroomsResponse>(`chat/chatrooms?page=${page}&size=${size}`, token);
     return res.chatrooms;

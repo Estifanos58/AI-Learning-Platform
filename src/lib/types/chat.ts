@@ -54,6 +54,45 @@ export interface ListMessagesResponse {
   total: number;
 }
 
+export interface DirectChatroomResponse {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ListDirectChatroomsResponse {
+  chatrooms: DirectChatroomResponse[];
+  total: number;
+}
+
+export interface DirectChatMessageResponse {
+  id: string;
+  chatroomId: string;
+  role: 'USER' | 'ASSISTANT' | string;
+  content: string;
+  status?: 'STREAMING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ListDirectChatMessagesResponse {
+  messages: DirectChatMessageResponse[];
+  total: number;
+}
+
+export interface DirectChatroomDetailResponse extends DirectChatroomResponse {
+  messages: DirectChatMessageResponse[];
+}
+
+export interface UpdateChatroomTitleRequest {
+  title: string;
+}
+
+export interface ApiMessageResponse {
+  status: string;
+}
+
 export interface TypingPayload {
   userId: string;
   chatroomId: string;
