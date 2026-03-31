@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ChatMessage } from '@/src/lib/types/chat';
+import { DirectChatMessageResponse } from '@/src/lib/types/chat';
 import { mutate } from 'swr';
 
 interface DirectAiChatProps {
@@ -85,7 +85,7 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
 
   const refreshAiHistory = useCallback(() => {
     if (!session?.accessToken) return;
-    void mutate(['chatrooms', session.accessToken]);
+    void mutate(['direct-chatrooms', session.accessToken]);
   }, [session?.accessToken]);
 
   const setAssistantMessage = useCallback(
@@ -333,16 +333,16 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
       if (!session?.accessToken) return;
       setIsLoadingHistory(true);
       try {
-        const messagesRes = await gatewayApi.chat.listMessages(session.accessToken, roomId, 0, 100);
+        const messagesRes = await gatewayApi.chat.listDirectChatroomMessages(session.accessToken, roomId, 0, 100);
         const historyLoaded = messagesRes
           .slice()
           .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-          .map((m: ChatMessage) => ({
+          .map((m: DirectChatMessageResponse) => ({
             id: m.id,
             chatroomId: m.chatroomId,
-            role: m.senderUserId === 'ai' || m.aiModelId ? ('ASSISTANT' as const) : ('USER' as const),
+            role: m.role === 'ASSISTANT' ? ('ASSISTANT' as const) : ('USER' as const),
             content: m.content,
-            status: m.isLoading ? ('STREAMING' as const) : ('COMPLETED' as const),
+            status: m.status === 'STREAMING' ? ('STREAMING' as const) : m.status === 'FAILED' ? ('FAILED' as const) : m.status === 'CANCELLED' ? ('CANCELLED' as const) : ('COMPLETED' as const),
           }));
         setMessages(historyLoaded);
       } catch {
