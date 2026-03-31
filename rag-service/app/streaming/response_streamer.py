@@ -42,8 +42,6 @@ class ResponseStreamer:
 
     @staticmethod
     def _stream_key(chatroom_id: str, request_id: str) -> str:
-        if chatroom_id:
-            return f"stream:chat:{chatroom_id}"
         return f"stream:ai:{request_id}"
 
     async def publish_chunk(
