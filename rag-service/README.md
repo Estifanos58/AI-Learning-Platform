@@ -1,131 +1,141 @@
 # RAG Service
 
-Enterprise-grade Retrieval-Augmented Generation (RAG) microservice for the AI Learning Platform.
+## Overview
+The RAG Service is the AI orchestration core of the platform. It handles retrieval-augmented execution, direct AI execution lifecycle, model/provider management, file ingestion into vector storage, and stream-oriented response publishing for chat experiences.
+
+## Responsibilities
+- Expose gRPC APIs for RAG operations and AI model/provider management.
+- Ingest file content into embeddings and store vectors in Qdrant.
+- Execute AI pipelines with file authorization, retrieval, reranking, agent orchestration, and aggregation.
+- Manage direct execution state (accepted, running, completed, failed, cancelled).
+- Persist chatrooms, messages, and execution metadata in PostgreSQL.
+- Publish AI chunk/completion/failure/cancellation events to Kafka and/or Redis streams.
+- Consume ingestion and AI request events from Kafka.
 
 ## Architecture
+The service is a FastAPI application with startup lifespan hooks and background workers.
 
+- Entrypoint and lifecycle:
+    - `app/main.py` initializes Qdrant, DB schema, producer, gRPC server, and background workers.
+- gRPC server:
+    - `app/grpc/ai_models_server.py` hosts both `AiModelService` and `RagService` implementations.
+- Ingestion pipeline:
+    - `app/ingestion/kafka_consumer.py` consumes file and AI request topics.
+    - `file_loader -> extractor -> chunker -> embedding_pipeline` generates vectors.
+- Orchestration pipeline:
+    - `app/orchestration/pipeline_executor.py` performs permission check, retrieval, rerank, planning, agent execution, aggregation, and streaming.
+- LLM provider runtime:
+    - Provider implementations under `app/llm/` (OpenAI, Gemini, Groq, DeepSeek, OpenRouter, local).
+- Streaming layer:
+    - `app/streaming/response_streamer.py` writes to Kafka and/or Redis stream sinks.
+- Persistence layer:
+    - SQLAlchemy async models/repositories in `app/models/` and `app/repositories/`.
+
+## API / gRPC Contracts
+### Exposed gRPC services
+From `proto/rag.proto`:
+- Retrieval and ingestion: `IngestFile`, `RetrieveChunks`, `DeleteFileVectors`
+- Generation control: `ExecuteDirect`, `GetExecution`, `CancelExecution`, `CancelGeneration`, `GetExecutionStreamBootstrap`
+- Chatroom APIs: `ListChatrooms`, `GetChatroom`, `ListChatroomMessages`, `UpdateChatroomTitle`, `DeleteChatroom`
+- Ops/discovery: `ListProviders`, `CollectionInfo`
+
+From `proto/ai_models.proto`:
+- `ListModels`
+- `CreateModelDefinition`
+- `AttachProviderToModel`
+- `CreateProviderAccount`
+- `ListProviders`
+- `ListAccounts`
+
+### Exposed HTTP endpoints
+- `GET /health`
+- `GET /ready`
+
+### Related contracts used
+- Calls `proto/file.proto` authorization RPC from `UserPermissionChecker`.
+
+## Data Layer
+- Relational DB: PostgreSQL (`rag_db`) via SQLAlchemy async.
+- Vector DB: Qdrant collection (default `rag_chunks_dev` / runtime-configurable).
+
+### PostgreSQL entities
+- Direct AI/chat state:
+    - `chat_rooms`
+    - `messages`
+    - `ai_executions`
+- Model orchestration state:
+    - `model_definitions`
+    - `model_providers`
+    - `provider_accounts`
+    - `model_endpoints`
+- Legacy compatibility model:
+    - `ai_models`
+
+### Key relationships
+- `messages.chatroom_id -> chat_rooms.id`
+- `ai_executions.chatroom_id -> chat_rooms.id`
+- `ai_executions.message_id -> messages.id`
+- `model_providers.model_definition_id -> model_definitions.id`
+- `model_endpoints.model_provider_id -> model_providers.id`
+- `model_endpoints.provider_account_id -> provider_accounts.id`
+
+## Communication
+- Sync:
+    - gRPC server consumed by `api-gateway` and internal callers.
+    - gRPC client calls to file-service for `AuthorizeFilesForUser`.
+- Async consume:
+    - Kafka topics: file uploaded/deleted, AI requested/cancelled.
+- Async produce:
+    - AI stream topics: chunk/completed/failed/cancelled.
+    - Optional Redis stream sink for stream bootstrap/resume flow.
+- External integrations:
+    - Qdrant (vector search storage).
+    - HF TEI endpoint for embedding generation.
+    - LLM providers: OpenAI, Gemini, Groq, DeepSeek, OpenRouter, optional local endpoint.
+
+## Key Workflows
+1. File ingestion workflow
+     - Consume `file.uploaded.v2`.
+     - Load file from shared storage path.
+     - Extract text by content type.
+     - Chunk text and embed through TEI.
+     - Upsert deterministic chunk vectors into Qdrant.
+2. Direct execution workflow
+     - Gateway calls `ExecuteDirect`.
+     - Service validates metadata and request payload.
+     - Resolve/create chatroom and create user+assistant messages.
+     - Persist execution record and enqueue background worker job.
+     - Worker runs pipeline and updates execution/message states.
+3. Pipeline execution workflow
+     - Authorize file ids via file-service.
+     - Retrieve candidate chunks from Qdrant and rerank.
+     - Build plan and execute specialized agents.
+     - Aggregate output and stream chunk events.
+     - Persist final content and publish completion event with usage metadata.
+4. Cancellation workflow
+     - Receive cancellation via gRPC or Kafka event.
+     - Set cancellation signal in executor registry.
+     - Publish cancelled event and mark execution state accordingly.
+
+## Diagram
+```mermaid
+graph TD
+        Gateway[API Gateway] --> GRPC[RagService and AiModelService gRPC]
+        GRPC --> Repo[Direct and Model Repositories]
+        Repo --> PG[(PostgreSQL)]
+
+        KafkaIn[(Kafka Input Topics)] --> IngestConsumer[IngestionConsumer]
+        IngestConsumer --> Embed[Embedding Pipeline]
+        Embed --> Qdrant[(Qdrant)]
+
+        GRPC --> Worker[DirectExecutionWorker]
+        Worker --> Pipeline[PipelineExecutor]
+        Pipeline --> Perm[File Authorization gRPC]
+        Pipeline --> Search[VectorSearch and Reranker]
+        Search --> Qdrant
+        Pipeline --> Agents[Planner and Agent Workflow]
+        Agents --> Providers[LLM Providers]
+        Pipeline --> Streamer[ResponseStreamer]
+        Streamer --> KafkaOut[(Kafka Stream Topics)]
+        Streamer --> Redis[(Redis Streams optional)]
 ```
-rag-service/app/
-├── main.py                    # FastAPI entry point + lifespan
-├── config.py                  # Pydantic-settings configuration
-├── grpc/
-│   └── ai_models_server.py    # gRPC server for AI model + RAG endpoints
-├── orchestration/
-│   ├── planner_agent.py       # Selects agents for a query
-│   ├── workflow_builder.py    # Instantiates agent pipeline from plan
-│   ├── pipeline_executor.py   # Runs the full RAG pipeline end-to-end
-│   └── response_aggregator.py # Merges multi-agent outputs
-├── agents/
-│   ├── base_agent.py          # Abstract base + shared helpers
-│   ├── research_agent.py      # Q&A with citations
-│   ├── summarize_agent.py     # Concise summarisation
-│   ├── exam_agent.py          # Quiz/exam generation
-│   ├── explanation_agent.py   # In-depth concept explanation
-│   ├── citation_agent.py      # Structured citation list
-│   └── tutor_agent.py         # Socratic tutoring mode
-├── retrieval/
-│   ├── query_embedder.py      # Encodes queries via HF TEI
-│   ├── vector_search.py       # Qdrant search with auth filter
-│   └── reranker.py            # Cross-encoder reranking
-├── ingestion/
-│   ├── kafka_consumer.py      # Multi-topic consumer (background thread)
-│   ├── file_loader.py         # Safe file reading from shared volume
-│   ├── extractor.py           # Kreuzberg text extraction
-│   ├── chunker.py             # Recursive character text splitter
-│   └── embedding_pipeline.py  # Batch embed + Qdrant upsert
-├── llm/
-│   ├── base_provider.py       # Abstract provider interface
-│   ├── provider_router.py     # Routes model_id → provider
-│   ├── openai_provider.py     # OpenAI (GPT-4o, etc.)
-│   ├── gemini_provider.py     # Google Gemini
-│   ├── deepseek_provider.py   # DeepSeek
-│   └── local_provider.py      # Ollama / vLLM / llama.cpp
-├── security/
-│   ├── file_validator.py      # Path traversal + content type checks
-│   └── user_permission_checker.py  # gRPC call to file-service
-├── streaming/
-│   └── response_streamer.py   # Kafka event publisher for chunks/completion
-├── usage/
-│   ├── credits.py             # Credit accounting
-│   └── token_meter.py         # Token counting + cost estimation
-└── storage/
-    ├── qdrant_client.py       # Async Qdrant wrapper
-    └── models.py              # Pydantic models
-```
-
-## Key Flows
-
-### File Ingestion (file.uploaded.v2)
-```
-Kafka event → file_loader → extractor → chunker → embedding_pipeline → Qdrant
-```
-
-### AI Chat (ai.message.requested.v2)
-```
-Kafka event → permission_checker → vector_search → reranker →
-planner_agent → workflow_builder → [agents] → response_aggregator →
-response_streamer → Kafka (chunks + completion)
-```
-
-### Cancellation (ai.message.cancelled.v2)
-```
-Kafka event → PipelineExecutor.cancel(request_id) → abort pipeline → publish cancelled event
-```
-
-## Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker |
-| `QDRANT_URL` | `http://localhost:6333` | Qdrant endpoint |
-| `TEI_BASE_URL` | `http://localhost:8080` | HF TEI embedding service |
-| `OPENAI_API_KEY` | – | OpenAI API key |
-| `GEMINI_API_KEY` | – | Google Gemini API key |
-| `GROQ_API_KEY` | – | Groq API key |
-| `OPENROUTER_API_KEY` / `OPEN_ROUTER_API_KEY` | – | OpenRouter API key |
-| `DEEPSEEK_API_KEY` | – | DeepSeek API key |
-| `LOCAL_LLM_URL` | – | Ollama/vLLM base URL |
-| `FILE_STORAGE_ROOT_PATH` | `/data` | Shared file storage mount |
-| `GRPC_FILE_SERVICE_ADDRESS` | `localhost:9092` | file-service gRPC address |
-| `RAG_DATABASE_URL` | postgresql+asyncpg://… | Usage/keys DB |
-
-## Running Locally
-
-```bash
-pip install -r requirements.txt
-RAG_PORT=8087 uvicorn app.main:app --reload
-```
-
-## Running with Docker Compose
-
-```bash
-docker compose --profile rag up
-```
-
-### Platform API key setup (secure local files)
-
-Store default platform keys in local files (already gitignored) so they are not committed:
-
-```bash
-rag-service/.secrets/rag_deepseek_api_key
-rag-service/.secrets/rag_gemini_api_key
-rag-service/.env.platform
-```
-
-The `rag-service` container reads keys from:
-
-- `DEEPSEEK_API_KEY_FILE=/run/secrets/rag_deepseek_api_key`
-- `GEMINI_API_KEY_FILE=/run/secrets/rag_gemini_api_key`
-
-If secret files are unavailable, `.env.platform` is used as fallback through Docker Compose `env_file`.
-
-## Service Endpoints
-
-RAG business operations are exposed via gRPC (`proto/rag.proto`) and consumed by `api-gateway`.
-
-HTTP endpoints are limited to operational probes:
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/health` | Health check |
-| GET | `/ready` | Readiness probe |
