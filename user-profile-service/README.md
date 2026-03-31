@@ -1,80 +1,123 @@
 # User Profile Service
 
 ## Overview
-The User Profile Service manages user profile metadata, profile visibility rules, profile completion scoring, and reputation updates. It is a gRPC-first service and also consumes registration events to bootstrap default profiles.
+User Profile Service manages user-facing profile metadata and privacy controls. It is a gRPC-first service and asynchronously initializes default profiles from registration events.
 
 ## Responsibilities
-- Serve self-profile and profile-by-id queries.
-- Update profile fields and profile image reference.
-- Enforce profile visibility rules (`PUBLIC`, `UNIVERSITY_ONLY`, `PRIVATE`).
-- Search profiles with visibility filtering.
-- Track and increment reputation score.
-- Create default profile records when users register.
+- Serve profile reads for self and other users.
+- Update editable profile fields and profile image references.
+- Enforce profile visibility policy (`PUBLIC`, `UNIVERSITY_ONLY`, `PRIVATE`).
+- Provide filtered profile search.
+- Maintain profile reputation score updates.
+- Bootstrap profile rows on `user.registered.v1` events.
 
 ## Architecture
-Spring Boot + JPA + Flyway service with gRPC transport.
-
-- gRPC layer:
-  - `UserProfileGrpcService` implements `UserProfileService` from `proto/profile.proto`.
-- Application layer:
-  - `UserProfileApplicationService` contains visibility, update, search, and scoring logic.
-- Persistence layer:
-  - `UserProfileRepository` backed by PostgreSQL.
-- Event ingestion:
-  - `UserRegisteredConsumer` consumes user registration events from Kafka and creates defaults idempotently.
+- Transport layer: `UserProfileGrpcService` implementing `UserProfileService`.
+- Application layer: `UserProfileApplicationService` with visibility and update rules.
+- Persistence layer: `UserProfileRepository` over PostgreSQL.
+- Event ingestion layer: `UserRegisteredConsumer` with Kafka consumer configuration and DLT support.
 
 ## API / gRPC Contracts
-### Exposed gRPC service
+### gRPC Service
 From `proto/profile.proto`:
-- `GetMyProfile`
-- `GetProfileById`
-- `UpdateMyProfile`
-- `SearchProfiles`
-- `UpdateProfileVisibility`
-- `IncrementReputation`
+- `GetMyProfile(GetMyProfileRequest) returns (UserProfileResponse)`
+- `GetProfileById(GetProfileRequest) returns (UserProfileResponse)`
+- `UpdateMyProfile(UpdateProfileRequest) returns (UserProfileResponse)`
+- `SearchProfiles(SearchProfilesRequest) returns (SearchProfilesResponse)`
+- `UpdateProfileVisibility(UpdateVisibilityRequest) returns (SimpleResponse)`
+- `IncrementReputation(IncrementReputationRequest) returns (SimpleResponse)`
 
-### Event contract consumed
-- Kafka `user.registered.v1` event from auth-service.
-
-## Data Layer
-- Database: PostgreSQL (`user_profile_db`).
-- Migration tool: Flyway.
-- Core table:
-  - `user_profiles` with user identity key, demographic/profile fields, visibility, reputation, and image file id.
-- Key semantics:
-  - `user_id` is primary key and links profile record to auth identity.
-  - `profile_image_file_id` references file-service objects by id (logical cross-service reference).
+### Referenced Contracts
+- `proto/profile.proto` for all profile request/response DTOs and visibility enum.
 
 ## Communication
-- Sync:
-  - gRPC server consumed by `api-gateway` and potentially other internal services.
-- Async:
-  - Kafka consumer for user registration bootstrap events.
+- Inbound synchronous: gRPC from api-gateway.
+- Inbound asynchronous: Kafka consume of `user.registered.v1`.
+- Outbound synchronous/asynchronous: none required in core path.
+
+## Data Layer
+### Database Overview
+- PostgreSQL database: `user_profile_db`.
+- Migration strategy: Flyway SQL migrations.
+
+### Entities
+- `user_profiles`: single profile row per user identity.
+
+### Relationships
+- Logical 1:1 with auth-service `users.id` via `user_id`.
+- Logical optional reference to file-service file object via `profile_image_file_id`.
+
+### Database Diagram (MANDATORY)
+```mermaid
+erDiagram
+    AUTH_USERS ||--|| USER_PROFILES : owns
+    USER_PROFILES }o--|| FILES : profile_image
+
+    AUTH_USERS {
+        uuid id
+        string email
+    }
+    USER_PROFILES {
+        uuid user_id
+        string first_name
+        string last_name
+        string university_id
+        string department
+        text bio
+        string profile_visibility
+        int reputation_score
+        uuid profile_image_file_id
+    }
+    FILES {
+        uuid id
+        string original_name
+    }
+```
 
 ## Key Workflows
-1. Default profile bootstrap
-   - `UserRegisteredConsumer` receives registration event.
-   - `createDefaultProfileIfAbsent` creates initial profile if not present.
-2. Profile read with visibility rules
-   - Resolve target profile.
-   - Evaluate visibility against requesting user context.
-   - Return profile or deny with authorization error.
-3. Profile update
-   - Authenticate requesting user.
-   - Update editable fields and optional profile image id.
-   - Persist and return updated profile projection.
-4. Search
-   - Query by optional university/department/name filters.
-   - Remove requesting user's own profile.
-   - Apply per-record visibility checks before returning results.
+1. Profile bootstrap: consume `user.registered.v1` -> create default profile if absent.
+2. Protected profile read: resolve target profile -> evaluate visibility against caller -> return or deny.
+3. Profile update: validate authenticated principal -> persist updated fields.
+4. Search: apply query filters and visibility filtering before response.
 
-## Diagram
+## Service Architecture Diagram (MANDATORY)
 ```mermaid
 graph TD
-    Gateway[API Gateway] --> GRPC[UserProfileGrpcService]
-    GRPC --> App[UserProfileApplicationService]
-    App --> DB[(PostgreSQL user_profiles)]
-    AuthEvents[Auth user.registered.v1] --> Kafka[(Kafka)]
-    Kafka --> Consumer[UserRegisteredConsumer]
-    Consumer --> App
+    APIGateway --> UserProfileGrpcService
+    UserProfileGrpcService --> UserProfileApplicationService
+    UserProfileApplicationService --> UserProfileRepository
+    UserProfileRepository --> UserProfileDB
+    Kafka --> UserRegisteredConsumer
+    UserRegisteredConsumer --> UserProfileApplicationService
 ```
+
+## Inter-Service Communication Diagram (MANDATORY)
+```mermaid
+graph LR
+    APIGateway -->|gRPC| UserProfileService
+    AuthService -->|Kafka user.registered.v1| UserProfileService
+    UserProfileService -->|logical file ID reference| FileService
+```
+
+## Environment Variables
+| Name | Purpose | Required |
+| --- | --- | --- |
+| `SERVER_PORT` | Spring HTTP/management port | No |
+| `GRPC_SERVER_PORT` | gRPC listener port | Yes |
+| `SPRING_DATASOURCE_URL` | PostgreSQL JDBC URL | Yes |
+| `SPRING_DATASOURCE_USERNAME` | PostgreSQL username | Yes |
+| `SPRING_DATASOURCE_PASSWORD` | PostgreSQL password | Yes |
+| `SPRING_KAFKA_BOOTSTRAP_SERVERS` | Kafka broker list | Yes |
+| `APP_GRPC_PROFILE_SERVICE_SECRET` | Shared internal gRPC secret | Yes |
+| `APP_KAFKA_TOPIC_USER_REGISTERED` | Registration bootstrap topic | Yes |
+| `APP_KAFKA_TOPIC_USER_REGISTERED_DLT` | DLT for failed registration events | No |
+
+## Running the Service
+- Docker: `docker compose up user-profile-service profile-postgres kafka`.
+- Local: `mvn -f user-profile-service/pom.xml spring-boot:run`.
+
+## Scaling & Reliability Considerations
+- Profile table is narrow and keyed by `user_id`, enabling predictable lookup performance.
+- Kafka consumer can be scaled with partitions; idempotent create logic avoids duplicate profile rows.
+- Visibility enforcement should remain centralized in application service to avoid policy drift.
+- Search endpoints may require dedicated indexes for large datasets and fuzzy name queries.
