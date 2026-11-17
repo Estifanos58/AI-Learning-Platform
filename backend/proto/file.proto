@@ -1,0 +1,223 @@
+syntax = "proto3";
+
+package file.v1;
+
+option java_multiple_files = true;
+option java_package = "com.aiplatform.file.proto";
+option java_outer_classname = "FileProto";
+
+enum FileType {
+  PROFILE_IMAGE = 0;
+  DOCUMENT = 1;
+}
+
+service FileService {
+  rpc CreateFolder(CreateFolderRequest) returns (FolderResponse);
+  rpc UpdateFolder(UpdateFolderRequest) returns (FolderResponse);
+  rpc DeleteFolder(DeleteFolderRequest) returns (SimpleResponse);
+  rpc ShareFolder(ShareFolderRequest) returns (SimpleResponse);
+  rpc UnshareFolder(UnshareFolderRequest) returns (SimpleResponse);
+  rpc ListMyFolders(ListMyFoldersRequest) returns (ListFoldersResponse);
+  rpc ListSharedFolders(ListSharedFoldersRequest) returns (ListFoldersResponse);
+
+  rpc UploadFile(UploadFileRequest) returns (FileResponse);
+  rpc UploadFileStream(stream UploadFileChunk) returns (FileResponse);
+  rpc GetFileMetadata(GetFileRequest) returns (FileResponse);
+  rpc DeleteFile(DeleteFileRequest) returns (SimpleResponse);
+  rpc ShareFile(ShareFileRequest) returns (SimpleResponse);
+  rpc UnshareFile(UnshareFileRequest) returns (SimpleResponse);
+  rpc UpdateFileMetadata(UpdateFileMetadataRequest) returns (FileResponse);
+  rpc ListMyFiles(ListMyFilesRequest) returns (ListFilesResponse);
+  rpc ListSharedWithMe(ListSharedWithMeRequest) returns (ListFilesResponse);
+  rpc GetFilePath(GetFilePathRequest) returns (FilePathResponse);
+  rpc GetFileContent(GetFileContentRequest) returns (FileContentResponse);
+  rpc GetFileContentStream(GetFileContentRequest) returns (stream FileContentChunk);
+
+  // RAG-specific RPCs
+  rpc AuthorizeFilesForUser(AuthorizeFilesForUserRequest) returns (AuthorizeFilesForUserResponse);
+  rpc BatchGetFileMetadata(BatchGetFileMetadataRequest) returns (BatchGetFileMetadataResponse);
+}
+
+message CreateFolderRequest {
+  string name = 1;
+  string parent_id = 2;
+}
+
+message UpdateFolderRequest {
+  string folder_id = 1;
+  string name = 2;
+}
+
+message DeleteFolderRequest {
+  string folder_id = 1;
+}
+
+message ShareFolderRequest {
+  string folder_id = 1;
+  string shared_with_user_id = 2;
+}
+
+message UnshareFolderRequest {
+  string folder_id = 1;
+  string shared_with_user_id = 2;
+}
+
+message ListMyFoldersRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message ListSharedFoldersRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message FolderResponse {
+  string id = 1;
+  string owner_id = 2;
+  string name = 3;
+  string parent_id = 4;
+  bool deleted = 5;
+  string created_at = 6;
+  string updated_at = 7;
+}
+
+message ListFoldersResponse {
+  repeated FolderResponse folders = 1;
+  int64 total = 2;
+}
+
+message UploadFileRequest {
+  FileType file_type = 1;
+  string original_name = 2;
+  string content_type = 3;
+  bytes content = 4;
+  bool is_shareable = 5;
+  string folder_id = 6;
+}
+
+message UploadFileChunk {
+  string upload_id = 1;
+  string file_name = 2;
+  string content_type = 3;
+  FileType file_type = 4;
+  string folder_id = 5;
+  bool is_shareable = 6;
+  bytes chunk_data = 7;
+  int64 chunk_index = 8;
+  bool last_chunk = 9;
+}
+
+message GetFileRequest {
+  string file_id = 1;
+}
+
+message DeleteFileRequest {
+  string file_id = 1;
+}
+
+message ShareFileRequest {
+  string file_id = 1;
+  string shared_with_user_id = 2;
+}
+
+message UnshareFileRequest {
+  string file_id = 1;
+  string shared_with_user_id = 2;
+}
+
+message UpdateFileMetadataRequest {
+  string file_id = 1;
+  bool is_shareable = 2;
+}
+
+message ListMyFilesRequest {
+  int32 page = 1;
+  int32 size = 2;
+  FileType file_type = 3;
+  bool include_deleted = 4;
+  bool filter_by_type = 5;
+}
+
+message ListSharedWithMeRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message GetFilePathRequest {
+  string file_id = 1;
+}
+
+message GetFileContentRequest {
+  string file_id = 1;
+}
+
+message FileResponse {
+  string id = 1;
+  string owner_id = 2;
+  string folder_id = 13;
+  FileType file_type = 3;
+  string original_name = 4;
+  string stored_name = 5;
+  string content_type = 6;
+  int64 file_size = 7;
+  string storage_path = 8;
+  bool is_shareable = 9;
+  bool deleted = 10;
+  string created_at = 11;
+  string updated_at = 12;
+}
+
+message ListFilesResponse {
+  repeated FileResponse files = 1;
+  int64 total = 2;
+}
+
+message FilePathResponse {
+  string file_id = 1;
+  string absolute_path = 2;
+}
+
+message FileContentResponse {
+  string file_id = 1;
+  string original_name = 2;
+  string stored_name = 3;
+  string content_type = 4;
+  int64 file_size = 5;
+  bytes content = 6;
+}
+
+message FileContentChunk {
+  string file_id = 1;
+  string original_name = 2;
+  string stored_name = 3;
+  string content_type = 4;
+  int64 file_size = 5;
+  bytes chunk_data = 6;
+  int64 chunk_index = 7;
+  bool last_chunk = 8;
+}
+
+message SimpleResponse {
+  string message = 1;
+}
+
+// RAG authorization messages
+message AuthorizeFilesForUserRequest {
+  string user_id = 1;
+  repeated string file_ids = 2;
+}
+
+message AuthorizeFilesForUserResponse {
+  repeated string allowed_file_ids = 1;
+  map<string, string> denied_reasons = 2;
+}
+
+message BatchGetFileMetadataRequest {
+  string user_id = 1;
+  repeated string file_ids = 2;
+}
+
+message BatchGetFileMetadataResponse {
+  repeated FileResponse files = 1;
+}

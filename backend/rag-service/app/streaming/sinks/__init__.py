@@ -1,0 +1,1 @@
+# streaming sinks package

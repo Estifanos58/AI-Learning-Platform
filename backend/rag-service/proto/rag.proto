@@ -1,0 +1,220 @@
+syntax = "proto3";
+
+package rag.v1;
+
+option java_multiple_files = true;
+option java_package = "com.aiplatform.rag.proto";
+option java_outer_classname = "RagProto";
+
+service RagService {
+  rpc IngestFile(IngestFileRequest) returns (IngestFileResponse);
+  rpc RetrieveChunks(RetrieveChunksRequest) returns (RetrieveChunksResponse);
+  rpc DeleteFileVectors(DeleteFileVectorsRequest) returns (DeleteFileVectorsResponse);
+  rpc CancelGeneration(CancelGenerationRequest) returns (CancelGenerationResponse);
+  rpc ExecuteDirect(ExecuteDirectRequest) returns (ExecuteAcceptedResponse);
+  rpc GetExecution(GetExecutionRequest) returns (GetExecutionResponse);
+  rpc CancelExecution(CancelExecutionRequest) returns (CancelExecutionResponse);
+  rpc GetExecutionStreamBootstrap(GetExecutionStreamBootstrapRequest) returns (GetExecutionStreamBootstrapResponse);
+  rpc ListChatrooms(ListChatroomsRequest) returns (ListChatroomsResponse);
+  rpc GetChatroom(GetChatroomRequest) returns (GetChatroomResponse);
+  rpc ListChatroomMessages(ListChatroomMessagesRequest) returns (ListChatroomMessagesResponse);
+  rpc UpdateChatroomTitle(UpdateChatroomTitleRequest) returns (ChatroomDto);
+  rpc DeleteChatroom(DeleteChatroomRequest) returns (DeleteChatroomResponse);
+  rpc ListProviders(ListProvidersRequest) returns (ListProvidersResponse);
+  rpc CollectionInfo(CollectionInfoRequest) returns (CollectionInfoResponse);
+}
+
+enum ExecutionMode {
+  EXECUTION_MODE_UNSPECIFIED = 0;
+  CHAT = 1;
+  DEEP = 2;
+}
+
+message ExecuteDirectRequest {
+  string request_id = 1;
+  string user_id = 2;
+  string prompt = 3;
+  string ai_model_id = 4;
+  repeated string file_ids = 5;
+  ExecutionMode mode = 6;
+  string chatroom_id = 7;
+  string message_id = 8;
+  map<string, string> options = 9;
+}
+
+message ExecuteAcceptedResponse {
+  string status = 1;
+  string request_id = 2;
+  string stream_key = 3;
+  bool accepted = 4;
+  string chatroom_id = 5;
+  string message_id = 6;
+}
+
+message GetExecutionRequest {
+  string execution_id = 1;
+}
+
+message GetExecutionResponse {
+  string execution_id = 1;
+  string chatroom_id = 2;
+  string message_id = 3;
+  string status = 4;
+  string error = 5;
+  string created_at = 6;
+  string completed_at = 7;
+  string stream_key = 8;
+}
+
+message CancelExecutionRequest {
+  string execution_id = 1;
+}
+
+message CancelExecutionResponse {
+  string status = 1;
+  string execution_id = 2;
+}
+
+message GetExecutionStreamBootstrapRequest {
+  string execution_id = 1;
+}
+
+message GetExecutionStreamBootstrapResponse {
+  string status = 1;
+  string execution_id = 2;
+  string chatroom_id = 3;
+  string message_id = 4;
+  string stream_key = 5;
+  string partial_content = 6;
+  string final_content = 7;
+  string error = 8;
+}
+
+message ListChatroomsRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message ChatroomDto {
+  string id = 1;
+  string title = 2;
+  string created_at = 3;
+  string updated_at = 4;
+}
+
+message ListChatroomsResponse {
+  repeated ChatroomDto chatrooms = 1;
+  int64 total = 2;
+}
+
+message GetChatroomRequest {
+  string chatroom_id = 1;
+}
+
+message MessageDto {
+  string id = 1;
+  string chatroom_id = 2;
+  string role = 3;
+  string content = 4;
+  string status = 5;
+  string created_at = 6;
+  string updated_at = 7;
+}
+
+message GetChatroomResponse {
+  ChatroomDto chatroom = 1;
+  repeated MessageDto messages = 2;
+}
+
+message ListChatroomMessagesRequest {
+  string chatroom_id = 1;
+  int32 page = 2;
+  int32 size = 3;
+}
+
+message ListChatroomMessagesResponse {
+  repeated MessageDto messages = 1;
+  int64 total = 2;
+}
+
+message UpdateChatroomTitleRequest {
+  string chatroom_id = 1;
+  string title = 2;
+}
+
+message DeleteChatroomRequest {
+  string chatroom_id = 1;
+}
+
+message DeleteChatroomResponse {
+  string status = 1;
+  string chatroom_id = 2;
+}
+
+message IngestFileRequest {
+  string file_id = 1;
+  string owner_id = 2;
+  string folder_id = 3;
+  string storage_path = 4;
+  string content_type = 5;
+  string file_name = 6;
+  repeated string tags = 7;
+}
+
+message IngestFileResponse {
+  string status = 1;
+  string file_id = 2;
+  int32 chunks_stored = 3;
+}
+
+message RetrieveChunksRequest {
+  string query = 1;
+  repeated string file_ids = 2;
+  int32 top_k = 3;
+}
+
+message RetrievedChunk {
+  double score = 1;
+  string file_id = 2;
+  int32 page_number = 3;
+  string chunk_text_preview = 4;
+}
+
+message RetrieveChunksResponse {
+  string query = 1;
+  int32 chunk_count = 2;
+  repeated RetrievedChunk chunks = 3;
+}
+
+message DeleteFileVectorsRequest {
+  string file_id = 1;
+}
+
+message DeleteFileVectorsResponse {
+  string status = 1;
+  string file_id = 2;
+}
+
+message CancelGenerationRequest {
+  string request_id = 1;
+}
+
+message CancelGenerationResponse {
+  string status = 1;
+  string request_id = 2;
+}
+
+message ListProvidersRequest {}
+
+message ListProvidersResponse {
+  repeated string available_providers = 1;
+}
+
+message CollectionInfoRequest {}
+
+message CollectionInfoResponse {
+  string collection = 1;
+  int64 vectors_count = 2;
+  string status = 3;
+  string error = 4;
+}

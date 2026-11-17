@@ -1,0 +1,48 @@
+# Build output directories
+**/target/
+**/build/
+.dist/
+
+# Java artifacts
+*.class
+
+# Python virtual environments
+.venv/
+venv/
+env/
+source/
+
+# Python cache and compiled files
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+
+# Logs
+*.log
+logs/
+
+# Environment and local config
+.env
+.env.*
+**/.env
+**/.env.*
+*.local
+rag-service/.secrets/
+
+# IDE/editor files
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
