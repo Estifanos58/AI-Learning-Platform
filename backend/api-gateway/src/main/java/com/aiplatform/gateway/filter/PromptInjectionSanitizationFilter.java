@@ -18,16 +18,21 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Prompt injection sanitization filter for AI message endpoints.
  *
- * <p>Applied to {@code POST /api/internal/chat/messages} and {@code POST /api/internal/ai/executions}.
+ * <p>Applied to {@code POST /api/chat/messages}, {@code POST /api/internal/chat/messages},
+ * {@code POST /api/ai/executions}, and {@code POST /api/internal/ai/executions}.
  * Performs defensive normalization without mutating user intent semantically:
  * <ul>
- *   <li>Enforce maximum body size</li>
+ *   <li>Enforce maximum body size BEFORE buffering</li>
  *   <li>Remove null bytes and non-printable control characters</li>
  *   <li>Normalize Unicode to NFC form</li>
  *   <li>Strip well-known prompt injection patterns (role override attempts)</li>
@@ -40,8 +45,12 @@ public class PromptInjectionSanitizationFilter implements WebFilter {
 
     private static final Logger log = LoggerFactory.getLogger(PromptInjectionSanitizationFilter.class);
 
-    private static final String MESSAGES_PATH = "/api/internal/chat/messages";
-    private static final String EXECUTIONS_PATH = "/api/internal/ai/executions";
+    private static final Set<String> TARGET_PATHS = Set.of(
+            "/api/chat/messages",
+            "/api/internal/chat/messages",
+            "/api/ai/executions",
+            "/api/internal/ai/executions"
+    );
     private static final int DEFAULT_MAX_BODY_BYTES = 64 * 1024; // 64 KB
 
     @org.springframework.beans.factory.annotation.Value("${app.security.prompt-sanitization.max-body-bytes:65536}")
@@ -60,10 +69,8 @@ public class PromptInjectionSanitizationFilter implements WebFilter {
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
 
-        // Only apply to POST /api/internal/chat/messages and /api/internal/ai/executions
         if (!HttpMethod.POST.equals(request.getMethod())
-            || !(request.getPath().value().equals(MESSAGES_PATH)
-            || request.getPath().value().equals(EXECUTIONS_PATH))) {
+            || !TARGET_PATHS.contains(request.getPath().value())) {
             return chain.filter(exchange);
         }
 
@@ -72,17 +79,38 @@ public class PromptInjectionSanitizationFilter implements WebFilter {
             return chain.filter(exchange);
         }
 
-        return DataBufferUtils.join(request.getBody())
-                .flatMap(dataBuffer -> {
-                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                    dataBuffer.read(bytes);
-                    DataBufferUtils.release(dataBuffer);
+        // Enforce Content-Length limit BEFORE reading or buffering body
+        long contentLength = request.getHeaders().getContentLength();
+        if (contentLength > maxBodyBytes) {
+            log.warn("Rejected request: Content-Length {} exceeds max limit {} bytes for path {}",
+                    contentLength, maxBodyBytes, request.getPath().value());
+            exchange.getResponse().setStatusCode(HttpStatus.PAYLOAD_TOO_LARGE);
+            return exchange.getResponse().setComplete();
+        }
 
-                    if (bytes.length > maxBodyBytes) {
-                        log.warn("Request body too large for sanitization ({}b > {}b); passing through",
-                                bytes.length, maxBodyBytes);
-                        // Rebuild request with original bytes and continue
-                        return chain.filter(rebuildExchange(exchange, bytes, "size_exceeded"));
+        // Bounded buffering: abort immediately if streaming body exceeds maxBodyBytes
+        AtomicInteger accumulatedBytes = new AtomicInteger(0);
+        return request.getBody()
+                .flatMap(buffer -> {
+                    int current = accumulatedBytes.addAndGet(buffer.readableByteCount());
+                    if (current > maxBodyBytes) {
+                        DataBufferUtils.release(buffer);
+                        log.warn("Rejected streaming request body exceeding max limit {} bytes for path {}",
+                                maxBodyBytes, request.getPath().value());
+                        return Mono.error(new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "Request body exceeds max allowed size"));
+                    }
+                    return Mono.just(buffer);
+                })
+                .collectList()
+                .flatMap(buffers -> {
+                    int totalBytes = buffers.stream().mapToInt(DataBuffer::readableByteCount).sum();
+                    byte[] bytes = new byte[totalBytes];
+                    int offset = 0;
+                    for (DataBuffer b : buffers) {
+                        int len = b.readableByteCount();
+                        b.read(bytes, offset, len);
+                        DataBufferUtils.release(b);
+                        offset += len;
                     }
 
                     String body = new String(bytes, StandardCharsets.UTF_8);
@@ -96,6 +124,10 @@ public class PromptInjectionSanitizationFilter implements WebFilter {
 
                     byte[] sanitizedBytes = result.sanitized().getBytes(StandardCharsets.UTF_8);
                     return chain.filter(rebuildExchange(exchange, sanitizedBytes, String.join(",", result.flags())));
+                })
+                .onErrorResume(ResponseStatusException.class, ex -> {
+                    exchange.getResponse().setStatusCode(ex.getStatusCode());
+                    return exchange.getResponse().setComplete();
                 })
                 .switchIfEmpty(chain.filter(exchange));
     }

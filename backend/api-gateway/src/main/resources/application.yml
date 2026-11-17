@@ -52,6 +52,28 @@ spring:
                 redis-rate-limiter.replenishRate: 5
                 redis-rate-limiter.burstCapacity: 10
             - RewritePath=/api/auth/verify-email, /api/internal/auth/verify-email
+        - id: auth-forgot-password-rate-limited
+          uri: forward:/
+          predicates:
+            - Path=/api/auth/forgot-password
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@ipRateLimitKeyResolver}'
+                redis-rate-limiter.replenishRate: 5
+                redis-rate-limiter.burstCapacity: 5
+            - RewritePath=/api/auth/forgot-password, /api/internal/auth/forgot-password
+        - id: auth-reset-password-rate-limited
+          uri: forward:/
+          predicates:
+            - Path=/api/auth/reset-password
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@ipRateLimitKeyResolver}'
+                redis-rate-limiter.replenishRate: 5
+                redis-rate-limiter.burstCapacity: 10
+            - RewritePath=/api/auth/reset-password, /api/internal/auth/reset-password
         - id: auth-default-rate-limited
           uri: forward:/
           predicates:
@@ -166,6 +188,10 @@ spring:
               - Content-Type
               - Authorization
               - X-Correlation-ID
+              - Accept
+              - Cache-Control
+              - Sec-WebSocket-Protocol
+              - X-Requested-With
             allowCredentials: true
   data:
     redis:

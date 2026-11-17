@@ -18,6 +18,7 @@ RAG Service is the AI orchestration and retrieval engine for the platform. It in
 - Ingestion layer: file loader, extractor, chunker, embedding pipeline, and Kafka ingestion consumer.
 - Orchestration layer: planner/workflow builder, pipeline executor, and response aggregation.
 - Streaming layer: `ResponseStreamer` with Kafka and Redis stream sinks.
+- Worker layer: `DirectExecutionWorker` with bounded concurrency, database-backed job queue, exponential backoff retries, and startup recovery of interrupted/pending executions.
 - Persistence layer: SQLAlchemy async models/repositories for execution and model-routing metadata.
 - Integration layer: Qdrant, TEI embedding endpoint, and external LLM providers.
 

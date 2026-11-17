@@ -4,13 +4,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useAuth } from '@/src/contexts/auth';
 import { useSignupForm } from '@/src/hooks/app/use-signup-form';
 import { Sparkles, ArrowLeft } from 'lucide-react';
@@ -25,8 +18,6 @@ export default function SignupPage() {
     setUsername,
     password,
     setPassword,
-    role,
-    setRole,
     localError,
     passwordError,
     validatePassword,
@@ -143,21 +134,6 @@ export default function SignupPage() {
               {passwordError && (
                 <p className="text-xs text-destructive mt-1">{passwordError}</p>
               )}
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="role" className="text-sm font-medium leading-none">
-                I am a...
-              </label>
-              <Select value={role} onValueChange={setRole} disabled={isLoading}>
-                <SelectTrigger id="role">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="STUDENT">Student</SelectItem>
-                  <SelectItem value="INSTRUCTOR">Instructor</SelectItem>
-                  <SelectItem value="ADMIN">Admin</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
 
             {displayError && (

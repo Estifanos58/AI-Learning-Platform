@@ -1,10 +1,9 @@
-import { AuthSession, Role } from '@/src/lib/types';
-import { authMockService } from '@/src/lib/mocks';
+import { AuthSession, AuthUserSummary, Role } from '@/src/lib/types';
 import { apiRequest, mapErrorMessage } from '@/src/lib/api/gateway-core';
-import { loginSchema, refreshSchema, signupSchema, verifyEmailSchema } from './gateway-schemas';
+import { loginSchema, refreshSchema, signupSchema, verifyEmailSchema, forgotPasswordSchema, resetPasswordSchema } from './gateway-schemas';
 
 export const authApi = {
-  async signup(input: { email: string; username: string; password: string; role: Role }): Promise<AuthSession> {
+  async signup(input: { email: string; username: string; password: string; role?: Role }): Promise<AuthSession> {
     try {
       const payload = signupSchema.parse(input);
       const res = await apiRequest<{ message: string } & AuthSession>('/auth/signup', { method: 'POST', body: payload, cache: 'no-store' });
@@ -34,6 +33,28 @@ export const authApi = {
     await apiRequest<{ message: string }>('/auth/logout', { method: 'POST', body: refreshSchema.parse({ refreshToken }), cache: 'no-store' });
   },
 
-  forgotPassword: (input: { email: string }) => authMockService.forgotPassword(input),
-  resetPassword: (input: { token: string; newPassword: string }) => authMockService.resetPassword(input),
+  async forgotPassword(input: { email: string }): Promise<{ message: string }> {
+    try {
+      const payload = forgotPasswordSchema.parse(input);
+      return await apiRequest<{ message: string }>('/auth/forgot-password', { method: 'POST', body: payload, cache: 'no-store' });
+    } catch (error) { throw new Error(mapErrorMessage(error, 'Password reset request failed')); }
+  },
+
+  async resetPassword(input: { token: string; newPassword: string }): Promise<{ message: string }> {
+    try {
+      const payload = resetPasswordSchema.parse(input);
+      return await apiRequest<{ message: string }>('/auth/reset-password', { method: 'POST', body: payload, cache: 'no-store' });
+    } catch (error) { throw new Error(mapErrorMessage(error, 'Password reset failed')); }
+  },
+
+  async updateUserRole(token: string, userId: string, role: Role): Promise<AuthUserSummary> {
+    try {
+      return await apiRequest<AuthUserSummary>(`/auth/users/${encodeURIComponent(userId)}/role`, {
+        method: 'PUT',
+        token,
+        body: { role },
+        cache: 'no-store',
+      });
+    } catch (error) { throw new Error(mapErrorMessage(error, 'Failed to update user role')); }
+  },
 };

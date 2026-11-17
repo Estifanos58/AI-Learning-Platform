@@ -373,15 +373,6 @@ class _RagService:
         except PermissionError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "Chatroom not found")
 
-        stream_key = f"stream:ai:{request_id}"
-        await self._direct_repo.create_execution(
-            request_id=request_id,
-            chatroom_id=chatroom.id,
-            message_id=assistant_message.id,
-            user_id=user_id,
-            stream_key=stream_key,
-        )
-
         payload = {
             "request_id": request_id,
             "message_id": assistant_message.id,
@@ -393,7 +384,24 @@ class _RagService:
             "options": dict(request.options),
             "mode": mode,
         }
-        await get_direct_execution_worker().enqueue(payload)
+
+        stream_key = f"stream:ai:{request_id}"
+        await self._direct_repo.create_execution(
+            request_id=request_id,
+            chatroom_id=chatroom.id,
+            message_id=assistant_message.id,
+            user_id=user_id,
+            stream_key=stream_key,
+            payload_json=json.dumps(payload),
+            max_retries=3,
+        )
+
+        try:
+            await get_direct_execution_worker().enqueue(payload)
+        except Exception as queue_exc:
+            log.error("Execution enqueue rejected: %s", queue_exc)
+            await self._direct_repo.fail_execution(request_id, f"Execution queue error: {queue_exc}")
+            await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, "Execution queue is full, please retry shortly")
 
         return pb2.ExecuteAcceptedResponse(
             status="accepted",

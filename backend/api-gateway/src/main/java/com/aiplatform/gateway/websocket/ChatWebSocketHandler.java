@@ -108,16 +108,18 @@ public class ChatWebSocketHandler implements WebSocketHandler {
         return newChatroomFlux;
     }
 
+    @Override
+    public List<String> getSubProtocols() {
+        return List.of("bearer");
+    }
+
     private ConnectionContext authenticateAndAuthorize(WebSocketSession session) {
         MultiValueMap<String, String> params = UriComponentsBuilder
                 .fromUri(session.getHandshakeInfo().getUri())
                 .build()
                 .getQueryParams();
 
-        String token = resolveToken(
-                params.getFirst("token"),
-                session.getHandshakeInfo().getHeaders().getFirst(HttpHeaders.AUTHORIZATION)
-        );
+        String token = resolveToken(session, params);
 
         Claims claims = jwtValidationService.parseClaims(token);
         String userId = claims.getSubject();
@@ -133,19 +135,43 @@ public class ChatWebSocketHandler implements WebSocketHandler {
         return new ConnectionContext(userId, chatroomId);
     }
 
-    private String resolveToken(String tokenFromQuery, String authorizationHeader) {
-        if (StringUtils.hasText(authorizationHeader) && authorizationHeader.startsWith("Bearer ")) {
-            return authorizationHeader.substring(7);
+    private String resolveToken(WebSocketSession session, MultiValueMap<String, String> params) {
+        // 1. Authorization header (e.g. non-browser clients)
+        String authHeader = session.getHandshakeInfo().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+        if (StringUtils.hasText(authHeader) && authHeader.startsWith("Bearer ")) {
+            return authHeader.substring(7);
         }
 
+        // 2. Sec-WebSocket-Protocol header (e.g. browser clients: ['bearer', '<token>'])
+        List<String> protocolHeaders = session.getHandshakeInfo().getHeaders().get("Sec-WebSocket-Protocol");
+        if (protocolHeaders != null) {
+            for (String header : protocolHeaders) {
+                if (StringUtils.hasText(header)) {
+                    String[] parts = header.split(",");
+                    for (int i = 0; i < parts.length; i++) {
+                        String part = parts[i].trim();
+                        if ("bearer".equalsIgnoreCase(part) && i + 1 < parts.length) {
+                            return parts[i + 1].trim();
+                        }
+                        if (part.split("\\.").length == 3) {
+                            return part;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Fallback: Query parameter (log deprecation warning)
+        String tokenFromQuery = params.getFirst("token");
         if (StringUtils.hasText(tokenFromQuery)) {
+            log.warn("WebSocket client using token in query parameter (deprecated for security)");
             if (tokenFromQuery.startsWith("Bearer ")) {
                 return tokenFromQuery.substring(7);
             }
             return tokenFromQuery;
         }
 
-        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing bearer token");
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing authentication credentials for WebSocket");
     }
 
     private void ensureChatroomAccess(String chatroomId, String userId) {

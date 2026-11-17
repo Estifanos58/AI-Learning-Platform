@@ -65,6 +65,16 @@ async def ensure_ai_models_schema() -> None:
                 """
             )
         )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE ai_executions
+                ADD COLUMN IF NOT EXISTS payload_json TEXT,
+                ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS max_retries INTEGER NOT NULL DEFAULT 3
+                """
+            )
+        )
 
 
 async def init_database() -> None:

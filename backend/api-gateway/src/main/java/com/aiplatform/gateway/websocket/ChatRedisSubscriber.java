@@ -205,22 +205,59 @@ public class ChatRedisSubscriber {
     /**
      * Subscribes to direct-mode AI execution events from Redis Streams.
      * Stream key format is stream:ai:{executionId}.
+     * Includes heartbeats, bounded timeouts, transient error retry, and error reporting.
      */
     public Flux<String> subscribeToAiExecutionStream(String executionId) {
         String streamKey = "stream:ai:" + executionId;
         return Flux.<String>create(sink -> {
-                    log.info("Subscribing to Redis stream: {}", streamKey);
-                    log.info("Redis connection factory: {}", redisTemplate.getConnectionFactory());
+                    log.debug("Subscribing to Redis stream: {}", streamKey);
                     String lastSeenRecordId = "0-0";
-                    while (!sink.isCancelled()) {
-                        log.info("Polling Redis stream: {}", streamKey);
-                        List<MapRecord<String, Object, Object>> records = redisTemplate.opsForStream().read(
-                                StreamReadOptions.empty().block(Duration.ofSeconds(5)).count(10),
-                                StreamOffset.create(streamKey, ReadOffset.from(lastSeenRecordId))
-                        );
+                    long startTime = System.currentTimeMillis();
+                    long lastHeartbeat = startTime;
+                    int consecutiveErrors = 0;
+                    final int MAX_CONSECUTIVE_ERRORS = 5;
+                    final long TIMEOUT_MS = 300_000; // 5 minutes max stream lifetime
 
-                        int recordCount = records == null ? 0 : records.size();
-                        log.info("Records received: {}", recordCount);
+                    while (!sink.isCancelled()) {
+                        long now = System.currentTimeMillis();
+                        if (now - startTime > TIMEOUT_MS) {
+                            log.warn("AI execution stream timed out after {}ms for executionId={}", TIMEOUT_MS, executionId);
+                            sink.next("{\"event_type\":\"ai.message.failed.v2\",\"request_id\":\"" + executionId
+                                    + "\",\"payload\":{\"error\":\"Execution timed out\",\"error_message\":\"Execution timed out\"}}");
+                            sink.complete();
+                            return;
+                        }
+
+                        if (now - lastHeartbeat >= 15_000) {
+                            sink.next("{\"event_type\":\"heartbeat\",\"request_id\":\"" + executionId + "\"}");
+                            lastHeartbeat = now;
+                        }
+
+                        List<MapRecord<String, Object, Object>> records;
+                        try {
+                            records = redisTemplate.opsForStream().read(
+                                    StreamReadOptions.empty().block(Duration.ofSeconds(2)).count(20),
+                                    StreamOffset.create(streamKey, ReadOffset.from(lastSeenRecordId))
+                            );
+                            consecutiveErrors = 0;
+                        } catch (Exception ex) {
+                            consecutiveErrors++;
+                            log.warn("Transient Redis read failure for stream {} (attempt {}/{}): {}",
+                                    streamKey, consecutiveErrors, MAX_CONSECUTIVE_ERRORS, ex.getMessage());
+                            if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                                sink.next("{\"event_type\":\"ai.message.failed.v2\",\"request_id\":\"" + executionId
+                                        + "\",\"payload\":{\"error\":\"Stream connection lost\",\"error_message\":\"Stream connection lost\"}}");
+                                sink.complete();
+                                return;
+                            }
+                            try {
+                                Thread.sleep(1000);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                return;
+                            }
+                            continue;
+                        }
 
                         if (records == null || records.isEmpty()) {
                             continue;
@@ -239,6 +276,7 @@ public class ChatRedisSubscriber {
                             }
 
                             sink.next(event.eventJson());
+                            lastHeartbeat = System.currentTimeMillis();
                             if (event.terminal()) {
                                 sink.complete();
                                 return;
@@ -249,7 +287,8 @@ public class ChatRedisSubscriber {
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(error -> {
                     log.warn("Redis stream subscription unavailable for executionId={}: {}", executionId, error.getMessage());
-                    return Flux.empty();
+                    return Flux.just("{\"event_type\":\"ai.message.failed.v2\",\"request_id\":\"" + executionId
+                            + "\",\"payload\":{\"error\":\"Stream unavailable\",\"error_message\":\"Stream unavailable\"}}");
                 });
     }
 
@@ -263,7 +302,7 @@ public class ChatRedisSubscriber {
                 JsonNode node = objectMapper.readTree(eventJson);
                 String eventType = node.path("event_type").asText("");
 
-                log.info("Received Redis event: {}", eventJson);
+                log.debug("Received Redis event type: {}", eventType);
 
                 String sseEvent = toSseEventName(eventType);
                 boolean terminal = isTerminalEvent(sseEvent);
@@ -281,6 +320,16 @@ public class ChatRedisSubscriber {
                     ? objectMapper.createObjectNode()
                     : objectMapper.readTree(payloadRaw);
 
+            // Ensure both error and error_message are populated for failed events
+            if (payloadNode.isObject() && "ai.message.failed.v2".equals(eventType)) {
+                ObjectNode pObj = (ObjectNode) payloadNode;
+                if (pObj.has("error") && !pObj.has("error_message")) {
+                    pObj.put("error_message", pObj.get("error").asText());
+                } else if (pObj.has("error_message") && !pObj.has("error")) {
+                    pObj.put("error", pObj.get("error_message").asText());
+                }
+            }
+
             ObjectNode eventNode = objectMapper.createObjectNode();
             eventNode.put("event_type", eventType);
             putIfPresent(eventNode, "request_id", record.getValue().get("request_id"));
@@ -290,7 +339,7 @@ public class ChatRedisSubscriber {
             eventNode.set("payload", payloadNode);
 
             String eventJson = objectMapper.writeValueAsString(eventNode);
-            log.info("Received Redis event: {}", eventJson);
+            log.debug("Received Redis stream event type: {}", eventType);
 
             String sseEvent = toSseEventName(eventType);
             boolean terminal = isTerminalEvent(sseEvent);

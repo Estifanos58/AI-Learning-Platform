@@ -7,10 +7,14 @@ import com.aiplatform.auth.proto.VerifyRequest;
 import com.aiplatform.gateway.config.GrpcAuthProperties;
 import com.aiplatform.gateway.dto.ApiMessageResponse;
 import com.aiplatform.gateway.dto.AuthResponse;
+import com.aiplatform.gateway.dto.ForgotPasswordRequest;
 import com.aiplatform.gateway.dto.LoginRequest;
 import com.aiplatform.gateway.dto.LogoutRequest;
 import com.aiplatform.gateway.dto.RefreshRequest;
+import com.aiplatform.gateway.dto.ResetPasswordRequest;
 import com.aiplatform.gateway.dto.SignupRequest;
+import com.aiplatform.gateway.dto.UpdateUserRoleRequest;
+import com.aiplatform.gateway.dto.UserSummaryResponse;
 import com.aiplatform.gateway.dto.VerifyEmailRequest;
 import com.aiplatform.gateway.security.JwtValidationService;
 import com.aiplatform.gateway.util.GatewayPrincipal;
@@ -53,12 +57,13 @@ public class GatewayAuthController {
                 String correlationId = correlationIdOrCreate(correlationHeader);
                 log.info("Gateway forwarding signup via gRPC. correlationId={}", correlationId);
 
+                // Security: Public signup ALWAYS assigns Role.STUDENT regardless of client input.
                 com.aiplatform.auth.proto.AuthResponse response = withMetadata(correlationId).signup(
                             com.aiplatform.auth.proto.SignupRequest.newBuilder()
                                     .setEmail(request.email())
                                     .setUsername(request.username())
                                     .setPassword(request.password())
-                                    .setRole(request.role())
+                                    .setRole(com.aiplatform.auth.proto.Role.STUDENT)
                                     .build()
                     );
                     return ResponseEntity.ok(AuthResponseMapper.toDto(response));
@@ -156,6 +161,78 @@ public class GatewayAuthController {
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
+    @PostMapping("/forgot-password")
+    public Mono<ResponseEntity<ApiMessageResponse>> forgotPassword(
+            @Valid @RequestBody ForgotPasswordRequest request,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
+    ) {
+        return Mono.fromCallable(() -> {
+            String correlationId = correlationIdOrCreate(correlationHeader);
+            log.info("Gateway forwarding forgot-password via gRPC. correlationId={}", correlationId);
+
+            SimpleResponse response = withMetadata(correlationId).forgotPassword(
+                    com.aiplatform.auth.proto.ForgotPasswordRequest.newBuilder()
+                            .setEmail(request.email())
+                            .build()
+            );
+            return ResponseEntity.ok(new ApiMessageResponse(response.getMessage()));
+        })
+        .subscribeOn(Schedulers.boundedElastic())
+        .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
+    @PostMapping("/reset-password")
+    public Mono<ResponseEntity<ApiMessageResponse>> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest request,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
+    ) {
+        return Mono.fromCallable(() -> {
+            String correlationId = correlationIdOrCreate(correlationHeader);
+            log.info("Gateway forwarding reset-password via gRPC. correlationId={}", correlationId);
+
+            SimpleResponse response = withMetadata(correlationId).resetPassword(
+                    com.aiplatform.auth.proto.ResetPasswordRequest.newBuilder()
+                            .setToken(request.token())
+                            .setNewPassword(request.newPassword())
+                            .build()
+            );
+            return ResponseEntity.ok(new ApiMessageResponse(response.getMessage()));
+        })
+        .subscribeOn(Schedulers.boundedElastic())
+        .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+    }
+
+    @PutMapping("/users/{userId}/role")
+    public Mono<ResponseEntity<UserSummaryResponse>> updateUserRole(
+            @PathVariable String userId,
+            @Valid @RequestBody UpdateUserRoleRequest request,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
+    ) {
+        return Mono.fromCallable(() -> {
+            GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
+            com.aiplatform.gateway.util.GatewayAuthorizationUtils.assertAdmin(principal);
+            log.info("Admin {} updating role for userId={} to {}", principal.userId(), userId, request.role());
+
+            com.aiplatform.auth.proto.UserSummary response = withMetadata(principal).updateUserRole(
+                    com.aiplatform.auth.proto.UpdateUserRoleRequest.newBuilder()
+                            .setUserId(userId)
+                            .setRole(request.role())
+                            .build()
+            );
+            return ResponseEntity.ok(new UserSummaryResponse(
+                    response.getId(),
+                    response.getEmail(),
+                    response.getUsername(),
+                    response.getRole(),
+                    response.getStatus(),
+                    response.getEmailVerified()
+            ));
+        })
+        .subscribeOn(Schedulers.boundedElastic())
+        .onErrorMap(GrpcExceptionMapper::toResponseStatus);
     }
 
     private AuthServiceGrpc.AuthServiceBlockingStub withMetadata(String correlationId) {

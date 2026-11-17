@@ -19,12 +19,15 @@ The API Gateway is the single public entrypoint for the platform backend. It acc
 ## API / gRPC Contracts
 ### REST Endpoints
 - Auth:
-  - `POST /api/auth/signup`
+  - `POST /api/auth/signup` (enforces STUDENT role)
   - `POST /api/auth/login`
   - `POST /api/auth/verify-email`
   - `POST /api/auth/resend-verification`
+  - `POST /api/auth/forgot-password`
+  - `POST /api/auth/reset-password`
   - `POST /api/auth/refresh`
   - `POST /api/auth/logout`
+  - `PUT /api/auth/users/{userId}/role` (ADMIN only)
 - Profile:
   - `GET /api/profile/me`
   - `GET /api/profile/{userId}`

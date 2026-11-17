@@ -124,6 +124,7 @@ class ResponseStreamer:
                 "message_id": message_id,
                 "request_id": request_id,
                 "error": error,
+                "error_message": error,
             },
         }
         await self._publish(event)

@@ -20,12 +20,15 @@ Auth Service is the identity and token authority for the platform. It manages ac
 ## API / gRPC Contracts
 ### gRPC Service
 From `proto/auth.proto`:
-- `Signup(SignupRequest) returns (AuthResponse)`
+- `Signup(SignupRequest) returns (AuthResponse)` (enforces `Role.STUDENT`)
 - `Login(LoginRequest) returns (AuthResponse)`
 - `VerifyEmail(VerifyRequest) returns (SimpleResponse)`
 - `ResendVerificationCode(ResendVerificationRequest) returns (SimpleResponse)`
 - `RefreshToken(RefreshRequest) returns (AuthResponse)`
 - `Logout(LogoutRequest) returns (SimpleResponse)`
+- `ForgotPassword(ForgotPasswordRequest) returns (SimpleResponse)`
+- `ResetPassword(ResetPasswordRequest) returns (SimpleResponse)`
+- `UpdateUserRole(UpdateUserRoleRequest) returns (UpdateUserRoleResponse)`
 
 ### Referenced Contracts
 - `proto/auth.proto` for request/response schemas and role enum.

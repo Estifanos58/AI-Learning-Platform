@@ -147,4 +147,51 @@ public class AuthGrpcService extends AuthServiceGrpc.AuthServiceImplBase {
             responseObserver.onError(AuthGrpcExceptionMapper.toStatusException(exception));
         }
     }
+
+    @Override
+    public void forgotPassword(com.aiplatform.auth.proto.ForgotPasswordRequest request, StreamObserver<SimpleResponse> responseObserver) {
+        try {
+            String correlationId = GrpcContextKeys.CORRELATION_ID.get();
+            log.info("Handling ForgotPassword gRPC request. correlationId={}", correlationId);
+
+            ApiMessageResponse response = authService.forgotPassword(
+                    new com.aiplatform.auth.dto.ForgotPasswordRequest(request.getEmail())
+            );
+            responseObserver.onNext(SimpleResponse.newBuilder().setMessage(response.message()).build());
+            responseObserver.onCompleted();
+        } catch (Exception exception) {
+            responseObserver.onError(AuthGrpcExceptionMapper.toStatusException(exception));
+        }
+    }
+
+    @Override
+    public void resetPassword(com.aiplatform.auth.proto.ResetPasswordRequest request, StreamObserver<SimpleResponse> responseObserver) {
+        try {
+            String correlationId = GrpcContextKeys.CORRELATION_ID.get();
+            log.info("Handling ResetPassword gRPC request. correlationId={}", correlationId);
+
+            ApiMessageResponse response = authService.resetPassword(
+                    new com.aiplatform.auth.dto.ResetPasswordRequest(request.getToken(), request.getNewPassword())
+            );
+            responseObserver.onNext(SimpleResponse.newBuilder().setMessage(response.message()).build());
+            responseObserver.onCompleted();
+        } catch (Exception exception) {
+            responseObserver.onError(AuthGrpcExceptionMapper.toStatusException(exception));
+        }
+    }
+
+    @Override
+    public void updateUserRole(com.aiplatform.auth.proto.UpdateUserRoleRequest request, StreamObserver<com.aiplatform.auth.proto.UserSummary> responseObserver) {
+        try {
+            String correlationId = GrpcContextKeys.CORRELATION_ID.get();
+            log.info("Handling UpdateUserRole gRPC request. correlationId={}", correlationId);
+
+            java.util.UUID userId = java.util.UUID.fromString(request.getUserId());
+            var userSummary = authService.updateUserRole(userId, request.getRole());
+            responseObserver.onNext(AuthGrpcProtoMapper.toProtoUser(userSummary));
+            responseObserver.onCompleted();
+        } catch (Exception exception) {
+            responseObserver.onError(AuthGrpcExceptionMapper.toStatusException(exception));
+        }
+    }
 }

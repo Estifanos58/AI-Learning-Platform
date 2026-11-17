@@ -19,4 +19,6 @@ public interface AuthService {
     ApiMessageResponse forgotPassword(ForgotPasswordRequest request);
 
     ApiMessageResponse resetPassword(ResetPasswordRequest request);
+
+    UserSummaryResponse updateUserRole(java.util.UUID userId, com.aiplatform.auth.proto.Role newRole);
 }

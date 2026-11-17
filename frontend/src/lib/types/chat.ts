@@ -128,6 +128,8 @@ export interface TypingEvent {
   data: TypingPayload;
 }
 
+export type AIExecutionMode = 'chat' | 'deep';
+
 export type AIStreamEventType = 'AI_CHUNK' | 'AI_COMPLETED' | 'AI_FAILED' | 'AI_CANCELLED';
 
 export interface AIStreamEvent {

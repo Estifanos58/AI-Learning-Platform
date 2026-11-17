@@ -23,11 +23,15 @@ public class JwtGlobalFilter implements GlobalFilter, Ordered {
             "/api/auth/verify-email",
             "/api/auth/refresh",
             "/api/auth/logout",
+            "/api/auth/forgot-password",
+            "/api/auth/reset-password",
             "/api/internal/auth/signup",
             "/api/internal/auth/login",
             "/api/internal/auth/verify-email",
             "/api/internal/auth/refresh",
-            "/api/internal/auth/logout"
+            "/api/internal/auth/logout",
+            "/api/internal/auth/forgot-password",
+            "/api/internal/auth/reset-password"
     );
 
     private final JwtValidationService jwtValidationService;

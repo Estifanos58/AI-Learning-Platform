@@ -6,10 +6,12 @@ const emailSchema = z.string().trim().email('Please enter a valid email address'
 const passwordSchema = z.string().min(8, 'Password must be at least 8 characters').max(128, 'Password is too long');
 const usernameSchema = z.string().trim().min(1, 'Username is required').max(100, 'Username must be 100 characters or less');
 
-export const signupSchema = z.object({ email: emailSchema, username: usernameSchema, password: passwordSchema, role: z.enum(['STUDENT', 'INSTRUCTOR', 'ADMIN']) });
+export const signupSchema = z.object({ email: emailSchema, username: usernameSchema, password: passwordSchema, role: z.enum(['STUDENT', 'INSTRUCTOR', 'ADMIN']).optional().default('STUDENT') });
 export const loginSchema = z.object({ email: emailSchema, password: z.string().min(1, 'Password is required') });
 export const verifyEmailSchema = z.object({ token: z.string().trim().min(1, 'Verification token is required') });
 export const refreshSchema = z.object({ refreshToken: z.string().trim().min(1, 'Refresh token is required') });
+export const forgotPasswordSchema = z.object({ email: emailSchema });
+export const resetPasswordSchema = z.object({ token: z.string().trim().min(1, 'Token is required'), newPassword: passwordSchema });
 
 export const updateProfileSchema = z.object({
   firstName: z.string().max(100, 'First name must be 100 characters or less').optional(),

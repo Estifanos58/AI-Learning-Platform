@@ -33,7 +33,7 @@ export interface SignUpRequest {
   email: string;
   username: string;
   password: string;
-  role: Role;
+  role?: Role;
 }
 
 export interface VerifyEmailRequest {

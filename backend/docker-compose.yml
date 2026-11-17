@@ -159,11 +159,6 @@ services:
       timeout: 5s
       retries: 10
 
-  chat-redis:
-    image: redis:7.2-alpine3.19
-    ports:
-      - "6380:6379"
-
   chat-service:
     build:
       context: .
@@ -238,15 +233,16 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-    env_file:
-      - ./notification-service/.env
     environment:
       kafka_bootstrap_servers: kafka:29092
       kafka_group_id: notification-service-v1
       kafka_topic_email_verification: user.email.verification.v1
       kafka_topic_email_failed: notification.email.failed.v1
-      smtp_host: smtp.gmail.com
-      smtp_port: 587
+      smtp_host: ${SMTP_HOST:-smtp.gmail.com}
+      smtp_port: ${SMTP_PORT:-587}
+      smtp_username: ${SMTP_USERNAME:-}
+      smtp_password: ${SMTP_PASSWORD:-}
+      smtp_from: ${SMTP_FROM:-no-reply@aiplatform.local}
     ports:
       - "8086:8086"
 
@@ -255,8 +251,6 @@ services:
       context: ./rag-service
       dockerfile: Dockerfile
     # profiles: ["rag"]
-    env_file:
-      - ./rag-service/.env.platform
     depends_on:
       kafka:
         condition: service_healthy
@@ -268,6 +262,7 @@ services:
       RAG_HOST: 0.0.0.0
       RAG_PORT: 8087
       ENCRYPTION_KEY: ${RAG_ENCRYPTION_KEY:-local-dev-rag-encryption-key-32-bytes}
+      AI_KEY_ENCRYPTION_SECRET: ${AI_KEY_ENCRYPTION_SECRET:-local-dev-rag-encryption-key-32-bytes}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_GROUP_ID: rag-service-v1
       KAFKA_TOPIC_FILE_UPLOADED_V2: file.uploaded.v2
@@ -280,8 +275,10 @@ services:
       QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION: rag_chunks_prod
       TEI_BASE_URL: http://tei:80
-      GEMINI_API_KEY_FILE: /run/secrets/rag_gemini_api_key
-      DEEPSEEK_API_KEY_FILE: /run/secrets/rag_deepseek_api_key
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       FILE_STORAGE_ROOT_PATH: /data
       GRPC_FILE_SERVICE_ADDRESS: file-service:9092
       APP_GRPC_SERVICE_SECRET: change-me-shared-secret
@@ -290,7 +287,6 @@ services:
       REDIS_URL: redis://redis:6379/0
     volumes:
       - file-storage:/data:ro
-      - ./rag-service/.secrets:/run/secrets:ro
     ports:
       - "8087:8087"
     healthcheck:

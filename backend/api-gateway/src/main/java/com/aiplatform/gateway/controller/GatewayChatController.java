@@ -201,14 +201,35 @@ public class GatewayChatController {
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader
     ) {
+        GatewayPrincipal principal;
         try {
-            resolvePrincipal(authorization, correlationHeader);
+            principal = resolvePrincipal(authorization, correlationHeader);
         } catch (Exception e) {
             return reactor.core.publisher.Flux.error(e);
         }
 
-        String room = chatroomId != null && !chatroomId.isBlank() ? chatroomId : messageId;
-        return redisSubscriber.subscribeToAiStream(room, messageId)
+        if (chatroomId == null || chatroomId.isBlank()) {
+            return reactor.core.publisher.Flux.error(
+                    new org.springframework.web.server.ResponseStatusException(
+                            HttpStatus.BAD_REQUEST, "chatroomId is required for stream authorization"
+                    )
+            );
+        }
+
+        // Authorize chatroom membership before subscribing
+        try {
+            withMetadata(principal).getChatroom(
+                    com.aiplatform.chat.proto.GetChatroomRequest.newBuilder().setChatroomId(chatroomId).build()
+            );
+        } catch (Exception e) {
+            return reactor.core.publisher.Flux.error(
+                    new org.springframework.web.server.ResponseStatusException(
+                            HttpStatus.FORBIDDEN, "User is not authorized to stream events for this chatroom", e
+                    )
+            );
+        }
+
+        return redisSubscriber.subscribeToAiStream(chatroomId, messageId)
                 .map(data -> ServerSentEvent.<String>builder()
                         .id(messageId)
                         .event("ai_chunk")

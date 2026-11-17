@@ -122,11 +122,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clearError = useCallback(() => setError(null), []);
 
-  const signup = useCallback(async (email: string, username: string, password: string, role: string) => {
+  const signup = useCallback(async (email: string, username: string, password: string, role?: string) => {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await gatewayApi.auth.signup({ email, username, password, role: role as any });
+      const result = await gatewayApi.auth.signup({ email, username, password, role: (role as any) || 'STUDENT' });
       setSession(result);
       persistSession(result);
     } catch (err) {
@@ -158,11 +158,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session?.refreshToken) {
         await gatewayApi.auth.logout(session.refreshToken);
       }
+    } catch (err) {
+      console.warn('Backend logout request failed; clearing local session anyway:', err);
+    } finally {
       setSession(null);
       persistSession(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Logout failed');
-    } finally {
       setIsLoading(false);
     }
   }, [session]);

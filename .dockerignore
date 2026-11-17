@@ -1,0 +1,46 @@
+**/.git
+**/.github
+**/.idea
+**/.vscode
+**/.DS_Store
+**/Thumbs.db
+
+# Node.js
+**/node_modules
+**/.next
+**/out
+**/build
+**/dist
+**/.npm
+**/.yarn
+
+# Java / Maven
+**/target
+**/*.class
+**/*.jar
+**/*.war
+
+# Python
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache
+**/.coverage
+**/htmlcov
+**/.venv
+**/env
+**/venv
+
+# Environment & Sensitive Files
+**/.env
+**/.env.local
+**/.env.*.local
+**/*.pem
+**/*.key
+**/*.keystore
+
+# Logs & Temp
+**/*.log
+**/tmp
+**/temp

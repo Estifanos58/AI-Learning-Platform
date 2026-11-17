@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 interface UseSignupFormOptions {
-  signup: (email: string, username: string, password: string, role: string) => Promise<void>;
+  signup: (email: string, username: string, password: string, role?: string) => Promise<void>;
   clearError: () => void;
   onSuccess?: () => void;
 }
@@ -10,7 +10,7 @@ export function useSignupForm({ signup, clearError, onSuccess }: UseSignupFormOp
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('STUDENT');
+  const role = 'STUDENT';
   const [localError, setLocalError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
@@ -29,7 +29,7 @@ export function useSignupForm({ signup, clearError, onSuccess }: UseSignupFormOp
     setLocalError(null);
     clearError();
 
-    if (!email || !username || !password || !role) {
+    if (!email || !username || !password) {
       setLocalError('Please fill in all fields');
       return;
     }
@@ -59,7 +59,6 @@ export function useSignupForm({ signup, clearError, onSuccess }: UseSignupFormOp
     password,
     setPassword,
     role,
-    setRole,
     localError,
     passwordError,
     validatePassword,

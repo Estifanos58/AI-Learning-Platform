@@ -43,13 +43,10 @@ async function chatRequest<T>(
   });
 }
 
-function buildInternalAiUrl(path: string): string {
+function buildPublicAiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const normalizedBase = API_BASE_URL.replace(/\/+$/, '');
-  if (/\/api\/internal$/i.test(normalizedBase)) {
-    return `${normalizedBase}${normalizedPath}`;
-  }
-  return `${normalizedBase}/api/internal${normalizedPath}`;
+  return `${normalizedBase}${normalizedPath}`;
 }
 
 export interface OpenChatSocketOptions {
@@ -86,7 +83,11 @@ interface StreamEnvelope {
 }
 
 export function resolveGatewayWsBase(): string {
-  const httpBase = API_BASE_URL.replace(/\/api\/internal\/?$/i, '');
+  const envWsUrl = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_WS_URL?.trim() : undefined;
+  if (envWsUrl) {
+    return envWsUrl.replace(/\/+$/, '');
+  }
+  const httpBase = API_BASE_URL.replace(/\/api(\/internal)?\/?$/i, '');
   if (httpBase.startsWith('https://')) {
     return `wss://${httpBase.slice('https://'.length)}`;
   }
@@ -97,12 +98,15 @@ export function resolveGatewayWsBase(): string {
 }
 
 export function openChatSocket(options: OpenChatSocketOptions): WebSocket {
-  const params = new URLSearchParams({ token: options.accessToken });
+  const params = new URLSearchParams();
   if (options.chatroomId) {
     params.set('chatroomId', options.chatroomId);
   }
 
-  const socket = new WebSocket(`${resolveGatewayWsBase()}/ws/chat?${params.toString()}`);
+  const queryString = params.toString();
+  const wsUrl = `${resolveGatewayWsBase()}/ws/chat${queryString ? `?${queryString}` : ''}`;
+  // Secure WebSocket authentication via Sec-WebSocket-Protocol without exposing access token in URL query parameter
+  const socket = new WebSocket(wsUrl, ['bearer', options.accessToken]);
 
   socket.onopen = () => {
     options.onOpen?.();
@@ -413,18 +417,11 @@ export const chatApi = {
       }
     }
 
-    return models[0] ?? {
-      modelId: '',
-      modelName: input.modelName,
-      contextLength: input.contextLength ?? 8192,
-      supportsStreaming: false,
-      userKeyConfigured: false,
-      id: '',
-      name: input.modelName,
-      provider: input.family,
-      family: input.family,
-      active: input.active ?? true,
-    };
+    if (models.length > 0 && models[0].modelId) {
+      return models[0];
+    }
+
+    throw new Error(`Failed to verify created AI model '${input.modelName}'`);
   },
 
   async listAiProviders(token: string, modelId?: string): Promise<AiProvider[]> {
@@ -547,7 +544,7 @@ export const chatApi = {
     onFailed: (payload: { requestId: string; messageId?: string; error: string; sanitizationFlags?: string[] }) => void;
     onCancelled: (payload: { requestId: string; messageId?: string }) => void;
   }): Promise<void> {
-    const streamUrl = buildInternalAiUrl(`/ai/executions/${encodeURIComponent(options.requestId)}/stream`);
+    const streamUrl = buildPublicAiUrl(`/ai/executions/${encodeURIComponent(options.requestId)}/stream`);
     let accumulated = '';
 
     await fetchEventSource(streamUrl, {
@@ -626,7 +623,7 @@ export const chatApi = {
             options.onFailed({
               requestId,
               messageId,
-              error: payload.error_message ?? 'AI generation failed',
+              error: payload.error ?? payload.error_message ?? 'AI generation failed',
               sanitizationFlags,
             });
             return;

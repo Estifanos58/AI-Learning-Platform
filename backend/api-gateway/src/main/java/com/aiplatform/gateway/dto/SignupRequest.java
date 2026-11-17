@@ -10,6 +10,6 @@ public record SignupRequest(
         @NotBlank @Email String email,
         @NotBlank @Size(max = 100) String username,
         @NotBlank @Size(min = 8, max = 128) String password,
-        @NotNull Role role
+        Role role
 ) {
 }

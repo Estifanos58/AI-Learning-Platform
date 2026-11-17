@@ -53,11 +53,13 @@ public class AuthServiceImpl implements AuthService {
             throw new ApiException(HttpStatus.CONFLICT, "Username already exists");
         }
 
+        // Security: Public registration must always create a STUDENT role.
+        // Privileged roles (ADMIN, INSTRUCTOR) require an authorized administrative operation.
         User user = User.builder()
                 .email(request.email().trim().toLowerCase())
                 .username(request.username())
                 .passwordHash(passwordEncoder.encode(request.password()))
-                .role(request.role())
+                .role(Role.STUDENT)
                 .status(UserStatus.ACTIVE)
                 .emailVerified(Boolean.FALSE)
                 .build();
@@ -133,7 +135,7 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public TokenResponse login(LoginRequest request, RequestMetadata metadata) {
 
-        log.info("Login info from the login service ={} , ={}", request.email(), request.password());
+        log.info("Processing login request for email={}", request.email());
 
         User user = userRepository.findByEmailIgnoreCase(request.email())
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
@@ -282,6 +284,20 @@ public class AuthServiceImpl implements AuthService {
                 });
 
         return new ApiMessageResponse("Password reset successful");
+    }
+
+    @Override
+    @Transactional
+    public UserSummaryResponse updateUserRole(UUID userId, Role newRole) {
+        if (newRole == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "New role must be specified");
+        }
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
+        user.setRole(newRole);
+        User savedUser = userRepository.save(user);
+        log.info("Updated role for userId={} to {}", userId, newRole);
+        return userMapper.toSummary(savedUser);
     }
 
     private void issueAndPublishVerificationCode(User user, String correlationId, boolean invalidateExisting) {

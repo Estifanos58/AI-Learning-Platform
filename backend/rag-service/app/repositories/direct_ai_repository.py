@@ -84,6 +84,8 @@ class DirectAIRepository:
         message_id: str,
         user_id: str,
         stream_key: str,
+        payload_json: str | None = None,
+        max_retries: int = 3,
     ) -> AIExecution:
         async with AsyncSessionLocal() as session:
             execution = AIExecution(
@@ -93,12 +95,52 @@ class DirectAIRepository:
                 user_id=user_id,
                 stream_key=stream_key,
                 status="PENDING",
+                payload_json=payload_json,
+                retry_count=0,
+                max_retries=max_retries,
                 error=None,
             )
             session.add(execution)
             await session.commit()
             await session.refresh(execution)
             return execution
+
+    async def get_recoverable_executions(self) -> list[AIExecution]:
+        """Returns executions that were interrupted (RUNNING or PENDING) during system crash or restart."""
+        async with AsyncSessionLocal() as session:
+            stmt = (
+                select(AIExecution)
+                .where(
+                    AIExecution.status.in_(["PENDING", "RUNNING"]),
+                    AIExecution.payload_json.isnot(None),
+                )
+                .order_by(AIExecution.created_at.asc())
+            )
+            res = await session.execute(stmt)
+            return list(res.scalars().all())
+
+    async def increment_retry_and_requeue(self, execution_id: str, error: str) -> bool:
+        """Increments retry count. If retry_count <= max_retries, resets to PENDING and returns True; else marks FAILED and returns False."""
+        async with AsyncSessionLocal() as session:
+            execution = await session.get(AIExecution, execution_id)
+            if execution is None or execution.status == "CANCELLED":
+                return False
+            execution.retry_count += 1
+            if execution.retry_count <= execution.max_retries:
+                execution.status = "PENDING"
+                execution.error = f"Retry {execution.retry_count}/{execution.max_retries}: {error[:500]}"
+                await session.commit()
+                return True
+            else:
+                execution.status = "FAILED"
+                execution.completed_at = _utcnow()
+                execution.error = error[:4000]
+                message = await session.get(Message, execution.message_id)
+                if message is not None:
+                    message.status = "FAILED"
+                    message.updated_at = _utcnow()
+                await session.commit()
+                return False
 
     async def mark_execution_running(self, execution_id: str) -> None:
         async with AsyncSessionLocal() as session:

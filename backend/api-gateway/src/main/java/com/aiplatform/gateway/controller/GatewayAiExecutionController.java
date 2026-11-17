@@ -22,6 +22,7 @@ import io.grpc.stub.MetadataUtils;
 import jakarta.validation.Valid;
 import net.devh.boot.grpc.client.inject.GrpcClient;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,6 +32,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -146,9 +148,16 @@ public class GatewayAiExecutionController {
 
     private ExecutionMode toMode(String mode) {
         if (mode == null || mode.isBlank()) {
+            return ExecutionMode.CHAT;
+        }
+        String normalized = mode.trim().toLowerCase();
+        if ("chat".equals(normalized)) {
+            return ExecutionMode.CHAT;
+        }
+        if ("deep".equals(normalized)) {
             return ExecutionMode.DEEP;
         }
-        return "chat".equalsIgnoreCase(mode) ? ExecutionMode.CHAT : ExecutionMode.DEEP;
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid execution mode: '" + mode + "'. Supported modes: chat, deep");
     }
 
     private RagServiceGrpc.RagServiceBlockingStub withMetadata(GatewayPrincipal principal) {
