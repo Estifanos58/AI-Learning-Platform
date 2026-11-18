@@ -57,7 +57,7 @@ class PromptInjectionSanitizationFilterTest {
         MockServerHttpRequest request = MockServerHttpRequest.post("/api/ai/executions")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(payload.length))
-                .body(new DefaultDataBufferFactory().wrap(payload));
+                .body(Mono.just(new DefaultDataBufferFactory().wrap(payload)));
 
         MockServerWebExchange exchange = MockServerWebExchange.from(request);
 

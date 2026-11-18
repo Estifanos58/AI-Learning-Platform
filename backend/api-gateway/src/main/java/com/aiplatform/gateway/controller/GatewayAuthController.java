@@ -17,6 +17,7 @@ import com.aiplatform.gateway.dto.UpdateUserRoleRequest;
 import com.aiplatform.gateway.dto.UserSummaryResponse;
 import com.aiplatform.gateway.dto.VerifyEmailRequest;
 import com.aiplatform.gateway.security.JwtValidationService;
+import com.aiplatform.gateway.util.GatewayAuthorizationUtils;
 import com.aiplatform.gateway.util.GatewayPrincipal;
 import com.aiplatform.gateway.util.GatewayPrincipalResolver;
 import com.aiplatform.gateway.util.GatewayRequestUtils;
@@ -213,7 +214,7 @@ public class GatewayAuthController {
     ) {
         return Mono.fromCallable(() -> {
             GatewayPrincipal principal = resolvePrincipal(authorization, correlationHeader);
-            com.aiplatform.gateway.util.GatewayAuthorizationUtils.assertAdmin(principal);
+            GatewayAuthorizationUtils.requireAdmin(principal);
             log.info("Admin {} updating role for userId={} to {}", principal.userId(), userId, request.role());
 
             com.aiplatform.auth.proto.UserSummary response = withMetadata(principal).updateUserRole(

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 interface UseResetPasswordFormOptions {
-  resetPassword: (payload: { token: string; newPassword: string }) => Promise<void>;
+  resetPassword: (payload: { token: string; newPassword: string }) => Promise<unknown>;
   onSuccess?: () => void;
 }
 

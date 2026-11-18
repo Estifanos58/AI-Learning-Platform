@@ -4,6 +4,7 @@ import com.aiplatform.auth.domain.*;
 import com.aiplatform.auth.dto.*;
 import com.aiplatform.auth.exception.ApiException;
 import com.aiplatform.auth.mapper.UserMapper;
+import com.aiplatform.auth.proto.Role;
 import com.aiplatform.auth.repository.*;
 import com.aiplatform.auth.security.JwtProperties;
 import com.aiplatform.auth.security.JwtService;

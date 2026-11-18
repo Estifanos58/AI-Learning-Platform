@@ -14,7 +14,7 @@ interface AuthContextType {
   user: AuthUserSummary | null;
   isLoading: boolean;
   error: string | null;
-  signup: (email: string, username: string, password: string, role: string) => Promise<void>;
+  signup: (email: string, username: string, password: string, role?: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;

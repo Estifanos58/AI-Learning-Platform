@@ -64,7 +64,6 @@ function initializeMockData() {
     id: chatroomId,
     type: 'DOCUMENT_CONTEXT',
     memberIds: ['user-1'],
-    contextFileId: 'file-1',
     name: 'Document Chat',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -78,7 +77,6 @@ function initializeMockData() {
       id: generateId('msg'),
       chatroomId,
       senderUserId: 'ai-assistant',
-      senderUsername: 'NotebookLM',
       aiModelId: 'gpt-4',
       content:
         'Hello! I\'ve loaded your document "Machine Learning Basics.pdf". Feel free to ask me any questions about its content.',
@@ -94,46 +92,50 @@ export const chatMockService = {
     await delay(MOCK_DELAY);
     initializeMockData();
 
-    const chatroom = chatrooms.get(request.chatroomId);
+    const chatroomId = request.chatroomId;
+    if (!chatroomId) {
+      throw new Error('Chatroom not found');
+    }
+
+    const chatroom = chatrooms.get(chatroomId);
     if (!chatroom) {
       throw new Error('Chatroom not found');
     }
 
-    if (!request.content || request.content.trim().length === 0) {
+    const content = request.content?.trim();
+    if (!content) {
       throw new Error('Message content is required');
     }
 
     // Add user message
     const userMessage: ChatMessage = {
       id: generateId('msg'),
-      chatroomId: request.chatroomId,
+      chatroomId,
       senderUserId: userId,
-      senderUsername: 'You',
-      content: request.content.trim(),
+      content,
       fileId: request.fileId,
       createdAt: new Date().toISOString(),
     };
 
-    let chatroomMessages = messages.get(request.chatroomId) || [];
+    const chatroomMessages = messages.get(chatroomId) || [];
     chatroomMessages.push(userMessage);
 
     // Simulate AI response after a slight delay
     setTimeout(async () => {
       const aiResponse: ChatMessage = {
         id: generateId('msg'),
-        chatroomId: request.chatroomId,
+        chatroomId,
         senderUserId: 'ai-assistant',
-        senderUsername: 'NotebookLM',
         aiModelId: request.aiModelId || 'gpt-4',
-        content: `Thanks for the question about "${request.content.substring(0, 30)}...". This is a simulated response. In the real app, this would be powered by the selected AI model.`,
+        content: `Thanks for the question about "${content.substring(0, 30)}...". This is a simulated response. In the real app, this would be powered by the selected AI model.`,
         createdAt: new Date(Date.now() + 500).toISOString(),
       };
 
       chatroomMessages.push(aiResponse);
-      messages.set(request.chatroomId, chatroomMessages);
+      messages.set(chatroomId, chatroomMessages);
     }, 800);
 
-    messages.set(request.chatroomId, chatroomMessages);
+    messages.set(chatroomId, chatroomMessages);
     return userMessage;
   },
 
@@ -143,7 +145,7 @@ export const chatMockService = {
 
     return Array.from(chatrooms.values())
       .filter((c) => c.memberIds.includes(userId))
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      .sort((a, b) => new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime());
   },
 
   async getChatroom(userId: string, chatroomId: string): Promise<Chatroom> {
@@ -182,7 +184,7 @@ export const chatMockService = {
     return AVAILABLE_AI_MODELS;
   },
 
-  async createChatroomForFile(userId: string, fileId: string): Promise<Chatroom> {
+  async createChatroomForFile(userId: string, _fileId: string): Promise<Chatroom> {
     await delay(MOCK_DELAY);
 
     const chatroomId = generateId('chatroom');
@@ -190,7 +192,6 @@ export const chatMockService = {
       id: chatroomId,
       type: 'DOCUMENT_CONTEXT',
       memberIds: [userId],
-      contextFileId: fileId,
       name: 'Document Chat',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

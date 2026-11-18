@@ -59,7 +59,7 @@ export const authMockService = {
       id: newUserId,
       email: request.email,
       username: request.username,
-      role: request.role,
+      role: request.role ?? 'STUDENT',
       status: 'UNVERIFIED',
       emailVerified: false,
     };

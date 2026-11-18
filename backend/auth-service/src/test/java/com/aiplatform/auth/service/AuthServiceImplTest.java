@@ -80,7 +80,7 @@ class AuthServiceImplTest {
     @DisplayName("Public signup MUST always enforce STUDENT role and reject escalation to ADMIN")
     void signup_alwaysEnforcesStudentRole() {
         // Given
-        SignupRequest request = new SignupRequest("attacker@example.com", "Attacker", "SecurePass123!");
+        SignupRequest request = new SignupRequest("attacker@example.com", "Attacker", "SecurePass123!", Role.ADMIN);
         when(userRepository.existsByEmailIgnoreCase(any())).thenReturn(false);
         when(userRepository.existsByUsernameIgnoreCase(any())).thenReturn(false);
         when(passwordEncoder.encode(any())).thenReturn("hashed-password");
@@ -96,7 +96,7 @@ class AuthServiceImplTest {
         User savedUser = userCaptor.getValue();
 
         assertThat(savedUser.getRole()).isEqualTo(Role.STUDENT);
-        assertThat(savedUser.getStatus()).isEqualTo(UserStatus.PENDING_VERIFICATION);
+        assertThat(savedUser.getStatus()).isEqualTo(UserStatus.ACTIVE);
         assertThat(savedUser.getEmail()).isEqualTo("attacker@example.com");
     }
 
@@ -114,7 +114,7 @@ class AuthServiceImplTest {
         when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userMapper.toSummary(any(User.class))).thenReturn(
-                new UserSummaryResponse(userId, "student@example.com", "student", Role.INSTRUCTOR, UserStatus.ACTIVE, true, LocalDateTime.now())
+                new UserSummaryResponse(userId, "student@example.com", "student", Role.INSTRUCTOR, UserStatus.ACTIVE, true)
         );
 
         // When

@@ -6,6 +6,9 @@ spring:
     name: api-gateway
   cloud:
     gateway:
+      global-filter:
+        forward-path:
+          enabled: false
       routes:
         - id: auth-signup-rate-limited
           uri: forward:/
@@ -84,7 +87,7 @@ spring:
                 key-resolver: '#{@ipRateLimitKeyResolver}'
                 redis-rate-limiter.replenishRate: 100
                 redis-rate-limiter.burstCapacity: 120
-            - RewritePath=/api/auth/?(?<segment>.*), /api/internal/auth/${segment}
+            - RewritePath=/api/auth(?<segment>/.*|$), /api/internal/auth${segment}
         - id: profile-route
           uri: forward:/
           predicates:
@@ -95,29 +98,29 @@ spring:
                 key-resolver: '#{@ipRateLimitKeyResolver}'
                 redis-rate-limiter.replenishRate: 100
                 redis-rate-limiter.burstCapacity: 120
-            - RewritePath=/api/profile/?(?<segment>.*), /api/internal/profile/${segment}
+            - RewritePath=/api/profile(?<segment>/.*|$), /api/internal/profile${segment}
         - id: file-route
           uri: forward:/
           predicates:
-            - Path=/api/files/**
+            - Path=/api/files, /api/files/**
           filters:
             - name: RequestRateLimiter
               args:
                 key-resolver: '#{@ipRateLimitKeyResolver}'
                 redis-rate-limiter.replenishRate: 100
                 redis-rate-limiter.burstCapacity: 120
-            - RewritePath=/api/files/?(?<segment>.*), /api/internal/files/${segment}
-        - id: chat-route
+            - RewritePath=/api/files(?<segment>/.*|$), /api/internal/files${segment}
+        - id: direct-chatrooms-route
           uri: forward:/
           predicates:
-            - Path=/api/chat/**
+            - Path=/api/chatrooms, /api/chatrooms/**
           filters:
             - name: RequestRateLimiter
               args:
                 key-resolver: '#{@ipRateLimitKeyResolver}'
                 redis-rate-limiter.replenishRate: 100
                 redis-rate-limiter.burstCapacity: 120
-            - RewritePath=/api/chat/?(?<segment>.*), /api/internal/chat/${segment}
+            - RewritePath=/api/chatrooms(?<segment>/.*|$), /api/internal/chatrooms${segment}
         - id: chat-ai-messages-rate-limited
           uri: forward:/
           predicates:
@@ -129,7 +132,7 @@ spring:
                 key-resolver: '#{@ipRateLimitKeyResolver}'
                 redis-rate-limiter.replenishRate: 5
                 redis-rate-limiter.burstCapacity: 10
-            - RewritePath=/api/chat/?(?<segment>.*), /api/internal/chat/${segment}
+            - RewritePath=/api/chat(?<segment>/.*|$), /api/internal/chat${segment}
         - id: chat-ai-stream-rate-limited
           uri: forward:/
           predicates:
@@ -140,7 +143,7 @@ spring:
                 key-resolver: '#{@ipRateLimitKeyResolver}'
                 redis-rate-limiter.replenishRate: 10
                 redis-rate-limiter.burstCapacity: 20
-            - RewritePath=/api/chat/?(?<segment>.*), /api/internal/chat/${segment}
+            - RewritePath=/api/chat(?<segment>/.*|$), /api/internal/chat${segment}
         - id: chat-ai-cancel-rate-limited
           uri: forward:/
           predicates:
@@ -151,7 +154,18 @@ spring:
                 key-resolver: '#{@ipRateLimitKeyResolver}'
                 redis-rate-limiter.replenishRate: 20
                 redis-rate-limiter.burstCapacity: 30
-            - RewritePath=/api/chat/?(?<segment>.*), /api/internal/chat/${segment}
+            - RewritePath=/api/chat(?<segment>/.*|$), /api/internal/chat${segment}
+        - id: chat-route
+          uri: forward:/
+          predicates:
+            - Path=/api/chat/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@ipRateLimitKeyResolver}'
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 120
+            - RewritePath=/api/chat(?<segment>/.*|$), /api/internal/chat${segment}
         - id: ai-model-route
           uri: forward:/
           predicates:
@@ -162,7 +176,7 @@ spring:
                 key-resolver: '#{@ipRateLimitKeyResolver}'
                 redis-rate-limiter.replenishRate: 100
                 redis-rate-limiter.burstCapacity: 120
-            - RewritePath=/api/ai/?(?<segment>.*), /api/internal/ai/${segment}
+            - RewritePath=/api/ai(?<segment>/.*|$), /api/internal/ai${segment}
         - id: rag-route
           uri: forward:/
           predicates:
@@ -173,7 +187,7 @@ spring:
                 key-resolver: '#{@ipRateLimitKeyResolver}'
                 redis-rate-limiter.replenishRate: 100
                 redis-rate-limiter.burstCapacity: 120
-            - RewritePath=/api/rag/?(?<segment>.*), /api/internal/rag/${segment}
+            - RewritePath=/api/rag(?<segment>/.*|$), /api/internal/rag${segment}
       globalcors:
         cors-configurations:
           '[/**]':
@@ -182,6 +196,7 @@ spring:
               - GET
               - POST
               - PUT
+              - PATCH
               - DELETE
               - OPTIONS
             allowedHeaders:

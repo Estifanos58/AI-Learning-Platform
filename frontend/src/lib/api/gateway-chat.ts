@@ -655,7 +655,7 @@ export const chatApi = {
     messageId?: string;
     options?: Record<string, string>;
   }) =>
-    chatRequest<{ status: string; requestId: string; streamKey?: string; accepted?: boolean; chatroomId?: string; messageId?: string }>(buildInternalAiUrl('/ai/executions'), token, {
+    chatRequest<{ status: string; requestId: string; streamKey?: string; accepted?: boolean; chatroomId?: string; messageId?: string }>(buildPublicAiUrl('/ai/executions'), token, {
       method: 'POST',
       body: input,
     }),
@@ -670,10 +670,10 @@ export const chatApi = {
       content?: string;
       finalContent?: string;
       error?: string;
-    }>(buildInternalAiUrl(`/ai/executions/${executionId}`), token),
+    }>(buildPublicAiUrl(`/ai/executions/${executionId}`), token),
 
   cancelAiExecution: (token: string, executionId: string) =>
-    chatRequest<{ success?: boolean; status?: string; message?: string }>(buildInternalAiUrl(`/ai/executions/${executionId}`), token, {
+    chatRequest<{ success?: boolean; status?: string; message?: string }>(buildPublicAiUrl(`/ai/executions/${executionId}`), token, {
       method: 'DELETE',
     }),
 };
