@@ -2,7 +2,8 @@
 
 /**
  * Auth Context
- * Manages session state and auth operations globally
+ * Manages in-memory session state backed strictly by server-managed HttpOnly cookies.
+ * Raw access and refresh tokens are never persisted in localStorage or JS-readable cookies.
  */
 
 import { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
@@ -21,44 +22,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-const SESSION_STORAGE_KEY = 'app_session';
-
-function getCookie(name: string) {
-  if (typeof document === 'undefined') return null;
-  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]+)`));
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function persistSession(nextSession: AuthSession | null) {
-  if (typeof window === 'undefined') return;
-
-  if (!nextSession) {
-    localStorage.removeItem(SESSION_STORAGE_KEY);
-    setAuthCookies(null);
-    return;
-  }
-
-  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(nextSession));
-  setAuthCookies(nextSession);
-}
-
-function setAuthCookies(session: AuthSession | null) {
-  if (typeof document === 'undefined') return;
-
-  if (!session) {
-    document.cookie = 'app_access_token=; Max-Age=0; Path=/; SameSite=Strict';
-    document.cookie = 'app_refresh_token=; Max-Age=0; Path=/; SameSite=Strict';
-    return;
-  }
-
-  const isSecure = window.location.protocol === 'https:';
-  const secureFlag = isSecure ? '; Secure' : '';
-  const expires = session.accessTokenExpiresInSeconds ? session.accessTokenExpiresInSeconds : 3600;
-  const accessMaxAge = Math.max(60, expires);
-
-  document.cookie = `app_access_token=${encodeURIComponent(session.accessToken)}; Max-Age=${accessMaxAge}; Path=/; SameSite=Lax${secureFlag}`;
-  document.cookie = `app_refresh_token=${encodeURIComponent(session.refreshToken)}; Max-Age=${60 * 60 * 24 * 7}; Path=/; SameSite=Lax${secureFlag}`;
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -68,35 +31,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
+    // Clean up any legacy insecure token storage left from prior versions
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.removeItem('app_session');
+      } catch {
+        // ignore storage errors
+      }
+    }
+
     const restoreSession = async () => {
       try {
-        const savedSession = localStorage.getItem(SESSION_STORAGE_KEY);
-        if (savedSession) {
-          const parsedSession = JSON.parse(savedSession) as AuthSession;
-          if (!isMounted) return;
-          setSession(parsedSession);
-          setAuthCookies(parsedSession);
-          return;
-        }
-
-        const refreshToken = getCookie('app_refresh_token');
-        if (!refreshToken) {
-          if (isMounted) {
-            setSession(null);
-          }
-          return;
-        }
-
-        const refreshedSession = await gatewayApi.auth.refresh({ refreshToken });
+        const activeSession = await gatewayApi.auth.session();
         if (!isMounted) return;
+        setSession(activeSession);
+        return;
+      } catch {
+        // Access cookie may be expired; attempt cookie-based refresh
+      }
 
+      try {
+        const refreshedSession = await gatewayApi.auth.refresh();
+        if (!isMounted) return;
         setSession(refreshedSession);
-        persistSession(refreshedSession);
-      } catch (err) {
-        console.error('[v0] Failed to restore session:', err);
+      } catch {
         if (isMounted) {
           setSession(null);
-          persistSession(null);
         }
       } finally {
         if (isMounted) {
@@ -111,12 +71,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(refreshedSession);
     };
 
+    const handleSessionExpired = () => {
+      setSession(null);
+    };
+
     void restoreSession();
     window.addEventListener('auth_token_refreshed', handleAuthTokenRefreshed as EventListener);
+    window.addEventListener('auth_session_expired', handleSessionExpired);
 
     return () => {
       isMounted = false;
       window.removeEventListener('auth_token_refreshed', handleAuthTokenRefreshed as EventListener);
+      window.removeEventListener('auth_session_expired', handleSessionExpired);
     };
   }, []);
 
@@ -126,9 +92,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await gatewayApi.auth.signup({ email, username, password, role: (role as any) || 'STUDENT' });
+      const result = await gatewayApi.auth.signup({
+        email,
+        username,
+        password,
+        role: (role as 'STUDENT' | 'INSTRUCTOR' | 'ADMIN') || 'STUDENT',
+      });
       setSession(result);
-      persistSession(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed');
       throw err;
@@ -143,7 +113,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const result = await gatewayApi.auth.login({ email, password });
       setSession(result);
-      persistSession(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
       throw err;
@@ -155,17 +124,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     setIsLoading(true);
     try {
-      if (session?.refreshToken) {
-        await gatewayApi.auth.logout(session.refreshToken);
-      }
+      await gatewayApi.auth.logout();
     } catch (err) {
-      console.warn('Backend logout request failed; clearing local session anyway:', err);
+      console.warn('Backend logout request failed; clearing client session state:', err);
     } finally {
       setSession(null);
-      persistSession(null);
       setIsLoading(false);
     }
-  }, [session]);
+  }, []);
 
   const value: AuthContextType = {
     session,

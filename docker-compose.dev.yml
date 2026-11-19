@@ -1,0 +1,101 @@
+# =============================================================================
+# Local Development Compose Override
+# Usage:
+#   ./scripts/generate-dev-keys.sh
+#   cp .env.example .env   # fill in local passwords & secrets
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# Binds debugging ports strictly to localhost (127.0.0.1) and allows HTTP
+# cookies on http://localhost:3000 during local development.
+# NEVER use this file in production.
+# =============================================================================
+
+services:
+  kafka:
+    environment:
+      KAFKA_LISTENERS: PLAINTEXT://:29092,PLAINTEXT_HOST://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:${KAFKA_HOST_PORT:-9092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+    ports:
+      - "127.0.0.1:${KAFKA_HOST_PORT:-9092}:9092"
+
+  redis:
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
+
+  qdrant:
+    ports:
+      - "127.0.0.1:${QDRANT_HOST_PORT:-6333}:6333"
+      - "127.0.0.1:${QDRANT_GRPC_HOST_PORT:-6334}:6334"
+
+  tei:
+    ports:
+      - "127.0.0.1:${TEI_HOST_PORT:-8088}:80"
+
+  postgres:
+    ports:
+      - "127.0.0.1:${AUTH_DB_HOST_PORT:-5432}:5432"
+
+  profile-postgres:
+    ports:
+      - "127.0.0.1:${PROFILE_DB_HOST_PORT:-5433}:5432"
+
+  file-postgres:
+    ports:
+      - "127.0.0.1:${FILE_DB_HOST_PORT:-5434}:5432"
+
+  chat-postgres:
+    ports:
+      - "127.0.0.1:${CHAT_DB_HOST_PORT:-5435}:5432"
+
+  rag-postgres:
+    ports:
+      - "127.0.0.1:${RAG_DB_HOST_PORT:-5436}:5432"
+
+  auth-service:
+    environment:
+      APP_ENV: development
+    ports:
+      - "127.0.0.1:${AUTH_HTTP_HOST_PORT:-8082}:8082"
+      - "127.0.0.1:${AUTH_GRPC_HOST_PORT:-9090}:9090"
+
+  user-profile-service:
+    environment:
+      APP_ENV: development
+    ports:
+      - "127.0.0.1:${PROFILE_HTTP_HOST_PORT:-8083}:8083"
+      - "127.0.0.1:${PROFILE_GRPC_HOST_PORT:-9091}:9091"
+
+  file-service:
+    environment:
+      APP_ENV: development
+    ports:
+      - "127.0.0.1:${FILE_HTTP_HOST_PORT:-8084}:8084"
+      - "127.0.0.1:${FILE_GRPC_HOST_PORT:-9094}:9092"
+
+  chat-service:
+    environment:
+      APP_ENV: development
+    ports:
+      - "127.0.0.1:${CHAT_HTTP_HOST_PORT:-8085}:8085"
+      - "127.0.0.1:${CHAT_GRPC_HOST_PORT:-9095}:9095"
+
+  notification-service:
+    environment:
+      APP_ENV: development
+    ports:
+      - "127.0.0.1:${NOTIFICATION_HOST_PORT:-8086}:8086"
+
+  rag-service:
+    environment:
+      APP_ENV: development
+    ports:
+      - "127.0.0.1:${RAG_HTTP_HOST_PORT:-8087}:8087"
+      - "127.0.0.1:${RAG_GRPC_HOST_PORT:-9097}:9097"
+
+  api-gateway:
+    environment:
+      APP_ENV: development
+      APP_AUTH_COOKIE_SECURE: "false"
+      APP_AUTH_COOKIE_SAME_SITE: Lax
+      GATEWAY_ALLOWED_ORIGINS: ${GATEWAY_ALLOWED_ORIGINS:-http://localhost:3000}

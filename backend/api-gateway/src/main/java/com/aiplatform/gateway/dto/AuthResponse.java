@@ -1,5 +1,8 @@
 package com.aiplatform.gateway.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record AuthResponse(
         String message,
         String accessToken,
@@ -9,3 +12,4 @@ public record AuthResponse(
         UserSummaryResponse user
 ) {
 }
+

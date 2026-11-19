@@ -26,6 +26,7 @@ import {
 import { apiRequest, API_BASE_URL } from '@/src/lib/api/gateway-core';
 import { sendMessageSchema } from './gateway-schemas';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
+import { isRealBearerToken } from './core/csrf';
 
 async function chatRequest<T>(
   endpoint: string,
@@ -105,8 +106,11 @@ export function openChatSocket(options: OpenChatSocketOptions): WebSocket {
 
   const queryString = params.toString();
   const wsUrl = `${resolveGatewayWsBase()}/ws/chat${queryString ? `?${queryString}` : ''}`;
-  // Secure WebSocket authentication via Sec-WebSocket-Protocol without exposing access token in URL query parameter
-  const socket = new WebSocket(wsUrl, ['bearer', options.accessToken]);
+  // Browser sessions authenticate via server-managed HttpOnly cookies sent automatically on WS handshake;
+  // explicit Bearer subprotocol is only used when a real non-sentinel token is provided.
+  const socket = isRealBearerToken(options.accessToken)
+    ? new WebSocket(wsUrl, ['bearer', options.accessToken])
+    : new WebSocket(wsUrl);
 
   socket.onopen = () => {
     options.onOpen?.();
@@ -188,8 +192,9 @@ export const chatApi = {
 
     await fetchEventSource(streamUrl, {
       method: 'GET',
+      credentials: 'include',
       headers: {
-        Authorization: `Bearer ${options.token}`,
+        ...(isRealBearerToken(options.token) ? { Authorization: `Bearer ${options.token}` } : {}),
         Accept: 'text/event-stream',
         ...(options.correlationId ? { 'X-Correlation-ID': options.correlationId } : {}),
       },
@@ -537,10 +542,10 @@ export const chatApi = {
     token: string;
     requestId: string;
     signal?: AbortSignal;
-    onChunk: (payload: { requestId: string; messageId?: string; contentDelta: string; sequence?: number; done?: boolean; sanitizationFlags?: string[] }) => void;
+    onChunk: (payload: { requestId: string; messageId?: string; contentDelta: string; sequence?: number; done?: boolean; sanitizationFlags?: string[]; citations?: Array<{ id?: string; fileId?: string; fileName?: string; title?: string; pageNumber?: number; snippet?: string; score?: number }> }) => void;
     onReplay?: (payload: { requestId: string; messageId?: string; content: string; status?: string; sanitizationFlags?: string[] }) => void;
     onStage?: (payload: { requestId: string; stageName: string; stageStatus: string }) => void;
-    onCompleted: (payload: { requestId: string; messageId?: string; finalContent?: string; done?: boolean; sanitizationFlags?: string[] }) => void;
+    onCompleted: (payload: { requestId: string; messageId?: string; finalContent?: string; done?: boolean; sanitizationFlags?: string[]; citations?: Array<{ id?: string; fileId?: string; fileName?: string; title?: string; pageNumber?: number; snippet?: string; score?: number }> }) => void;
     onFailed: (payload: { requestId: string; messageId?: string; error: string; sanitizationFlags?: string[] }) => void;
     onCancelled: (payload: { requestId: string; messageId?: string }) => void;
   }): Promise<void> {
@@ -549,8 +554,9 @@ export const chatApi = {
 
     await fetchEventSource(streamUrl, {
       method: 'GET',
+      credentials: 'include',
       headers: {
-        Authorization: `Bearer ${options.token}`,
+        ...(isRealBearerToken(options.token) ? { Authorization: `Bearer ${options.token}` } : {}),
         Accept: 'text/event-stream',
       },
       signal: options.signal,
@@ -585,6 +591,21 @@ export const chatApi = {
             return;
           }
 
+          const citationsRaw = payload.citations;
+          const citations = Array.isArray(citationsRaw)
+            ? citationsRaw
+                .filter((item: unknown): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+                .map((item) => ({
+                  id: typeof item.chunk_id === 'string' ? item.chunk_id : typeof item.id === 'string' ? item.id : undefined,
+                  fileId: typeof item.file_id === 'string' ? item.file_id : typeof item.fileId === 'string' ? item.fileId : undefined,
+                  fileName: typeof item.file_name === 'string' ? item.file_name : typeof item.fileName === 'string' ? item.fileName : undefined,
+                  title: typeof item.title === 'string' ? item.title : undefined,
+                  pageNumber: typeof item.page_number === 'number' ? item.page_number : typeof item.pageNumber === 'number' ? item.pageNumber : undefined,
+                  snippet: typeof item.snippet === 'string' ? item.snippet : typeof item.chunk_text === 'string' ? item.chunk_text : undefined,
+                  score: typeof item.score === 'number' ? item.score : undefined,
+                }))
+            : [];
+
           if (eventType === 'ai.message.chunk.v2') {
             const delta = payload.content_delta ?? '';
             accumulated += delta;
@@ -595,6 +616,7 @@ export const chatApi = {
               sequence: envelope.sequence,
               done: payload.done,
               sanitizationFlags,
+              citations,
             });
             return;
           }
@@ -615,6 +637,7 @@ export const chatApi = {
               finalContent: payload.final_content ?? accumulated,
               done: true,
               sanitizationFlags,
+              citations,
             });
             return;
           }

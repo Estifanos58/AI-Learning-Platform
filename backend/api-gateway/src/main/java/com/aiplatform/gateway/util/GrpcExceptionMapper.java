@@ -30,7 +30,8 @@ public final class GrpcExceptionMapper {
             default -> HttpStatus.BAD_GATEWAY;
         };
 
-        String message = switch (status) {
+        String description = statusRuntimeException.getStatus().getDescription();
+        String defaultMessage = switch (status) {
             case BAD_REQUEST -> "Request validation failed";
             case UNAUTHORIZED -> "Authentication required";
             case FORBIDDEN -> "Insufficient permissions";
@@ -42,6 +43,10 @@ public final class GrpcExceptionMapper {
             case BAD_GATEWAY -> "Upstream service error";
             default -> "Gateway request failed";
         };
+
+        String message = (description != null && !description.isBlank() && !status.is5xxServerError())
+                ? description
+                : defaultMessage;
 
         return new ResponseStatusException(status, message, throwable);
     }

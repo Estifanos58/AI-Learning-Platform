@@ -1,51 +1,51 @@
 # AI Learning Platform
 
-An enterprise-grade, distributed AI learning and research platform featuring asynchronous retrieval-augmented generation (RAG), direct multi-provider LLM execution, persistent job queue recovery, secure real-time WebSocket and Server-Sent Events (SSE) streaming, and event-driven microservices.
+A distributed AI learning and research platform featuring asynchronous retrieval-augmented generation (RAG), multi-format document extraction with OCR, direct multi-provider LLM execution with durable worker leases, `HttpOnly` cookie + CSRF authentication, transactional outbox event publishing, and real-time WebSocket and Server-Sent Events (SSE) streaming.
 
 ---
 
 ## 1. Architectural Overview & System Design
 
-The AI Learning Platform is architected as an event-driven, microservices-based ecosystem combining high-performance Java Spring Boot services for transactional integrity and business domain isolation, asynchronous Python services for AI orchestration and vector retrieval, and a modern Next.js client interface.
+The platform combines Java 21 / Spring Boot 3 microservices for transactional domains and edge security, Python FastAPI / gRPC services for AI orchestration, document ingestion, and notifications, and a Next.js 16 / React 19 web client.
 
 ### High-Level Architecture Diagram
 
 ```mermaid
 flowchart TD
-    Client["Next.js Web Client<br/>(Port 3000)"]
+    Client["Next.js 16 Web Client<br/>(Port 3000)"]
     Gateway["Spring Cloud API Gateway<br/>(Port 8080)"]
 
-    subgraph Core_Microservices["Backend Microservices"]
-        AuthSvc["Auth Service<br/>(Spring Boot / gRPC 9090)"]
-        ProfileSvc["User Profile Service<br/>(Spring Boot / gRPC 9091)"]
-        FileSvc["File Service<br/>(Spring Boot / gRPC 9092)"]
-        ChatSvc["Chat Service<br/>(Spring Boot / gRPC 9095)"]
-        NotifSvc["Notification Service<br/>(Python / FastApi 8086)"]
-        RagSvc["RAG & Direct AI Service<br/>(Python / FastApi 8087 / gRPC 9097)"]
+    subgraph Core_Microservices["Internal Backend Microservices"]
+        AuthSvc["Auth Service<br/>(HTTP 8082 / gRPC 9090)"]
+        ProfileSvc["User Profile Service<br/>(HTTP 8083 / gRPC 9091)"]
+        FileSvc["File Service<br/>(HTTP 8084 / gRPC 9092)"]
+        ChatSvc["Chat Service<br/>(HTTP 8085 / gRPC 9095)"]
+        NotifSvc["Notification Service<br/>(Python / FastAPI 8086)"]
+        RagSvc["RAG & Direct AI Service<br/>(Python / FastAPI 8087 / gRPC 9097)"]
     end
 
-    subgraph Event_State_Store["Message Brokers & State"]
-        Kafka["Apache Kafka KRaft<br/>(Port 9092)"]
-        Redis["Redis 7.2 Streams & PubSub<br/>(Port 6379)"]
-        Qdrant["Qdrant Vector DB<br/>(Port 6333)"]
-        TEI["HuggingFace TEI Embeddings<br/>(Port 8088)"]
+    subgraph Event_State_Store["Internal Message Brokers & State"]
+        Kafka["Apache Kafka KRaft<br/>(Internal 29092)"]
+        Redis["Redis 7.2 Auth-Protected<br/>(Internal 6379)"]
+        Qdrant["Qdrant Vector DB Auth-Protected<br/>(Internal 6333)"]
+        TEI["HuggingFace TEI Embeddings<br/>(Internal 80)"]
     end
 
     subgraph Datastores["Isolated PostgreSQL Databases"]
-        AuthDB[("Auth DB<br/>Port 5432")]
-        ProfileDB[("Profile DB<br/>Port 5433")]
-        FileDB[("File DB<br/>Port 5434")]
-        ChatDB[("Chat DB<br/>Port 5435")]
-        RagDB[("RAG DB<br/>Port 5436")]
+        AuthDB[("Auth DB")]
+        ProfileDB[("Profile DB")]
+        FileDB[("File DB")]
+        ChatDB[("Chat DB")]
+        RagDB[("RAG DB")]
     end
 
-    Client -->|"HTTP / SSE / WebSocket"| Gateway
-    Gateway -->|"gRPC + Secret"| AuthSvc
-    Gateway -->|"gRPC + Secret"| ProfileSvc
-    Gateway -->|"gRPC + Secret"| FileSvc
-    Gateway -->|"gRPC + Secret"| ChatSvc
-    Gateway -->|"gRPC + Secret"| RagSvc
-    Gateway <-->|"Rate Limiting / Streams"| Redis
+    Client -->|"HTTPS / HttpOnly Cookies + CSRF / SSE / WS"| Gateway
+    Gateway -->|"gRPC + Service Secret"| AuthSvc
+    Gateway -->|"gRPC + Service Secret"| ProfileSvc
+    Gateway -->|"gRPC + Service Secret"| FileSvc
+    Gateway -->|"gRPC + Service Secret"| ChatSvc
+    Gateway -->|"gRPC + Service Secret"| RagSvc
+    Gateway <-->|"Rate Limiting / PubSub / Streams"| Redis
 
     AuthSvc --> AuthDB
     ProfileSvc --> ProfileDB
@@ -53,15 +53,15 @@ flowchart TD
     ChatSvc --> ChatDB
     RagSvc --> RagDB
 
-    AuthSvc -->|"Publish user.registered"| Kafka
-    FileSvc -->|"Publish file.uploaded"| Kafka
-    ChatSvc -->|"Publish ai.message.requested"| Kafka
-    Kafka -->|"Consume verification events"| NotifSvc
-    Kafka -->|"Consume indexing & AI requests"| RagSvc
+    AuthSvc -->|"Transactional Outbox -> Kafka"| Kafka
+    FileSvc -->|"Transactional Outbox -> Kafka"| Kafka
+    ChatSvc -->|"Transactional Outbox -> Kafka"| Kafka
+    Kafka -->|"Manual Commit + Redis Dedup"| NotifSvc
+    Kafka -->|"Per-Record Manual Commit + DLT"| RagSvc
 
-    RagSvc -->|"Vector Search"| Qdrant
+    RagSvc -->|"Vector Search (API Key)"| Qdrant
     RagSvc -->|"Embeddings"| TEI
-    RagSvc -->|"Publish Tokens & SSE"| Redis
+    RagSvc -->|"Streams / PubSub"| Redis
     ChatSvc <-->|"Presence & PubSub"| Redis
 ```
 
@@ -71,166 +71,165 @@ flowchart TD
 
 ### Service Catalog
 
-| Service | Technology | Internal Port | External Port | Primary Responsibilities |
+| Service | Technology | Internal Ports | Default Host Port | Primary Responsibilities |
 | :--- | :--- | :--- | :--- | :--- |
-| **frontend** | Next.js 14, React 19, TypeScript, Tailwind | 3000 | 3000 | Responsive web application, real-time chat, AI studio, document browser |
-| **api-gateway** | Spring Cloud Gateway, WebFlux, Netty | 8080 | 8080 | Single entry point, JWT validation, IP rate limiting, prompt sanitization, WS/SSE routing |
-| **auth-service** | Spring Boot 3, Java 21, Spring Security, JPA | 9090 | 9090 | RBAC authorization, registration, password hashing (BCrypt), JWT issuance |
-| **user-profile-service** | Spring Boot 3, Java 21, JPA | 9091 | 9091 | User profile management, biographical data, user preferences |
-| **file-service** | Spring Boot 3, Java 21, JPA | 9092 | 9094 | File storage, multipart upload validation, file metadata persistence |
-| **chat-service** | Spring Boot 3, Java 21, Redis, JPA | 9095 | 9095 | Chatrooms, message persistence, typing indicators, read receipts |
-| **notification-service** | Python 3.12, FastAPI, aiosmtplib | 8086 | 8086 | Asynchronous email delivery, verification codes, Kafka consumer |
-| **rag-service** | Python 3.11, FastAPI, SQLAlchemy, gRPC | 8087, 9097 | 8087, 9097 | Document chunking, hybrid vector search, LLM routing, durable execution queue |
+| **frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS | 3000 | 3000 | Workspace UI with persisted tabs/split panes, safe Markdown/DOCX rendering, real-time chat, Direct AI |
+| **api-gateway** | Spring Cloud Gateway, WebFlux, Netty | 8080 | 8080 | Public edge ingress, RSA JWT validation (with key rotation), `HttpOnly` cookie & CSRF enforcement, Redis rate limiting, WS/SSE streaming |
+| **auth-service** | Spring Boot 3, Java 21, JPA, Flyway | 8082 (HTTP), 9090 (gRPC) | Private* | Registration, BCrypt auth, RS256 JWT issuance, refresh token rotation, transactional outbox |
+| **user-profile-service** | Spring Boot 3, Java 21, JPA, Flyway | 8083 (HTTP), 9091 (gRPC) | Private* | Profile CRUD, visibility controls, search, idempotent Kafka bootstrap |
+| **file-service** | Spring Boot 3, Java 21, JPA, Flyway | 8084 (HTTP), 9092 (gRPC) | Private* | File/folder CRUD, sharing ACLs, streaming binary storage, transactional outbox |
+| **chat-service** | Spring Boot 3, Java 21, JPA, Flyway, Redis | 8085 (HTTP), 9095 (gRPC) | Private* | Chatrooms, messages, typing indicators, transactional outbox, Kafka DLT error handling |
+| **notification-service** | Python 3.12, FastAPI, `smtplib`, Redis | 8086 (HTTP) | Private* | Manual-commit Kafka verification email consumer, persistent Redis/SQLite deduplication, confirmed DLQ publishing |
+| **rag-service** | Python 3.12, FastAPI, SQLAlchemy, Alembic, gRPC | 8087 (HTTP), 9097 (gRPC) | Private* | Multi-format extraction (PDF/DOCX/XLSX/PPTX/images+OCR), Qdrant retrieval, bounded multi-instance worker leases, `MultiFernet` key rotation |
+
+\* Internal ports are not published in the base `docker-compose.yml`. Use `docker-compose.dev.yml` to bind debugging ports strictly to `127.0.0.1`.
 
 ### Shared Infrastructure
 
-| Component | Image / Engine | Host Port | Role |
+| Component | Image | Security Posture | Role |
 | :--- | :--- | :--- | :--- |
-| **PostgreSQL** | `postgres:15-alpine` | 5432-5436 | Dedicated relational database instances per microservice |
-| **Redis** | `redis:7.2-alpine` | 6379 | Token bucket rate limiting, Redis Streams for SSE, real-time presence |
-| **Kafka (KRaft)** | `confluentinc/cp-kafka:7.5.0` | 9092 | High-throughput asynchronous event bus across domain microservices |
-| **Qdrant** | `qdrant/qdrant:v1.12.4` | 6333, 6334 | Vector search engine for document embeddings and similarity retrieval |
-| **TEI** | `text-embeddings-inference:cpu-1.5` | 8088 | HuggingFace high-throughput local CPU inference for `BAAI/bge-large-en-v1.5` |
+| **PostgreSQL** | `postgres:15-alpine` | Unique required credentials per service; internal-only | Dedicated relational datastore per microservice (Flyway / Alembic managed) |
+| **Redis** | `redis:7.2-alpine` | `--requirepass` required; internal-only | Rate limiting, Redis Streams/PubSub for SSE & WS, notification deduplication |
+| **Kafka (KRaft)** | `confluentinc/cp-kafka:7.5.0` | Internal listener only by default | Asynchronous domain event bus + dead-letter topics |
+| **Qdrant** | `qdrant/qdrant:v1.12.4` | `QDRANT__SERVICE__API_KEY` required; internal-only | Vector storage and similarity search |
+| **TEI** | `text-embeddings-inference:cpu-1.5` | Internal-only | Local CPU embedding inference (`BAAI/bge-large-en-v1.5`) |
 
 ---
 
 ## 3. Repository Structure
 
-```
+```text
 AI-Learning-Platform/
-├── .env.example                     # Root environment variable template
-├── .dockerignore                    # Root Docker build exclusions
-├── docker-compose.yml               # Centralized root multi-container orchestration
-├── LICENSE                          # Project license (MIT)
-├── THIRD_PARTY_LICENSES.md          # Open-source attributions and third-party notices
-├── README.md                        # Platform architecture and operations documentation
+├── .env.example                     # Environment template (all required secrets documented)
+├── SECURITY.md                      # Security architecture, secret injection & key rotation guide
+├── docker-compose.yml               # Hardened production-default Compose stack
+├── docker-compose.dev.yml           # Local development override (127.0.0.1 debug ports, HTTP cookies)
+├── scripts/
+│   └── generate-dev-keys.sh         # Generates local RSA-2048 JWT keys under ./secrets/
 ├── backend/
-│   ├── proto/                       # Shared Protocol Buffer definitions (auth, chat, file, rag)
-│   ├── api-gateway/                 # Spring Cloud Gateway ingress proxy
-│   ├── auth-service/                # Authentication & RBAC service
-│   ├── user-profile-service/        # User profile domain service
-│   ├── file-service/                # File upload & document storage service
-│   ├── chat-service/                # Real-time chat & message store service
-│   ├── notification-service/        # Python notification & email worker
-│   └── rag-service/                 # Python RAG, direct LLM execution & vector ingestion
+│   ├── proto/                       # Shared Protocol Buffer contracts
+│   ├── api-gateway/                 # Spring Cloud Gateway edge service
+│   ├── auth-service/                # Identity, RSA JWT signing & transactional outbox
+│   ├── user-profile-service/        # User profiles & idempotent registration consumer
+│   ├── file-service/                # File/folder storage, ACLs & transactional outbox
+│   ├── chat-service/                # Chatrooms, messages & transactional outbox
+│   ├── notification-service/        # Email worker with manual commits & Redis deduplication
+│   └── rag-service/                 # Document ingestion, Alembic migrations, Qdrant & Direct AI
 └── frontend/
-    ├── app/                         # Next.js App Router (public auth, dashboard, chat, files)
-    ├── src/
-    │   ├── components/              # UI components (Radix primitives, chat widgets, markdown)
-    │   ├── contexts/                # React context providers (AuthContext, ThemeContext)
-    │   ├── hooks/                   # Custom React hooks (forms, chat, streaming)
-    │   └── lib/api/                 # Gateway client wrappers (REST, SSE, WebSocket)
-    └── Dockerfile                   # Multi-stage production container build
+    ├── app/                         # Next.js 16 App Router pages
+    ├── src/                         # Components, contexts, hooks, API client, sanitization
+    ├── eslint.config.mjs            # ESLint 9 flat config
+    ├── vitest.config.ts             # Vitest unit/regression test config
+    └── Dockerfile                   # Non-root multi-stage production container (npm ci)
 ```
 
 ---
 
-## 4. Quick Start: Centralized Docker Setup
-
-The entire platform can be launched with one command from the project root.
+## 4. Quick Start
 
 ### Prerequisites
 - Docker Engine 24.0+ and Docker Compose v2.20+
-- Host RAM: 8 GB minimum (16 GB recommended for local embedding model)
-- Free Disk Space: 15 GB minimum
+- OpenSSL (for generating local JWT RSA keys)
+- Host RAM: 8 GB minimum (16 GB recommended when running local TEI embeddings)
 
-### Launching the Platform
+### Local Development Setup
 
-1. **Clone the repository and copy the environment template:**
+1. **Generate local RSA JWT signing keys** (written to git-ignored `./secrets/`):
+   ```bash
+   ./scripts/generate-dev-keys.sh
+   ```
+
+2. **Configure environment variables:**
    ```bash
    cp .env.example .env
    ```
+   Edit `.env` and populate all required secrets (database passwords, `REDIS_PASSWORD`, `QDRANT_API_KEY`, `APP_GRPC_*_SERVICE_SECRET`, `AI_KEY_ENCRYPTION_SECRET`, and at least one LLM provider key such as `GEMINI_API_KEY`, `GROQ_API_KEY`, `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY`).
 
-2. **Configure your API Keys (Optional but recommended):**
-   Open `.env` and set your external LLM provider key(s):
-   ```dotenv
-   GEMINI_API_KEY=your_gemini_api_key_here
-   DEEPSEEK_API_KEY=your_deepseek_api_key_here
-   GROQ_API_KEY=your_groq_api_key_here
-   ```
-
-3. **Start all services:**
+3. **Start the local development stack** (binds debug ports strictly to `127.0.0.1` and enables HTTP cookies for `http://localhost:3000`):
    ```bash
-   docker compose up --build
+   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
    ```
 
 4. **Access the application:**
-   - **Web Application:** [http://localhost:3000](http://localhost:3000)
-   - **API Gateway:** [http://localhost:8080/api](http://localhost:8080/api)
-   - **API Documentation:** [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
-   - **Qdrant Dashboard:** [http://localhost:6333/dashboard](http://localhost:6333/dashboard)
+   - **Web Application:** `http://localhost:3000`
+   - **API Gateway:** `http://localhost:8080/api`
+   - **Gateway Health / Readiness:** `http://localhost:8080/actuator/health/readiness`
+   - **Gateway Metrics:** `http://localhost:8080/actuator/prometheus`
+
+### Production Deployment
+
+1. Provision RSA keys (`jwt_private_key.pem`, `jwt_public_key.pem`) via your secret manager and mount them at `/run/secrets/` (or configure `JWT_PRIVATE_KEY_FILE` / `JWT_PUBLIC_KEY_FILE`).
+2. Set `APP_ENV=production`, `APP_AUTH_COOKIE_SECURE=true`, HTTPS `NEXT_PUBLIC_API_URL` / `GATEWAY_ALLOWED_ORIGINS`, and strong unique values for all secrets in `.env` or your orchestrator environment.
+3. Run using **only** the base hardened Compose file (internal database, broker, and microservice ports are not exposed):
+   ```bash
+   docker compose up -d --build
+   ```
+
+See [SECURITY.md](SECURITY.md) for key rotation, CSRF protection, encryption rotation, and hardening details.
 
 ---
 
-## 5. Operations & Developer Cheat Sheet
+## 5. Key Endpoints & Operational Probes
 
-### Common Docker Commands
+### Streaming & Realtime Endpoints
+- **Direct AI Execution SSE:** `GET /api/ai/executions/{executionId}/stream`
+- **Chat AI Message SSE:** `GET /api/chat/messages/{messageId}/stream`
+- **Chat WebSocket:** `WS /ws/chat` (authenticated via `HttpOnly` cookie or `Sec-WebSocket-Protocol` bearer header)
+- **Session & CSRF Bootstrap:** `GET /api/auth/session`, `GET /api/auth/csrf`
 
-| Action | Command |
-| :--- | :--- |
-| **Start in background** | `docker compose up -d` |
-| **View logs across all services** | `docker compose logs -f` |
-| **View logs for a specific service** | `docker compose logs -f api-gateway` |
-| **Restart a single service** | `docker compose restart rag-service` |
-| **Rebuild a single service** | `docker compose build frontend && docker compose up -d frontend` |
-| **Check service health** | `docker compose ps` |
-| **Stop all services gracefully** | `docker compose stop` |
-| **Tear down containers & networks** | `docker compose down` |
+### Liveness, Readiness & Metrics
+- **Java Services (`api-gateway`, `auth`, `profile`, `file`, `chat`):**
+  - `GET /actuator/health/liveness`
+  - `GET /actuator/health/readiness`
+  - `GET /actuator/prometheus`
+- **Python Services (`rag-service` :8087, `notification-service` :8086):**
+  - `GET /health` (liveness)
+  - `GET /ready` (readiness verifying Postgres/Qdrant/Redis/Kafka)
+  - `GET /metrics` (Prometheus metrics)
 
 ### Destructive Volume Cleanup Warning
 
 > [!CAUTION]
-> The following command deletes all persisted data across all PostgreSQL databases, Redis, Qdrant vector indices, and uploaded user files:
-> ```bash
-> docker compose down -v
-> ```
-> Use this **only** when performing a complete cold factory reset.
+> `docker compose down -v` permanently deletes all PostgreSQL databases, Redis data, Qdrant vector indices, and uploaded files. Use only for a full reset.
 
 ---
 
-## 6. Core Workflows & Security Architecture
+## 6. Testing & Verification
 
-### 1. Authentication & Role-Based Access Control (RBAC)
-- **Privilege Escalation Prevention:** Public registration (`POST /api/auth/signup`) is strictly hardcoded to assign `Role.STUDENT`. The client cannot specify a privileged role (`ADMIN` or `INSTRUCTOR`) during self-service signup. Role promotions require an authorized administrative operation (`PUT /api/auth/users/{userId}/role`) restricted to authenticated `ADMIN` principals.
-- **Credential Protection:** Raw passwords are sanitized and hashed using BCrypt. Sensitive credentials, passwords, and verification tokens are never written to application logs.
-- **Robust Session Clearing:** Client logout guarantees local session and cookie invalidation even if network timeouts or backend errors occur.
-
-### 2. WebSocket & SSE Streaming Security
-- **Subprotocol Token Passing:** Real-time chat WebSockets pass JWT access tokens via the standard `Sec-WebSocket-Protocol` header (`['bearer', token]`) rather than exposing credentials in URL query parameters where they could be logged by proxies or browser histories.
-- **Resource Ownership Verification:** Prior to opening Server-Sent Event (SSE) streams (`/api/ai/executions/{id}/events` and `/api/chat/{id}/events`), the API Gateway verifies the caller's JWT identity against execution record ownership and chatroom membership. Unauthorized requests receive `403 Forbidden` immediately.
-- **Redis Stream Reliability:** Event streaming utilizes Redis Streams with automatic 15-second heartbeat pings, transient reconnection backoff, and a 5-minute stream timeout to prevent hung connections.
-
-### 3. Prompt Injection Defense & DoS Prevention
-- **Early Payload Sizing:** The `PromptInjectionSanitizationFilter` evaluates HTTP `Content-Length` headers and streaming byte counters against a strict request size limit before buffering payloads into memory, returning `413 Payload Too Large` to prevent memory exhaustion attacks.
-- **Defensive Normalization:** Inbound prompts are stripped of non-printable control characters and null bytes, and Unicode characters are normalized to NFC standard format.
-
-### 4. Durable Job Queue & Fault-Tolerant Execution
-- **Persistent AI Execution Model:** AI execution jobs are recorded in the PostgreSQL database with their serialized parameters, status lifecycle (`PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`), and retry metadata.
-- **Bounded Concurrency & Startup Recovery:** The `DirectExecutionWorker` enforces bounded concurrency using asynchronous semaphores. Upon server restart or worker crash, interrupted `RUNNING` or `PENDING` jobs are automatically recovered from the database, enqueued, and resumed with exponential backoff retries.
-
----
-
-## 7. Testing & Quality Assurance
-
-### Python Test Suite (`rag-service`)
-The RAG and Direct AI service includes unit tests verifying model orchestration, repository operations, bounded queue execution, and startup recovery:
-
+### Java Microservices (Maven / Java 21)
 ```bash
-cd backend/rag-service
-pytest tests/ -v
+for svc in auth-service api-gateway file-service chat-service user-profile-service; do
+  mvn -B -f backend/$svc/pom.xml test
+done
 ```
 
-### Java & Spring Boot Tests
-Spring Boot services include Mockito and WebFlux unit tests covering:
-- Enforcement of `Role.STUDENT` on public signup (`AuthServiceImplTest`)
-- Administrative role authorization checks (`GatewayAuthControllerTest`)
-- Execution mode validation (`GatewayAiExecutionControllerTest`)
-- Payload size bounding in sanitization filters (`PromptInjectionSanitizationFilterTest`)
-- WebSocket subprotocol token authentication (`ChatWebSocketHandlerTest`)
+### Python `rag-service`
+```bash
+cd backend/rag-service
+ruff check app tests
+pytest -v
+```
+
+### Python `notification-service`
+```bash
+cd backend/notification-service
+ruff check app tests
+pytest -v
+```
+
+### Frontend (Next.js 16 / Vitest / ESLint)
+```bash
+cd frontend
+npm ci
+npm run typecheck
+npm run lint
+npm test
+npm run build
+```
 
 ---
 
-## 8. License
+## 7. License
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
-Third-party licenses, trademarks, and attributions are documented in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+This project is licensed under the **MIT License** — see [LICENSE](LICENSE).
+Third-party attributions are documented in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

@@ -62,13 +62,10 @@ public class AuthServiceImpl implements AuthService {
                 .passwordHash(passwordEncoder.encode(request.password()))
                 .role(Role.STUDENT)
                 .status(UserStatus.ACTIVE)
-                .emailVerified(Boolean.FALSE)
+                .emailVerified(Boolean.TRUE)
                 .build();
         User savedUser = userRepository.save(user);
         userRegisteredEventPublisher.publish(savedUser.getId(), savedUser.getEmail(), null, metadata.correlationId());
-
-        issueAndPublishVerificationCode(savedUser, metadata.correlationId(), false);
-
 
         String accessToken = jwtService.generateAccessToken(user);
         String refreshRawToken = tokenGeneratorUtil.generateToken();
@@ -81,9 +78,9 @@ public class AuthServiceImpl implements AuthService {
                 .ipAddress(metadata.ipAddress())
                 .userAgent(metadata.userAgent())
                 .build());
-        log.info("User signed up successfully. userId={} , userName={} , userEmail={}", savedUser.getId(), savedUser.getUsername(), savedUser.getEmail());
+        log.info("User signed up successfully. userId={}", savedUser.getId());
 
-        return new SignupResponse("Signup successful. Please verify your email.", accessToken, refreshRawToken, userMapper.toSummary(savedUser));
+        return new SignupResponse("Signup successful.", accessToken, refreshRawToken, userMapper.toSummary(savedUser));
     }
 
     @Override
@@ -136,7 +133,7 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public TokenResponse login(LoginRequest request, RequestMetadata metadata) {
 
-        log.info("Processing login request for email={}", request.email());
+        log.info("Processing login request. correlationId={}", metadata.correlationId());
 
         User user = userRepository.findByEmailIgnoreCase(request.email())
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
@@ -146,9 +143,6 @@ public class AuthServiceImpl implements AuthService {
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
-//        if (!Boolean.TRUE.equals(user.getEmailVerified())) {
-//            throw new ApiException(HttpStatus.FORBIDDEN, "Email is not verified");
-//        }
         if (user.getStatus() != UserStatus.ACTIVE) {
             throw new ApiException(HttpStatus.FORBIDDEN, "User account is not active");
         }
@@ -182,15 +176,7 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Invalid refresh token"));
 
         if (Boolean.TRUE.equals(currentToken.getRevoked())) {
-
-            UUID replacedBy =  currentToken.getReplacedBy();
-
-            RefreshToken newRefToken = refreshTokenRepository.findById(replacedBy).orElseThrow(() ->
-                    new ApiException(HttpStatus.UNAUTHORIZED, "Invalid refresh token"));
-
-            newRefToken.setRevoked(Boolean.TRUE);
-            newRefToken.setRevokedAt(LocalDateTime.now());
-            refreshTokenRepository.save(newRefToken);
+            revokeReplacementChain(currentToken.getReplacedBy());
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Refresh token is expired or revoked");
         }
 
@@ -323,5 +309,22 @@ public class AuthServiceImpl implements AuthService {
         );
 
         log.info("Verification code generated and event published. userId={}", user.getId());
+    }
+
+    private void revokeReplacementChain(UUID initialReplacementId) {
+        UUID nextId = initialReplacementId;
+        int guard = 0;
+        while (nextId != null && guard++ < 50) {
+            RefreshToken replacement = refreshTokenRepository.findById(nextId).orElse(null);
+            if (replacement == null) {
+                break;
+            }
+            if (!Boolean.TRUE.equals(replacement.getRevoked())) {
+                replacement.setRevoked(Boolean.TRUE);
+                replacement.setRevokedAt(LocalDateTime.now());
+                refreshTokenRepository.save(replacement);
+            }
+            nextId = replacement.getReplacedBy();
+        }
     }
 }

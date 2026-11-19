@@ -3,8 +3,10 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
+import rehypeHighlight from 'rehype-highlight';
 import { FileItem } from '@/src/lib/types';
+import { MARKDOWN_SANITIZE_SCHEMA, sanitizeUrl } from '@/src/lib/security/sanitize';
 import { ViewerToolbar } from '../viewer-toolbar';
 import { Button } from '@/components/ui/button';
 import { FileCode2 } from 'lucide-react';
@@ -57,7 +59,10 @@ export function MarkdownViewer({ file, textContent, onDownload }: MarkdownViewer
           <div className="p-6 max-w-none">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeRaw]}
+              rehypePlugins={[
+                [rehypeSanitize, MARKDOWN_SANITIZE_SCHEMA],
+                rehypeHighlight,
+              ]}
               components={{
                 h1: ({ children }) => <h1 className="text-3xl font-bold mb-4 mt-6 first:mt-0 pb-2 border-b border-border">{children}</h1>,
                 h2: ({ children }) => <h2 className="text-2xl font-semibold mb-3 mt-5 first:mt-0 pb-1 border-b border-border/50">{children}</h2>,
@@ -66,11 +71,17 @@ export function MarkdownViewer({ file, textContent, onDownload }: MarkdownViewer
                 h5: ({ children }) => <h5 className="text-base font-medium mb-1 mt-2">{children}</h5>,
                 h6: ({ children }) => <h6 className="text-sm font-medium mb-1 mt-2 text-muted-foreground">{children}</h6>,
                 p: ({ children }) => <p className="mb-4 leading-7 last:mb-0">{children}</p>,
-                a: ({ href, children }) => (
-                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-4 hover:text-primary/80">
-                    {children}
-                  </a>
-                ),
+                a: ({ href, children }) => {
+                  const safeHref = sanitizeUrl(href);
+                  if (!safeHref) {
+                    return <span className="text-muted-foreground underline decoration-dotted">{children}</span>;
+                  }
+                  return (
+                    <a href={safeHref} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-4 hover:text-primary/80">
+                      {children}
+                    </a>
+                  );
+                },
                 ul: ({ children }) => <ul className="mb-4 ml-6 list-disc space-y-1">{children}</ul>,
                 ol: ({ children }) => <ol className="mb-4 ml-6 list-decimal space-y-1">{children}</ol>,
                 li: ({ children }) => <li className="leading-7">{children}</li>,
@@ -78,7 +89,7 @@ export function MarkdownViewer({ file, textContent, onDownload }: MarkdownViewer
                   <blockquote className="mb-4 border-l-4 border-border pl-4 italic text-muted-foreground">{children}</blockquote>
                 ),
                 code: ({ className, children, ...props }) => {
-                  const isBlock = className?.startsWith('language-');
+                  const isBlock = Boolean(className && (className.includes('language-') || className.includes('hljs')));
                   if (isBlock) {
                     return (
                       <code
@@ -106,10 +117,14 @@ export function MarkdownViewer({ file, textContent, onDownload }: MarkdownViewer
                 th: ({ children }) => <th className="px-4 py-2 text-left font-medium">{children}</th>,
                 td: ({ children }) => <td className="px-4 py-2">{children}</td>,
                 hr: () => <hr className="my-6 border-border" />,
-                img: ({ src, alt }) => (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src={src} alt={alt ?? ''} className="max-w-full h-auto rounded-md my-4" />
-                ),
+                img: ({ src, alt }) => {
+                  const safeSrc = sanitizeUrl(typeof src === 'string' ? src : undefined);
+                  if (!safeSrc) return null;
+                  return (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={safeSrc} alt={alt ?? ''} className="max-w-full h-auto rounded-md my-4" />
+                  );
+                },
                 strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
                 em: ({ children }) => <em className="italic">{children}</em>,
               }}

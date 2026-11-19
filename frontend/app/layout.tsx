@@ -5,13 +5,15 @@ import { ThemeProvider } from '@/components/theme-provider'
 import { ThemeColorProvider } from '@/src/contexts/theme-color-context'
 import './globals.css'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+const geist = Geist({ subsets: ['latin'], variable: '--font-geist-sans' })
+const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
 
 export const metadata: Metadata = {
-  title: 'NotebookLM - AI Learning Platform',
-  description: 'Learn smarter with AI-powered document analysis and intelligent chat',
-  generator: 'v0.app',
+  title: {
+    default: 'AI Learning Platform',
+    template: '%s | AI Learning Platform',
+  },
+  description: 'Learn smarter with AI-powered document analysis, RAG research, and collaborative study workspaces',
   icons: {
     icon: [
       {
@@ -37,7 +39,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning className="dark">
+    <html lang="en" suppressHydrationWarning className={`${geist.variable} ${geistMono.variable}`}>
       <body className="font-sans antialiased bg-background text-foreground">
         <ThemeProvider
           attribute="class"

@@ -73,7 +73,7 @@ public class User {
             status = UserStatus.ACTIVE;
         }
         if (emailVerified == null) {
-            emailVerified = Boolean.FALSE;
+            emailVerified = Boolean.TRUE;
         }
     }
 

@@ -1,9 +1,6 @@
 """Tests for file validator security checks."""
 
-import os
-import tempfile
 
-import pytest
 from app.security.file_validator import FileValidator
 
 

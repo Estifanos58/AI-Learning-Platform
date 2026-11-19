@@ -37,18 +37,19 @@ function formatCell(value: CellValue): string {
 }
 
 export function SpreadsheetViewer({ file, src, onDownload }: SpreadsheetViewerProps) {
-  const [state, setState] = useState<State>({ status: 'idle' });
+  const [loadedState, setLoadedState] = useState<
+    | { status: 'ready'; forKey: string; sheets: string[]; rows: CellValue[][] }
+    | { status: 'error'; forKey: string; message: string }
+    | null
+  >(null);
   const [activeSheet, setActiveSheet] = useState(0);
+  const loadKey = src ? `${src}::${activeSheet}` : '';
 
   // Re-load rows when the active sheet changes
   useEffect(() => {
-    if (!src) {
-      setState({ status: 'idle' });
-      return;
-    }
+    if (!src) return;
 
     let cancelled = false;
-    setState({ status: 'loading' });
 
     (async () => {
       try {
@@ -63,11 +64,12 @@ export function SpreadsheetViewer({ file, src, onDownload }: SpreadsheetViewerPr
 
         if (cancelled) return;
 
-        setState({ status: 'ready', sheets: sheetNames, rows: rows as CellValue[][] });
+        setLoadedState({ status: 'ready', forKey: loadKey, sheets: sheetNames, rows: rows as CellValue[][] });
       } catch (err) {
         if (!cancelled) {
-          setState({
+          setLoadedState({
             status: 'error',
+            forKey: loadKey,
             message: err instanceof Error ? err.message : 'Failed to read spreadsheet',
           });
         }
@@ -77,7 +79,13 @@ export function SpreadsheetViewer({ file, src, onDownload }: SpreadsheetViewerPr
     return () => {
       cancelled = true;
     };
-  }, [src, activeSheet]);
+  }, [src, activeSheet, loadKey]);
+
+  const state: State = !src
+    ? { status: 'idle' }
+    : loadedState && loadedState.forKey === loadKey
+      ? loadedState
+      : { status: 'loading' };
 
   const label = file.originalName.toLowerCase().endsWith('.xlsx') ? 'XLSX' : 'XLS';
 

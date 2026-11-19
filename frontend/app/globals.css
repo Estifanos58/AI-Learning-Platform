@@ -363,3 +363,39 @@
 .perspective-1000 {
   perspective: 1000px;
 }
+
+/* Syntax highlighting tokens for AI code blocks and Markdown viewer */
+.hljs-comment,
+.hljs-quote {
+  color: #71717a;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst {
+  color: #c084fc;
+}
+
+.hljs-string,
+.hljs-title,
+.hljs-section,
+.hljs-attribute,
+.hljs-template-tag,
+.hljs-template-variable {
+  color: #86efac;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-built_in {
+  color: #fbbf24;
+}
+
+.hljs-function .hljs-title,
+.hljs-title.function_,
+.hljs-type,
+.hljs-class .hljs-title {
+  color: #60a5fa;
+}

@@ -17,7 +17,7 @@ function JsonTree({ value }: { value: unknown }) {
   if (value === null) return <span className="text-pink-500">null</span>;
 
   if (typeof value === 'string') {
-    return <span className="text-green-600 dark:text-green-400">"{value}"</span>;
+    return <span className="text-green-600 dark:text-green-400">&quot;{value}&quot;</span>;
   }
 
   if (typeof value === 'number' || typeof value === 'boolean') {

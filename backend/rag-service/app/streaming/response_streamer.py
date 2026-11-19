@@ -6,9 +6,10 @@ import json
 import logging
 import uuid
 from functools import lru_cache
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.config import get_settings
+from app.observability import get_correlation_id
 from app.streaming.sinks.base import StreamSink
 from app.streaming.sinks.redis_stream_sink import RedisStreamSink
 
@@ -37,6 +38,9 @@ class ResponseStreamer:
         return sinks
 
     async def _publish(self, event: Dict[str, Any]) -> None:
+        corr_id = get_correlation_id()
+        if corr_id and "correlation_id" not in event:
+            event["correlation_id"] = corr_id
         for sink in self._sinks:
             await sink.publish(event)
 
@@ -181,30 +185,34 @@ class _KafkaSink(StreamSink):
 
 def _now() -> str:
     from datetime import datetime, timezone
+
     return datetime.now(timezone.utc).isoformat()
 
 
 class KafkaProducer:
-    """Thin wrapper around kafka-python KafkaProducer."""
+    """Wrapper around kafka-python KafkaProducer supporting confirmed synchronous publishing."""
 
     def __init__(self) -> None:
         self._producer: Optional[Any] = None
 
-    def start(self) -> None:
-        try:
-            from kafka import KafkaProducer as _KP  # type: ignore[import]
+    @property
+    def is_started(self) -> bool:
+        return self._producer is not None
 
-            self._producer = _KP(
-                bootstrap_servers=settings.kafka_bootstrap_servers,
-                key_serializer=lambda k: k.encode("utf-8") if k else None,
-                value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-                acks="all",
-                retries=3,
-                linger_ms=5,
-            )
-            log.info("KafkaProducer connected")
-        except Exception as exc:  # noqa: BLE001
-            log.warning("KafkaProducer failed to connect: %s", exc)
+    def start(self) -> None:
+        if self._producer is not None:
+            return
+        from kafka import KafkaProducer as _KP  # type: ignore[import]
+
+        self._producer = _KP(
+            bootstrap_servers=settings.kafka_bootstrap_servers,
+            key_serializer=lambda k: k.encode("utf-8") if isinstance(k, str) else k,
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            acks="all",
+            retries=3,
+            linger_ms=5,
+        )
+        log.info("KafkaProducer connected")
 
     def stop(self) -> None:
         if self._producer:
@@ -213,15 +221,33 @@ class KafkaProducer:
                 self._producer.close()
             except Exception:  # noqa: BLE001
                 pass
+            finally:
+                self._producer = None
 
-    def send(self, topic: str, key: str, value: Any) -> None:
+    def send(
+        self,
+        topic: str,
+        key: str | None,
+        value: Any,
+        headers: List[Tuple[str, bytes]] | None = None,
+    ) -> None:
         if self._producer is None:
-            log.debug("Producer not available; skipping send to %s", topic)
-            return
-        try:
-            self._producer.send(topic, key=key, value=value)
-        except Exception as exc:  # noqa: BLE001
-            log.error("Kafka send failed (topic=%s): %s", topic, exc)
+            raise RuntimeError(f"KafkaProducer is not started; cannot publish to {topic}")
+        self._producer.send(topic, key=key, value=value, headers=headers)
+
+    def send_sync(
+        self,
+        topic: str,
+        key: str | None,
+        value: Any,
+        headers: List[Tuple[str, bytes]] | None = None,
+        timeout_seconds: float = 10.0,
+    ) -> Any:
+        """Publish to Kafka and block until broker acknowledges delivery."""
+        if self._producer is None:
+            raise RuntimeError(f"KafkaProducer is not started; cannot publish synchronously to {topic}")
+        future = self._producer.send(topic, key=key, value=value, headers=headers)
+        return future.get(timeout=timeout_seconds)
 
 
 @lru_cache

@@ -7,33 +7,24 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Consumes RAG streaming response events and relays them to Redis
  * for WebSocket delivery to connected clients.
- * Failed messages are retried up to MAX_RETRIES times before being sent to DLT.
+ * Exceptions propagate to the container's DefaultErrorHandler + DeadLetterPublishingRecoverer,
+ * ensuring offsets are only committed after successful handling or confirmed DLT delivery.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class RagStreamConsumer {
 
-    private static final int MAX_RETRIES = 3;
-    private static final String DLT_SUFFIX = ".dlt";
-
     private final ChatRedisPublisher redisPublisher;
     private final ObjectMapper objectMapper;
-    private final KafkaTemplate<String, String> kafkaTemplate;
-
-    // Track per-message retry counts in memory (simple approach)
-    private final ConcurrentHashMap<String, AtomicInteger> retryCounters = new ConcurrentHashMap<>();
 
     @KafkaListener(
             topics = {
@@ -45,40 +36,23 @@ public class RagStreamConsumer {
             groupId = "${spring.kafka.consumer.group-id:chat-service-rag-v2}",
             containerFactory = "ragStreamKafkaListenerContainerFactory"
     )
-    public void onRagEvent(ConsumerRecord<String, String> record, Acknowledgment ack) {
-        String messageKey = record.topic() + ":" + record.offset();
-        try {
-            Map<String, Object> event = objectMapper.readValue(
-                    record.value(),
-                    new TypeReference<>() {}
-            );
-            String eventType = (String) event.getOrDefault("event_type", "");
-            Map<String, Object> payload = extractPayload(event);
+    public void onRagEvent(ConsumerRecord<String, String> record, Acknowledgment ack) throws Exception {
+        Map<String, Object> event = objectMapper.readValue(
+                record.value(),
+                new TypeReference<>() {}
+        );
+        String eventType = (String) event.getOrDefault("event_type", "");
+        Map<String, Object> payload = extractPayload(event);
 
-            switch (eventType) {
-                case "ai.message.chunk.v2" -> handleChunk(payload);
-                case "ai.message.completed.v2" -> handleCompleted(payload);
-                case "ai.message.failed.v2" -> handleFailed(payload);
-                case "ai.message.cancelled.v2" -> handleCancelled(payload);
-                default -> log.warn("Unknown RAG event type: {}", eventType);
-            }
-
-            retryCounters.remove(messageKey);
-            ack.acknowledge();
-        } catch (Exception e) {
-            int retries = retryCounters.computeIfAbsent(messageKey, k -> new AtomicInteger(0))
-                    .incrementAndGet();
-            if (retries >= MAX_RETRIES) {
-                log.error("Max retries ({}) exceeded for RAG event from topic {}; routing to DLT: {}",
-                        MAX_RETRIES, record.topic(), e.getMessage());
-                sendToDlt(record);
-                retryCounters.remove(messageKey);
-                ack.acknowledge();
-            } else {
-                log.warn("Failed to process RAG event (attempt {}/{}): {}", retries, MAX_RETRIES, e.getMessage());
-                // Do not acknowledge – container will retry
-            }
+        switch (eventType) {
+            case "ai.message.chunk.v2" -> handleChunk(payload);
+            case "ai.message.completed.v2" -> handleCompleted(payload);
+            case "ai.message.failed.v2" -> handleFailed(payload);
+            case "ai.message.cancelled.v2" -> handleCancelled(payload);
+            default -> log.warn("Unknown RAG event type: {}", eventType);
         }
+
+        ack.acknowledge();
     }
 
     private void handleChunk(Map<String, Object> payload) {
@@ -130,15 +104,5 @@ public class RagStreamConsumer {
     private int toInt(Object value) {
         if (value instanceof Number n) return n.intValue();
         return 0;
-    }
-
-    private void sendToDlt(ConsumerRecord<String, String> record) {
-        try {
-            String dltTopic = record.topic() + DLT_SUFFIX;
-            kafkaTemplate.send(dltTopic, record.key(), record.value());
-            log.info("Sent failed record to DLT: {}", dltTopic);
-        } catch (Exception e) {
-            log.error("Failed to send record to DLT: {}", e.getMessage());
-        }
     }
 }

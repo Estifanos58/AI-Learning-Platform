@@ -13,14 +13,14 @@ RAG Service is the AI orchestration and retrieval engine for the platform. It in
 - Manage provider routing, account pools, and model-provider mappings.
 
 ## Architecture
-- API/runtime layer: FastAPI app with startup lifespan and health/readiness probes.
-- gRPC layer: `AiModelsGrpcServer` serving both `RagService` and `AiModelService`.
-- Ingestion layer: file loader, extractor, chunker, embedding pipeline, and Kafka ingestion consumer.
-- Orchestration layer: planner/workflow builder, pipeline executor, and response aggregation.
-- Streaming layer: `ResponseStreamer` with Kafka and Redis stream sinks.
-- Worker layer: `DirectExecutionWorker` with bounded concurrency, database-backed job queue, exponential backoff retries, and startup recovery of interrupted/pending executions.
-- Persistence layer: SQLAlchemy async models/repositories for execution and model-routing metadata.
-- Integration layer: Qdrant, TEI embedding endpoint, and external LLM providers.
+- API/runtime layer: FastAPI app with startup lifespan, structured JSON logging, correlation ID middleware, `/health`, `/ready` (PostgreSQL, Qdrant, Redis, Kafka checks), and `/metrics` (Prometheus).
+- gRPC layer: `AiModelsGrpcServer` serving both `RagService` and `AiModelService` with constant-time secret verification.
+- Ingestion layer: file validator/loader, real multi-format extractor (`pymupdf` + Tesseract OCR, `python-docx`, `openpyxl`, `python-pptx`, `Pillow`/`pytesseract`), chunker, validated embedding pipeline (no zero-vector fallbacks), and manual-commit Kafka consumer with confirmed dead-letter publishing.
+- Orchestration layer: planner/workflow builder, pipeline executor, fail-closed `UserPermissionChecker`, and response aggregation.
+- Streaming layer: `ResponseStreamer` with synchronous broker-acknowledged Kafka and Redis stream sinks.
+- Worker layer: `DirectExecutionWorker` with bounded worker pool & bounded queue, atomic database job claiming (`FOR UPDATE SKIP LOCKED`), lease heartbeats, transient-error retries with exponential backoff, and stalled-job recovery across multiple replicas.
+- Persistence layer: SQLAlchemy async models/repositories managed by versioned **Alembic** migrations (`alembic upgrade head`).
+- Security layer: `MultiFernet` encryption for stored provider API keys with strict secret validation and safe key rotation (`AI_KEY_ENCRYPTION_PREVIOUS_SECRETS`).
 
 ## API / gRPC Contracts
 ### gRPC Service: `proto/rag.proto`
@@ -51,6 +51,7 @@ RAG Service is the AI orchestration and retrieval engine for the platform. It in
 ### HTTP Endpoints
 - `GET /health`
 - `GET /ready`
+- `GET /metrics`
 
 ### Referenced Contracts
 - Calls `proto/file.proto` (`AuthorizeFilesForUser`) before retrieval/execution.
@@ -80,7 +81,7 @@ RAG Service is the AI orchestration and retrieval engine for the platform. It in
 - `model_providers` 1:N `model_endpoints`.
 - `provider_accounts` 1:N `model_endpoints`.
 
-### Database Diagram (MANDATORY)
+### Database Diagram
 ```mermaid
 erDiagram
     CHAT_ROOMS ||--o{ MESSAGES : contains
@@ -151,7 +152,7 @@ erDiagram
 3. Retrieval/generation pipeline: authorize file IDs -> vector search/rerank -> provider execution -> stream chunks -> persist final output.
 4. Cancellation pipeline: accept cancel RPC/topic -> mark execution cancelled -> emit cancellation event.
 
-## Service Architecture Diagram (MANDATORY)
+## Service Architecture Diagram
 ```mermaid
 graph TD
     APIGateway --> RagGrpcServer
@@ -180,7 +181,7 @@ graph TD
     ResponseStreamer --> RedisStreams
 ```
 
-## Inter-Service Communication Diagram (MANDATORY)
+## Inter-Service Communication Diagram
 ```mermaid
 graph LR
     APIGateway -->|gRPC| RagService
@@ -202,6 +203,7 @@ graph LR
 | `RAG_GRPC_PORT` | gRPC bind port | Yes |
 | `RAG_DATABASE_URL` | PostgreSQL connection string | Yes |
 | `QDRANT_URL` | Qdrant endpoint | Yes |
+| `QDRANT_API_KEY` | Qdrant authentication API key | Yes (production) |
 | `QDRANT_COLLECTION` | Target vector collection | Yes |
 | `QDRANT_VECTOR_SIZE` | Embedding dimension | Yes |
 | `TEI_BASE_URL` | Embedding inference endpoint | Yes |
@@ -215,10 +217,18 @@ graph LR
 | `KAFKA_TOPIC_AI_MESSAGE_FAILED_V2/V1` | AI stream failure topic | Yes |
 | `FILE_STORAGE_ROOT_PATH` | Read-only mounted file storage root | Yes |
 | `GRPC_FILE_SERVICE_ADDRESS` | file-service gRPC endpoint | Yes |
-| `APP_GRPC_SERVICE_SECRET` | Shared internal gRPC secret | Yes |
-| `ENCRYPTION_KEY` | Encryption secret for runtime security operations | Yes |
+| `APP_GRPC_SERVICE_SECRET` | Shared internal gRPC secret (>=16 chars) | Yes |
+| `AI_KEY_ENCRYPTION_SECRET` | Primary Fernet / >=32-char encryption key | Yes |
+| `AI_KEY_ENCRYPTION_PREVIOUS_SECRETS` | Comma-separated legacy keys for safe rotation | No |
 | `STREAM_BACKEND` | Stream sink mode (`kafka`, `redis`, `dual`) | Yes |
-| `REDIS_URL` | Redis endpoint for stream sink | Required when `STREAM_BACKEND` includes Redis |
+| `REDIS_URL` | Authenticated Redis endpoint | Required when `STREAM_BACKEND` includes Redis |
+
+## Database Migrations (Alembic)
+Schema changes are managed exclusively by Alembic (`alembic/`). The Docker entrypoint runs `alembic upgrade head` automatically before starting the server. For local runs:
+```bash
+cd backend/rag-service
+alembic upgrade head
+```
 
 ## Running the Service
 - Docker: `docker compose up rag-service rag-postgres qdrant tei kafka redis`.

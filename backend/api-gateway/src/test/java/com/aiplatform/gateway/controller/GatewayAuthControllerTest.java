@@ -3,9 +3,11 @@ package com.aiplatform.gateway.controller;
 import com.aiplatform.auth.proto.AuthServiceGrpc;
 import com.aiplatform.auth.proto.Role;
 import com.aiplatform.auth.proto.UserSummary;
+import com.aiplatform.gateway.config.GatewayAuthCookieProperties;
 import com.aiplatform.gateway.config.GrpcAuthProperties;
 import com.aiplatform.gateway.dto.UpdateUserRoleRequest;
 import com.aiplatform.gateway.dto.UserSummaryResponse;
+import com.aiplatform.gateway.security.AuthCookieService;
 import com.aiplatform.gateway.security.JwtValidationService;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,11 +39,15 @@ class GatewayAuthControllerTest {
     @Mock
     private JwtValidationService jwtValidationService;
 
+    private GatewayAuthCookieProperties cookieProperties;
+    private AuthCookieService authCookieService;
     private GatewayAuthController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new GatewayAuthController(grpcAuthProperties, jwtValidationService);
+        cookieProperties = new GatewayAuthCookieProperties();
+        authCookieService = new AuthCookieService(cookieProperties);
+        controller = new GatewayAuthController(grpcAuthProperties, jwtValidationService, authCookieService, cookieProperties);
         ReflectionTestUtils.setField(controller, "authStub", authStub);
     }
 
@@ -97,5 +103,88 @@ class GatewayAuthControllerTest {
                     assertThat(response.getBody().role()).isEqualTo(Role.INSTRUCTOR);
                 })
                 .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("login sets HttpOnly, Secure, SameSite auth cookies and omits raw tokens from JSON body by default")
+    void login_setsHttpOnlySecureCookiesAndOmitsTokensFromBody() {
+        when(grpcAuthProperties.getServiceSecret()).thenReturn("test-secret");
+        when(authStub.withInterceptors(any())).thenReturn(authStub);
+
+        com.aiplatform.auth.proto.AuthResponse protoResponse = com.aiplatform.auth.proto.AuthResponse.newBuilder()
+                .setAccessToken("access-jwt-secret")
+                .setRefreshToken("refresh-secret-token")
+                .setTokenType("Bearer")
+                .setAccessTokenExpiresInSeconds(900)
+                .setUser(UserSummary.newBuilder()
+                        .setId(UUID.randomUUID().toString())
+                        .setEmail("student@example.com")
+                        .setUsername("student")
+                        .setRole(Role.STUDENT)
+                        .setStatus("ACTIVE")
+                        .setEmailVerified(true)
+                        .build())
+                .build();
+        when(authStub.login(any())).thenReturn(protoResponse);
+
+        org.springframework.mock.http.server.reactive.MockServerHttpResponse mockResponse =
+                new org.springframework.mock.http.server.reactive.MockServerHttpResponse();
+
+        StepVerifier.create(controller.login(
+                        new com.aiplatform.gateway.dto.LoginRequest("student@example.com", "Password123!"),
+                        "corr-login",
+                        mockResponse
+                ))
+                .assertNext(resp -> {
+                    assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    assertThat(resp.getBody()).isNotNull();
+                    assertThat(resp.getBody().accessToken()).isNull();
+                    assertThat(resp.getBody().refreshToken()).isNull();
+                    assertThat(resp.getBody().user().email()).isEqualTo("student@example.com");
+                })
+                .verifyComplete();
+
+        var accessCookie = mockResponse.getCookies().getFirst("app_access_token");
+        var refreshCookie = mockResponse.getCookies().getFirst("app_refresh_token");
+        var csrfCookie = mockResponse.getCookies().getFirst("app_csrf_token");
+
+        assertThat(accessCookie).isNotNull();
+        assertThat(accessCookie.isHttpOnly()).isTrue();
+        assertThat(accessCookie.isSecure()).isTrue();
+        assertThat(accessCookie.getSameSite()).isEqualTo("Lax");
+        assertThat(accessCookie.getValue()).isEqualTo("access-jwt-secret");
+
+        assertThat(refreshCookie).isNotNull();
+        assertThat(refreshCookie.isHttpOnly()).isTrue();
+        assertThat(refreshCookie.isSecure()).isTrue();
+        assertThat(refreshCookie.getValue()).isEqualTo("refresh-secret-token");
+
+        assertThat(csrfCookie).isNotNull();
+        assertThat(csrfCookie.isHttpOnly()).isFalse();
+        assertThat(csrfCookie.isSecure()).isTrue();
+        assertThat(csrfCookie.getValue()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("logout revokes cookie refresh token and clears auth cookies")
+    void logout_clearsAuthCookies() {
+        when(grpcAuthProperties.getServiceSecret()).thenReturn("test-secret");
+        when(authStub.withInterceptors(any())).thenReturn(authStub);
+        when(authStub.logout(any())).thenReturn(
+                com.aiplatform.auth.proto.SimpleResponse.newBuilder().setMessage("Logout successful").build()
+        );
+
+        var mockRequest = org.springframework.mock.http.server.reactive.MockServerHttpRequest.post("/api/auth/logout")
+                .cookie(new org.springframework.http.HttpCookie("app_refresh_token", "refresh-secret-token"))
+                .build();
+        var mockResponse = new org.springframework.mock.http.server.reactive.MockServerHttpResponse();
+
+        StepVerifier.create(controller.logout(null, "corr-logout", mockRequest, mockResponse))
+                .assertNext(resp -> assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK))
+                .verifyComplete();
+
+        assertThat(mockResponse.getCookies().getFirst("app_access_token").getMaxAge().isZero()).isTrue();
+        assertThat(mockResponse.getCookies().getFirst("app_refresh_token").getMaxAge().isZero()).isTrue();
+        assertThat(mockResponse.getCookies().getFirst("app_csrf_token").getMaxAge().isZero()).isTrue();
     }
 }

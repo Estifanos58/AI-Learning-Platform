@@ -24,7 +24,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
@@ -63,18 +62,12 @@ public class GatewayAiExecutionStreamController {
     public Flux<ServerSentEvent<String>> streamExecution(
             @PathVariable String executionId,
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-            @RequestParam(value = "token", required = false) String tokenParam,
             @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader,
             ServerHttpResponse response
     ) {
-        String effectiveAuth = authorization;
-        if ((effectiveAuth == null || !effectiveAuth.startsWith("Bearer ")) && tokenParam != null && !tokenParam.isBlank()) {
-            effectiveAuth = "Bearer " + tokenParam.trim();
-        }
-
         GatewayPrincipal principal;
         try {
-            principal = GatewayPrincipalResolver.resolve(effectiveAuth, correlationHeader, jwtValidationService);
+            principal = GatewayPrincipalResolver.resolve(authorization, correlationHeader, jwtValidationService);
         } catch (Exception e) {
             return Flux.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required to stream execution", e));
         }

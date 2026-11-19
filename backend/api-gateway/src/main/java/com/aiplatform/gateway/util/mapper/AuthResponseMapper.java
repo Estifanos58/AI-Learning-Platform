@@ -10,6 +10,10 @@ public final class AuthResponseMapper {
     }
 
     public static AuthResponse toDto(com.aiplatform.auth.proto.AuthResponse response) {
+        return toDto(response, true);
+    }
+
+    public static AuthResponse toDto(com.aiplatform.auth.proto.AuthResponse response, boolean exposeTokensInBody) {
         UserSummaryResponse user = null;
         if (response.hasUser() && !response.getUser().equals(UserSummary.getDefaultInstance())) {
             user = new UserSummaryResponse(
@@ -24,8 +28,8 @@ public final class AuthResponseMapper {
 
         return new AuthResponse(
                 response.getMessage(),
-                response.getAccessToken(),
-                response.getRefreshToken(),
+                exposeTokensInBody ? response.getAccessToken() : null,
+                exposeTokensInBody ? response.getRefreshToken() : null,
                 response.getTokenType(),
                 response.getAccessTokenExpiresInSeconds(),
                 user

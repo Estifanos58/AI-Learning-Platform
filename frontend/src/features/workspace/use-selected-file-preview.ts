@@ -14,33 +14,35 @@ function revokePreview(preview?: { src?: string }) {
 
 export function useSelectedFilePreview(file: FileItem | null) {
   const { filePreviews, setFilePreview } = useWorkspace();
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loadState, setLoadState] = useState<{
+    fileId: string | null;
+    isLoading: boolean;
+    error: string | null;
+  }>({ fileId: null, isLoading: false, error: null });
 
   const preview = file ? filePreviews[file.id] : undefined;
   const category = file ? getFileCategory(file.contentType) : null;
-  const needsRemotePreview = category === 'pdf' || category === 'image' || category === 'code' || category === 'document' || category === 'spreadsheet' || category === 'presentation';
+  const needsRemotePreview =
+    category === 'pdf' ||
+    category === 'image' ||
+    category === 'code' ||
+    category === 'document' ||
+    category === 'spreadsheet' ||
+    category === 'presentation';
+  const hasCachedPreview = Boolean(preview?.src || preview?.textContent);
 
   useEffect(() => {
-    if (!file || !needsRemotePreview) {
-      setIsLoading(false);
-      setError(null);
-      return;
-    }
-
-    if (preview?.src || preview?.textContent) {
-      setIsLoading(false);
-      setError(null);
+    if (!file || !needsRemotePreview || hasCachedPreview) {
       return;
     }
 
     let cancelled = false;
+    const fileId = file.id;
 
     const loadPreview = async () => {
+      setLoadState({ fileId, isLoading: true, error: null });
       try {
-        setIsLoading(true);
-        setError(null);
-        const nextPreview = await buildRemoteFilePreview(file, `/api/files/${file.id}/content`);
+        const nextPreview = await buildRemoteFilePreview(file, `/api/files/${fileId}/content`);
 
         if (cancelled) {
           revokePreview(nextPreview);
@@ -48,15 +50,16 @@ export function useSelectedFilePreview(file: FileItem | null) {
         }
 
         if (nextPreview.src || nextPreview.textContent) {
-          setFilePreview(file.id, nextPreview);
+          setFilePreview(fileId, nextPreview);
         }
+        setLoadState({ fileId, isLoading: false, error: null });
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load preview');
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
+          setLoadState({
+            fileId,
+            isLoading: false,
+            error: err instanceof Error ? err.message : 'Failed to load preview',
+          });
         }
       }
     };
@@ -66,11 +69,13 @@ export function useSelectedFilePreview(file: FileItem | null) {
     return () => {
       cancelled = true;
     };
-  }, [file, needsRemotePreview, preview?.src, preview?.textContent, setFilePreview]);
+  }, [file, needsRemotePreview, hasCachedPreview, setFilePreview]);
+
+  const activeForFile = file && needsRemotePreview && !hasCachedPreview && loadState.fileId === file.id;
 
   return {
     preview,
-    isLoading,
-    error,
+    isLoading: activeForFile ? loadState.isLoading : false,
+    error: activeForFile ? loadState.error : null,
   };
 }

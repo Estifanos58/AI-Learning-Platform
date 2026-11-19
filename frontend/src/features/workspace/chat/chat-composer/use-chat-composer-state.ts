@@ -38,20 +38,6 @@ export function useChatComposerState({
   // Detect @ai tag in content
   const isAiTagged = useMemo(() => AI_TAG_REGEX.test(content), [content]);
 
-  // Show model picker when user just typed @ai (transition from false → true)
-  useEffect(() => {
-    if (isAiTagged && !prevIsAiTaggedRef.current) {
-      setShowModelPicker(true);
-    }
-    prevIsAiTaggedRef.current = isAiTagged;
-  }, [isAiTagged]);
-
-  useEffect(() => {
-    if (!isDirectChat && models.length > 0 && !aiModelId) {
-      setAiModelId(getModelId(models[0]));
-    }
-  }, [aiModelId, isDirectChat, models]);
-
   const resolvedAiModelId = useMemo(() => {
     const preferredModelId = selectedAiModelId ?? aiModelId;
     if (isDirectChat && (preferredModelId === NO_AI_MODEL_VALUE || !preferredModelId)) return NO_AI_MODEL_VALUE;
@@ -80,6 +66,11 @@ export function useChatComposerState({
 
   const handleContentChange = (value: string) => {
     setContent(value);
+    const nextIsAiTagged = AI_TAG_REGEX.test(value);
+    if (nextIsAiTagged && !prevIsAiTaggedRef.current) {
+      setShowModelPicker(true);
+    }
+    prevIsAiTaggedRef.current = nextIsAiTagged;
     if (!onTypingChange) return;
 
     if (value.trim().length === 0) {

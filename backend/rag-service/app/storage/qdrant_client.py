@@ -1,4 +1,4 @@
-"""Storage layer – Qdrant vector database client."""
+"""Storage layer – Qdrant vector database client with strict validation."""
 
 from __future__ import annotations
 
@@ -10,12 +10,16 @@ from typing import Any, Dict, List, Optional
 log = logging.getLogger(__name__)
 
 
+class QdrantValidationError(RuntimeError):
+    """Raised when Qdrant schema or vector payloads violate invariants."""
+
+
 class QdrantClient:
-    """Thin async wrapper around the Qdrant REST API."""
+    """Async wrapper around the Qdrant API with strict schema and vector validation."""
 
     def __init__(self, url: str, api_key: Optional[str], collection: str, vector_size: int) -> None:
         self._url = url.rstrip("/")
-        self._api_key = api_key
+        self._api_key = api_key or None
         self._collection = collection
         self._vector_size = vector_size
         self._client: Any = None
@@ -24,48 +28,92 @@ class QdrantClient:
         if self._client is None:
             try:
                 from qdrant_client import AsyncQdrantClient  # type: ignore[import]
-                self._client = AsyncQdrantClient(
-                    url=self._url,
-                    api_key=self._api_key,
-                    timeout=30,
-                )
-            except ImportError:
-                log.warning("qdrant-client not installed; Qdrant operations will be no-ops")
-                self._client = _MockQdrantClient()
+            except ImportError as exc:
+                raise RuntimeError("qdrant-client package is required and must be installed") from exc
+
+            self._client = AsyncQdrantClient(
+                url=self._url,
+                api_key=self._api_key,
+                timeout=30,
+            )
         return self._client
 
     async def ensure_collection(self) -> None:
+        """Create the collection if missing, or verify existing vector dimensions match configuration."""
         client = await self._get_client()
-        try:
-            from qdrant_client.models import Distance, VectorParams  # type: ignore[import]
-            exists = await client.collection_exists(self._collection)
-            if not exists:
-                await client.create_collection(
-                    collection_name=self._collection,
-                    vectors_config=VectorParams(
-                        size=self._vector_size,
-                        distance=Distance.COSINE,
-                    ),
+        from qdrant_client.models import Distance, PayloadSchemaType, VectorParams  # type: ignore[import]
+
+        exists = await client.collection_exists(self._collection)
+        if not exists:
+            await client.create_collection(
+                collection_name=self._collection,
+                vectors_config=VectorParams(
+                    size=self._vector_size,
+                    distance=Distance.COSINE,
+                ),
+            )
+            log.info("Created Qdrant collection: %s (size=%d)", self._collection, self._vector_size)
+        else:
+            info = await client.get_collection(self._collection)
+            configured_size = self._extract_vector_size(info)
+            if configured_size is not None and configured_size != self._vector_size:
+                raise QdrantValidationError(
+                    f"Qdrant collection '{self._collection}' vector size mismatch: "
+                    f"collection has {configured_size}, expected {self._vector_size}"
                 )
-                log.info("Created Qdrant collection: %s", self._collection)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("ensure_collection failed: %s", exc)
+
+        try:
+            await client.create_payload_index(
+                collection_name=self._collection,
+                field_name="file_id",
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
+        except Exception as exc:
+            log.debug("Payload index creation skipped/already exists for file_id: %s", exc)
+
+    def _extract_vector_size(self, collection_info: Any) -> Optional[int]:
+        try:
+            vectors = collection_info.config.params.vectors
+            if hasattr(vectors, "size"):
+                return int(vectors.size)
+            if isinstance(vectors, dict) and vectors:
+                first = next(iter(vectors.values()))
+                if hasattr(first, "size"):
+                    return int(first.size)
+        except Exception:
+            return None
+        return None
+
+    async def get_collection_info(self) -> Any:
+        client = await self._get_client()
+        return await client.get_collection(self._collection)
 
     async def ping(self) -> None:
         client = await self._get_client()
         await client.get_collections()
 
     async def upsert_chunks(self, points: List[Dict[str, Any]]) -> None:
-        """Upsert a batch of vector points."""
+        """Validate dimensions and upsert a batch of vector points."""
+        if not points:
+            return
+        for idx, point in enumerate(points):
+            vec = point.get("vector")
+            if not isinstance(vec, list) or len(vec) != self._vector_size:
+                raise QdrantValidationError(
+                    f"Point index {idx} has invalid vector size: expected {self._vector_size}, "
+                    f"got {len(vec) if isinstance(vec, list) else type(vec).__name__}"
+                )
+
         client = await self._get_client()
         try:
             from qdrant_client.models import PointStruct  # type: ignore[import]
+
             structs = [
                 PointStruct(id=p["id"], vector=p["vector"], payload=p["payload"])
                 for p in points
             ]
-            await client.upsert(collection_name=self._collection, points=structs)
-        except Exception as exc:  # noqa: BLE001
+            await client.upsert(collection_name=self._collection, points=structs, wait=True)
+        except Exception as exc:
             log.error("upsert_chunks failed: %s", exc)
             raise
 
@@ -76,9 +124,18 @@ class QdrantClient:
         top_k: int = 20,
     ) -> List[Dict[str, Any]]:
         """Semantic search filtered by allowed file IDs."""
+        if not file_ids:
+            return []
+        if not isinstance(query_vector, list) or len(query_vector) != self._vector_size:
+            raise QdrantValidationError(
+                f"Query vector dimension mismatch: expected {self._vector_size}, "
+                f"got {len(query_vector) if isinstance(query_vector, list) else type(query_vector).__name__}"
+            )
+
         client = await self._get_client()
         try:
             from qdrant_client.models import FieldCondition, Filter, MatchAny  # type: ignore[import]
+
             query_filter = Filter(
                 must=[
                     FieldCondition(
@@ -99,23 +156,27 @@ class QdrantClient:
                 {"id": str(r.id), "score": r.score, "payload": r.payload}
                 for r in results
             ]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.error("vector search failed: %s", exc)
             raise
 
     async def delete_by_file_id(self, file_id: str) -> None:
         """Remove all vectors belonging to a file."""
+        if not file_id or not file_id.strip():
+            raise QdrantValidationError("file_id is required for deletion")
         client = await self._get_client()
         try:
             from qdrant_client.models import FieldCondition, Filter, MatchValue  # type: ignore[import]
+
             await client.delete(
                 collection_name=self._collection,
                 points_selector=Filter(
                     must=[FieldCondition(key="file_id", match=MatchValue(value=file_id))]
                 ),
+                wait=True,
             )
             log.info("Deleted vectors for file_id=%s", file_id)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.error("delete_by_file_id failed: %s", exc)
             raise
 
@@ -129,35 +190,13 @@ class QdrantClient:
         """Return a deterministic UUID-like point ID for idempotent upserts."""
         raw = f"{file_id}:{chunk_index}:{extraction_version}:{embedding_model_version}"
         digest = hashlib.sha256(raw.encode()).hexdigest()
-        # Format as UUID v4 shape (cosmetic)
         return f"{digest[:8]}-{digest[8:12]}-{digest[12:16]}-{digest[16:20]}-{digest[20:32]}"
-
-
-class _MockQdrantClient:
-    """No-op client used when qdrant-client package is not installed."""
-
-    async def collection_exists(self, *_a: Any, **_kw: Any) -> bool:
-        return True
-
-    async def create_collection(self, *_a: Any, **_kw: Any) -> None:
-        pass
-
-    async def get_collections(self, *_a: Any, **_kw: Any) -> Any:
-        return []
-
-    async def upsert(self, *_a: Any, **_kw: Any) -> None:
-        pass
-
-    async def search(self, *_a: Any, **_kw: Any) -> List[Any]:
-        return []
-
-    async def delete(self, *_a: Any, **_kw: Any) -> None:
-        pass
 
 
 @lru_cache
 def get_qdrant_client() -> QdrantClient:
     from app.config import get_settings
+
     s = get_settings()
     return QdrantClient(
         url=s.qdrant_url,

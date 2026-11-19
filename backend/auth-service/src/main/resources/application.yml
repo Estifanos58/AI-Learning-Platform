@@ -28,19 +28,29 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
-  autocofingure:
-    exclude: 
-      - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration, 
-      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+      acks: all
+      retries: 3
+
+logging:
+  structured:
+    format:
+      console: logstash
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
+      probes:
+        enabled: true
       show-details: when_authorized
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
 
 springdoc:
   api-docs:
@@ -49,9 +59,10 @@ springdoc:
     path: /swagger-ui.html
 
 app:
+  environment: ${APP_ENV:production}
   grpc:
     auth:
-      service-secret: ${APP_GRPC_AUTH_SERVICE_SECRET:change-me-shared-secret}
+      service-secret: ${APP_GRPC_AUTH_SERVICE_SECRET:}
   kafka:
     topics:
       user-registered: ${APP_KAFKA_TOPIC_USER_REGISTERED:user.registered.v1}
@@ -59,7 +70,10 @@ app:
   jwt:
     issuer: ${APP_JWT_ISSUER:ai-learning-platform-auth}
     audience: ${APP_JWT_AUDIENCE:ai-learning-platform-clients}
+    key-id: ${APP_JWT_KEY_ID:primary}
     access-token-expiration-minutes: ${APP_JWT_ACCESS_EXP_MINUTES:15}
     refresh-token-expiration-days: ${APP_JWT_REFRESH_EXP_DAYS:7}
-    private-key-location: classpath:keys/private_key.pem
-    public-key-location: classpath:keys/public_key.pem
+    private-key-location: ${APP_JWT_PRIVATE_KEY_LOCATION:file:/run/secrets/jwt_private_key.pem}
+    public-key-location: ${APP_JWT_PUBLIC_KEY_LOCATION:file:/run/secrets/jwt_public_key.pem}
+    private-key-pem: ${APP_JWT_PRIVATE_KEY_PEM:}
+    public-key-pem: ${APP_JWT_PUBLIC_KEY_PEM:}

@@ -16,5 +16,14 @@ public class GatewayJwtProperties {
     private String issuer = "ai-learning-platform-auth";
 
     @NotBlank
-    private String publicKeyLocation = "classpath:keys/public_key.pem";
+    private String audience = "ai-learning-platform-clients";
+
+    private String publicKeyLocation = "file:/run/secrets/jwt_public_key.pem";
+
+    private String publicKeyPem;
+
+    private String previousPublicKeyLocation;
+
+    private String previousPublicKeyPem;
 }
+

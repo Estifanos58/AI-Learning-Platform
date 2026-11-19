@@ -40,7 +40,7 @@ export function useAiSettings({ accessToken }: UseAiSettingsOptions) {
   }, [accessToken]);
 
   useEffect(() => {
-    loadAiModels();
+    void Promise.resolve().then(() => loadAiModels());
   }, [loadAiModels]);
 
   const loadProviderAccounts = useCallback(async () => {
@@ -61,7 +61,7 @@ export function useAiSettings({ accessToken }: UseAiSettingsOptions) {
   }, [accessToken]);
 
   useEffect(() => {
-    loadProviderAccounts();
+    void Promise.resolve().then(() => loadProviderAccounts());
   }, [loadProviderAccounts]);
 
   const selectedAiModel = useMemo(() => {
@@ -91,12 +91,13 @@ export function useAiSettings({ accessToken }: UseAiSettingsOptions) {
 
   useEffect(() => {
     const resolvedModelId = selectedAiModelId || selectedAiModel?.modelId || selectedAiModel?.id;
-    if (!resolvedModelId) {
-      setProviders([]);
-      return;
-    }
-
-    loadProvidersForModel(resolvedModelId);
+    void Promise.resolve().then(() => {
+      if (!resolvedModelId) {
+        setProviders([]);
+        return;
+      }
+      void loadProvidersForModel(resolvedModelId);
+    });
   }, [loadProvidersForModel, selectedAiModel?.id, selectedAiModel?.modelId, selectedAiModelId]);
 
   const [isCreatingModel, setIsCreatingModel] = useState(false);

@@ -14,8 +14,9 @@ Auth Service is the identity and token authority for the platform. It manages ac
 - Transport layer: `AuthGrpcService` implementing `AuthService` from `proto/auth.proto`.
 - Application layer: business logic in auth services (`signup`, `login`, `refresh`, `logout`, verification).
 - Persistence layer: JPA repositories with Flyway-managed schema.
-- Security layer: RSA-signed JWT via `JwtService`, password hashing with Spring Security.
-- Integration layer: Kafka publishers for user registration and email verification notifications.
+- Security layer: RS256 JWT via `JwtService` and `RsaKeyProvider` (requires valid RSA >=2048-bit PKCS#8 private and X.509 public keys injected via secrets; deterministic key generation is disabled), BCrypt password hashing, constant-time gRPC secret verification.
+- Integration layer: Transactional Outbox (`outbox_events` table via `V3__create_outbox_events.sql` + `AuthOutboxPublisher` using `FOR UPDATE SKIP LOCKED` and synchronous Kafka acks) for `user.registered.v1` and `user.email.verification.v1`.
+- Operations: HTTP Actuator on port `8082` exposing `/actuator/health/liveness`, `/actuator/health/readiness`, and `/actuator/prometheus`; structured JSON (`logstash`) logging with correlation ID propagation.
 
 ## API / gRPC Contracts
 ### gRPC Service
@@ -54,7 +55,7 @@ From `proto/auth.proto`:
 - One `users` record has many `email_verifications`.
 - One `users` record has many `password_resets`.
 
-### Database Diagram (MANDATORY)
+### Database Diagram
 ```mermaid
 erDiagram
     USERS ||--o{ REFRESH_TOKENS : owns
@@ -100,7 +101,7 @@ erDiagram
 3. Refresh: validate refresh token hash -> revoke prior token -> issue new token pair.
 4. Verification: validate active code -> mark code used -> update `users.email_verified`.
 
-## Service Architecture Diagram (MANDATORY)
+## Service Architecture Diagram
 ```mermaid
 graph TD
     Gateway --> GrpcAuthService
@@ -117,7 +118,7 @@ graph TD
     AuthApplication --> KafkaPublisher
 ```
 
-## Inter-Service Communication Diagram (MANDATORY)
+## Inter-Service Communication Diagram
 ```mermaid
 graph LR
     APIGateway -->|gRPC| AuthService
@@ -139,6 +140,9 @@ graph LR
 | `APP_KAFKA_TOPIC_USER_EMAIL_VERIFICATION` | Verification email event topic | Yes |
 | `APP_JWT_ISSUER` | JWT issuer claim value | Yes |
 | `APP_JWT_AUDIENCE` | JWT audience claim value | Yes |
+| `APP_JWT_KEY_ID` | Key ID (`kid`) header claim | No |
+| `APP_JWT_PRIVATE_KEY_LOCATION` | Path/URI to PKCS#8 RSA private key (default `file:/run/secrets/jwt_private_key.pem`) | Yes (or `_PEM`) |
+| `APP_JWT_PUBLIC_KEY_LOCATION` | Path/URI to X.509 RSA public key (default `file:/run/secrets/jwt_public_key.pem`) | Yes (or `_PEM`) |
 | `APP_JWT_ACCESS_EXP_MINUTES` | Access token TTL minutes | No |
 | `APP_JWT_REFRESH_EXP_DAYS` | Refresh token TTL days | No |
 

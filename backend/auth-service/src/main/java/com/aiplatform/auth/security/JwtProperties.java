@@ -19,15 +19,20 @@ public class JwtProperties {
     @NotBlank
     private String audience = "ai-learning-platform-clients";
 
+    @NotBlank
+    private String keyId = "primary";
+
     @Min(1)
     private long accessTokenExpirationMinutes = 15;
 
     @Min(1)
     private long refreshTokenExpirationDays = 7;
 
-    @NotBlank
-    private String privateKeyLocation = "classpath:keys/private_key.pem";
+    private String privateKeyLocation = "file:/run/secrets/jwt_private_key.pem";
 
-    @NotBlank
-    private String publicKeyLocation = "classpath:keys/public_key.pem";
+    private String publicKeyLocation = "file:/run/secrets/jwt_public_key.pem";
+
+    private String privateKeyPem;
+
+    private String publicKeyPem;
 }

@@ -2,11 +2,15 @@ package com.aiplatform.gateway.controller;
 
 import com.aiplatform.auth.proto.AuthServiceGrpc;
 import com.aiplatform.auth.proto.ResendVerificationRequest;
+import com.aiplatform.auth.proto.Role;
 import com.aiplatform.auth.proto.SimpleResponse;
 import com.aiplatform.auth.proto.VerifyRequest;
+import com.aiplatform.gateway.config.GatewayAuthCookieProperties;
 import com.aiplatform.gateway.config.GrpcAuthProperties;
 import com.aiplatform.gateway.dto.ApiMessageResponse;
 import com.aiplatform.gateway.dto.AuthResponse;
+import com.aiplatform.gateway.dto.AuthSessionResponse;
+import com.aiplatform.gateway.dto.CsrfTokenResponse;
 import com.aiplatform.gateway.dto.ForgotPasswordRequest;
 import com.aiplatform.gateway.dto.LoginRequest;
 import com.aiplatform.gateway.dto.LogoutRequest;
@@ -16,6 +20,7 @@ import com.aiplatform.gateway.dto.SignupRequest;
 import com.aiplatform.gateway.dto.UpdateUserRoleRequest;
 import com.aiplatform.gateway.dto.UserSummaryResponse;
 import com.aiplatform.gateway.dto.VerifyEmailRequest;
+import com.aiplatform.gateway.security.AuthCookieService;
 import com.aiplatform.gateway.security.JwtValidationService;
 import com.aiplatform.gateway.util.GatewayAuthorizationUtils;
 import com.aiplatform.gateway.util.GatewayPrincipal;
@@ -25,13 +30,19 @@ import com.aiplatform.gateway.util.GrpcExceptionMapper;
 import com.aiplatform.gateway.util.mapper.AuthResponseMapper;
 import io.grpc.Metadata;
 import io.grpc.stub.MetadataUtils;
+import io.jsonwebtoken.Claims;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.devh.boot.grpc.client.inject.GrpcClient;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -49,11 +60,64 @@ public class GatewayAuthController {
     private AuthServiceGrpc.AuthServiceBlockingStub authStub;
     private final GrpcAuthProperties grpcAuthProperties;
     private final JwtValidationService jwtValidationService;
+    private final AuthCookieService authCookieService;
+    private final GatewayAuthCookieProperties cookieProperties;
+
+    @GetMapping("/csrf")
+    public Mono<ResponseEntity<CsrfTokenResponse>> csrf(ServerHttpRequest request, ServerHttpResponse response) {
+        String csrfToken = authCookieService.ensureCsrfCookie(request, response);
+        return Mono.just(ResponseEntity.ok(new CsrfTokenResponse(csrfToken)));
+    }
+
+    @GetMapping("/session")
+    public Mono<ResponseEntity<AuthSessionResponse>> session(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            ServerHttpRequest request,
+            ServerHttpResponse response
+    ) {
+        String token = extractAccessToken(authorization, request);
+        if (!StringUtils.hasText(token)) {
+            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Not authenticated"));
+        }
+
+        Claims claims = jwtValidationService.parseClaims(token);
+        String userId = claims.getSubject();
+        if (!StringUtils.hasText(userId)) {
+            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token subject is missing"));
+        }
+
+        String email = GatewayRequestUtils.defaultString(claims.get("email", String.class));
+        String roleStr = GatewayRequestUtils.defaultString(claims.get("role", String.class));
+        String status = GatewayRequestUtils.defaultString(claims.get("status", String.class));
+
+        Role role = Role.STUDENT;
+        try {
+            if (StringUtils.hasText(roleStr)) {
+                role = Role.valueOf(roleStr);
+            }
+        } catch (IllegalArgumentException ignored) {
+            role = Role.STUDENT;
+        }
+
+        String csrfToken = authCookieService.ensureCsrfCookie(request, response);
+        UserSummaryResponse user = new UserSummaryResponse(
+                userId,
+                email,
+                "",
+                role,
+                status,
+                true
+        );
+
+        return Mono.just(ResponseEntity.ok(new AuthSessionResponse(true, user, csrfToken)));
+    }
 
     @PostMapping("/signup")
-    public Mono<ResponseEntity<AuthResponse>> signup(@Valid @RequestBody SignupRequest request,
-                                                     @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader) {
-        log.info("Request came to ={}", request.email());
+    public Mono<ResponseEntity<AuthResponse>> signup(
+            @Valid @RequestBody SignupRequest request,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader,
+            ServerHttpResponse httpResponse
+    ) {
         return Mono.fromCallable(() -> {
                 String correlationId = correlationIdOrCreate(correlationHeader);
                 log.info("Gateway forwarding signup via gRPC. correlationId={}", correlationId);
@@ -67,15 +131,24 @@ public class GatewayAuthController {
                                     .setRole(com.aiplatform.auth.proto.Role.STUDENT)
                                     .build()
                     );
-                    return ResponseEntity.ok(AuthResponseMapper.toDto(response));
+                    authCookieService.setAuthCookies(
+                            httpResponse,
+                            response.getAccessToken(),
+                            response.getAccessTokenExpiresInSeconds(),
+                            response.getRefreshToken()
+                    );
+                    return ResponseEntity.ok(AuthResponseMapper.toDto(response, cookieProperties.isExposeTokensInBody()));
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorMap(GrpcExceptionMapper::toResponseStatus);
     }
 
     @PostMapping("/login")
-    public Mono<ResponseEntity<AuthResponse>> login(@Valid @RequestBody LoginRequest request,
-                                                    @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader) {
+    public Mono<ResponseEntity<AuthResponse>> login(
+            @Valid @RequestBody LoginRequest request,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader,
+            ServerHttpResponse httpResponse
+    ) {
         return Mono.fromCallable(() -> {
                     String correlationId = correlationIdOrCreate(correlationHeader);
                     log.info("Gateway forwarding login via gRPC. correlationId={}", correlationId);
@@ -86,7 +159,13 @@ public class GatewayAuthController {
                                     .setPassword(request.password())
                                     .build()
                     );
-                    return ResponseEntity.ok(AuthResponseMapper.toDto(response));
+                    authCookieService.setAuthCookies(
+                            httpResponse,
+                            response.getAccessToken(),
+                            response.getAccessTokenExpiresInSeconds(),
+                            response.getRefreshToken()
+                    );
+                    return ResponseEntity.ok(AuthResponseMapper.toDto(response, cookieProperties.isExposeTokensInBody()));
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorMap(GrpcExceptionMapper::toResponseStatus);
@@ -129,39 +208,77 @@ public class GatewayAuthController {
     }
 
     @PostMapping("/refresh")
-    public Mono<ResponseEntity<AuthResponse>> refresh(@Valid @RequestBody RefreshRequest request,
-                                                      @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader) {
+    public Mono<ResponseEntity<AuthResponse>> refresh(
+            @RequestBody(required = false) RefreshRequest request,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader,
+            ServerHttpRequest httpRequest,
+            ServerHttpResponse httpResponse
+    ) {
+        String cookieRefreshToken = authCookieService.extractRefreshTokenCookie(httpRequest);
+        String bodyRefreshToken = request != null ? request.refreshToken() : null;
+        String effectiveRefreshToken = StringUtils.hasText(cookieRefreshToken) ? cookieRefreshToken : bodyRefreshToken;
+
+        if (!StringUtils.hasText(effectiveRefreshToken)) {
+            authCookieService.clearAuthCookies(httpResponse);
+            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing refresh token"));
+        }
+
         return Mono.fromCallable(() -> {
                 String correlationId = correlationIdOrCreate(correlationHeader);
                 log.info("Gateway forwarding refresh via gRPC. correlationId={}", correlationId);
 
                 com.aiplatform.auth.proto.AuthResponse response = withMetadata(correlationId).refreshToken(
                             com.aiplatform.auth.proto.RefreshRequest.newBuilder()
-                                    .setRefreshToken(request.refreshToken())
+                                    .setRefreshToken(effectiveRefreshToken)
                                     .build()
                     );
-                    return ResponseEntity.ok(AuthResponseMapper.toDto(response));
+                    authCookieService.setAuthCookies(
+                            httpResponse,
+                            response.getAccessToken(),
+                            response.getAccessTokenExpiresInSeconds(),
+                            response.getRefreshToken()
+                    );
+                    return ResponseEntity.ok(AuthResponseMapper.toDto(response, cookieProperties.isExposeTokensInBody()));
                 })
                 .subscribeOn(Schedulers.boundedElastic())
-                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+                .onErrorMap(GrpcExceptionMapper::toResponseStatus)
+                .doOnError(err -> {
+                    if (err instanceof ResponseStatusException rse && rse.getStatusCode() == HttpStatus.UNAUTHORIZED) {
+                        authCookieService.clearAuthCookies(httpResponse);
+                    }
+                });
     }
 
     @PostMapping("/logout")
-    public Mono<ResponseEntity<ApiMessageResponse>> logout(@Valid @RequestBody LogoutRequest request,
-                                                           @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader) {
+    public Mono<ResponseEntity<ApiMessageResponse>> logout(
+            @RequestBody(required = false) LogoutRequest request,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationHeader,
+            ServerHttpRequest httpRequest,
+            ServerHttpResponse httpResponse
+    ) {
+        String cookieRefreshToken = authCookieService.extractRefreshTokenCookie(httpRequest);
+        String bodyRefreshToken = request != null ? request.refreshToken() : null;
+        String effectiveRefreshToken = StringUtils.hasText(cookieRefreshToken) ? cookieRefreshToken : bodyRefreshToken;
+
         return Mono.fromCallable(() -> {
                 String correlationId = correlationIdOrCreate(correlationHeader);
                 log.info("Gateway forwarding logout via gRPC. correlationId={}", correlationId);
 
-                SimpleResponse response = withMetadata(correlationId).logout(
+                String message = "Logout successful";
+                if (StringUtils.hasText(effectiveRefreshToken)) {
+                    SimpleResponse response = withMetadata(correlationId).logout(
                             com.aiplatform.auth.proto.LogoutRequest.newBuilder()
-                                    .setRefreshToken(request.refreshToken())
+                                    .setRefreshToken(effectiveRefreshToken)
                                     .build()
                     );
-                    return ResponseEntity.ok(new ApiMessageResponse(response.getMessage()));
-                })
-                .subscribeOn(Schedulers.boundedElastic())
-                .onErrorMap(GrpcExceptionMapper::toResponseStatus);
+                    message = response.getMessage();
+                }
+                authCookieService.clearAuthCookies(httpResponse);
+                return ResponseEntity.ok(new ApiMessageResponse(message));
+            })
+            .subscribeOn(Schedulers.boundedElastic())
+            .onErrorMap(GrpcExceptionMapper::toResponseStatus)
+            .doOnError(err -> authCookieService.clearAuthCookies(httpResponse));
     }
 
     @PostMapping("/forgot-password")
@@ -257,5 +374,12 @@ public class GatewayAuthController {
 
     private GatewayPrincipal resolvePrincipal(String authorization, String correlationHeader) {
         return GatewayPrincipalResolver.resolve(authorization, correlationHeader, jwtValidationService);
+    }
+
+    private String extractAccessToken(String authorization, ServerHttpRequest request) {
+        if (StringUtils.hasText(authorization) && authorization.startsWith("Bearer ")) {
+            return authorization.substring(7);
+        }
+        return authCookieService.extractAccessTokenCookie(request);
     }
 }

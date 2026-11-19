@@ -1,6 +1,9 @@
 services:
   # =============================================================================
-  # INFRASTRUCTURE: Core Event Streaming, Caching & Vector Storage
+  # INFRASTRUCTURE: Internal-only Event Streaming, Caching & Vector Storage
+  # Internal infrastructure ports are NOT published to the host by default.
+  # For local debugging port mappings, use:
+  #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
   # =============================================================================
 
   kafka:
@@ -8,23 +11,22 @@ services:
     container_name: aiplatform-kafka
     restart: unless-stopped
     environment:
-      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?KAFKA_CLUSTER_ID must be set}
       KAFKA_NODE_ID: 0
       KAFKA_PROCESS_ROLES: controller,broker
-      KAFKA_LISTENERS: PLAINTEXT://:29092,PLAINTEXT_HOST://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://:29092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-    ports:
-      - "${KAFKA_HOST_PORT:-9092}:9092"
+      KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xms256m -Xmx512m}
     healthcheck:
-      test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/9092'"]
+      test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/29092'"]
       interval: 10s
       timeout: 10s
       retries: 20
@@ -36,13 +38,18 @@ services:
     image: redis:7.2-alpine
     container_name: aiplatform-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "${REDIS_HOST_PORT:-6379}:6379"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -53,9 +60,8 @@ services:
     image: qdrant/qdrant:v1.12.4
     container_name: aiplatform-qdrant
     restart: unless-stopped
-    ports:
-      - "${QDRANT_HOST_PORT:-6333}:6333"
-      - "${QDRANT_GRPC_HOST_PORT:-6334}:6334"
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?QDRANT_API_KEY must be set}
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
@@ -68,21 +74,25 @@ services:
       - ai-platform-network
 
   tei:
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
     container_name: aiplatform-tei
     restart: unless-stopped
-    command: --model-id BAAI/bge-large-en-v1.5 --port 80
-    ports:
-      - "${TEI_HOST_PORT:-8088}:80"
+    command: --model-id ${TEI_MODEL:-BAAI/bge-large-en-v1.5} --port 80
     volumes:
       - tei_models:/data
     environment:
       HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 25
+      start_period: 20s
     networks:
       - ai-platform-network
 
   # =============================================================================
-  # DATABASES: Isolated Service Datastores
+  # DATABASES: Isolated Internal-only Service Datastores
   # =============================================================================
 
   postgres:
@@ -91,14 +101,12 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${AUTH_DB_NAME:-auth_db}
-      POSTGRES_USER: ${AUTH_DB_USER:-auth_user}
-      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD:-auth_pass}
-    ports:
-      - "${AUTH_DB_HOST_PORT:-5432}:5432"
+      POSTGRES_USER: ${AUTH_DB_USER:?AUTH_DB_USER must be set}
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD:?AUTH_DB_PASSWORD must be set}
     volumes:
       - auth_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${AUTH_DB_USER:-auth_user} -d ${AUTH_DB_NAME:-auth_db}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -111,14 +119,12 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${PROFILE_DB_NAME:-user_profile_db}
-      POSTGRES_USER: ${PROFILE_DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${PROFILE_DB_PASSWORD:-postgres}
-    ports:
-      - "${PROFILE_DB_HOST_PORT:-5433}:5432"
+      POSTGRES_USER: ${PROFILE_DB_USER:?PROFILE_DB_USER must be set}
+      POSTGRES_PASSWORD: ${PROFILE_DB_PASSWORD:?PROFILE_DB_PASSWORD must be set}
     volumes:
       - profile_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PROFILE_DB_USER:-postgres} -d ${PROFILE_DB_NAME:-user_profile_db}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -131,14 +137,12 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${FILE_DB_NAME:-file_service_db}
-      POSTGRES_USER: ${FILE_DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${FILE_DB_PASSWORD:-postgres}
-    ports:
-      - "${FILE_DB_HOST_PORT:-5434}:5432"
+      POSTGRES_USER: ${FILE_DB_USER:?FILE_DB_USER must be set}
+      POSTGRES_PASSWORD: ${FILE_DB_PASSWORD:?FILE_DB_PASSWORD must be set}
     volumes:
       - file_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${FILE_DB_USER:-postgres} -d ${FILE_DB_NAME:-file_service_db}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -151,14 +155,12 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${CHAT_DB_NAME:-chat_service_db}
-      POSTGRES_USER: ${CHAT_DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${CHAT_DB_PASSWORD:-postgres}
-    ports:
-      - "${CHAT_DB_HOST_PORT:-5435}:5432"
+      POSTGRES_USER: ${CHAT_DB_USER:?CHAT_DB_USER must be set}
+      POSTGRES_PASSWORD: ${CHAT_DB_PASSWORD:?CHAT_DB_PASSWORD must be set}
     volumes:
       - chat_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${CHAT_DB_USER:-postgres} -d ${CHAT_DB_NAME:-chat_service_db}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -171,14 +173,12 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${RAG_DB_NAME:-rag_db}
-      POSTGRES_USER: ${RAG_DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${RAG_DB_PASSWORD:-postgres}
-    ports:
-      - "${RAG_DB_HOST_PORT:-5436}:5432"
+      POSTGRES_USER: ${RAG_DB_USER:?RAG_DB_USER must be set}
+      POSTGRES_PASSWORD: ${RAG_DB_PASSWORD:?RAG_DB_PASSWORD must be set}
     volumes:
       - rag_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${RAG_DB_USER:-postgres} -d ${RAG_DB_NAME:-rag_db}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -186,7 +186,7 @@ services:
       - ai-platform-network
 
   # =============================================================================
-  # BACKEND MICROSERVICES: Business Logic, gRPC & Worker Services
+  # BACKEND MICROSERVICES: Internal Business Logic, gRPC & Worker Services
   # =============================================================================
 
   auth-service:
@@ -200,17 +200,34 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    secrets:
+      - source: jwt_private_key
+        target: jwt_private_key.pem
+      - source: jwt_public_key
+        target: jwt_public_key.pem
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${AUTH_DB_NAME:-auth_db}
-      SPRING_DATASOURCE_USERNAME: ${AUTH_DB_USER:-auth_user}
-      SPRING_DATASOURCE_PASSWORD: ${AUTH_DB_PASSWORD:-auth_pass}
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      APP_ENV: ${APP_ENV:-production}
+      SERVER_PORT: 8082
       GRPC_SERVER_PORT: 9090
-      APP_GRPC_AUTH_SERVICE_SECRET: ${APP_GRPC_AUTH_SERVICE_SECRET:-change-me-shared-secret}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${AUTH_DB_NAME:-auth_db}
+      SPRING_DATASOURCE_USERNAME: ${AUTH_DB_USER:?AUTH_DB_USER must be set}
+      SPRING_DATASOURCE_PASSWORD: ${AUTH_DB_PASSWORD:?AUTH_DB_PASSWORD must be set}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--Xms128m -Xmx512m}
+      APP_GRPC_AUTH_SERVICE_SECRET: ${APP_GRPC_AUTH_SERVICE_SECRET:?APP_GRPC_AUTH_SERVICE_SECRET must be set}
+      APP_JWT_ISSUER: ${APP_JWT_ISSUER:-ai-learning-platform-auth}
+      APP_JWT_AUDIENCE: ${APP_JWT_AUDIENCE:-ai-learning-platform-clients}
+      APP_JWT_KEY_ID: ${APP_JWT_KEY_ID:-primary}
+      APP_JWT_PRIVATE_KEY_LOCATION: file:/run/secrets/jwt_private_key.pem
+      APP_JWT_PUBLIC_KEY_LOCATION: file:/run/secrets/jwt_public_key.pem
       APP_KAFKA_TOPIC_USER_REGISTERED: user.registered.v1
       APP_KAFKA_TOPIC_USER_EMAIL_VERIFICATION: user.email.verification.v1
-    ports:
-      - "${AUTH_GRPC_HOST_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8082 && printf \"GET /actuator/health/readiness HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && grep -q \"200\" <&3'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
     networks:
       - ai-platform-network
 
@@ -226,16 +243,23 @@ services:
       profile-postgres:
         condition: service_healthy
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://profile-postgres:5432/${PROFILE_DB_NAME:-user_profile_db}
-      SPRING_DATASOURCE_USERNAME: ${PROFILE_DB_USER:-postgres}
-      SPRING_DATASOURCE_PASSWORD: ${PROFILE_DB_PASSWORD:-postgres}
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      APP_ENV: ${APP_ENV:-production}
+      SERVER_PORT: 8083
       GRPC_SERVER_PORT: 9091
-      APP_GRPC_PROFILE_SERVICE_SECRET: ${APP_GRPC_PROFILE_SERVICE_SECRET:-change-me-shared-secret}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://profile-postgres:5432/${PROFILE_DB_NAME:-user_profile_db}
+      SPRING_DATASOURCE_USERNAME: ${PROFILE_DB_USER:?PROFILE_DB_USER must be set}
+      SPRING_DATASOURCE_PASSWORD: ${PROFILE_DB_PASSWORD:?PROFILE_DB_PASSWORD must be set}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--Xms128m -Xmx512m}
+      APP_GRPC_PROFILE_SERVICE_SECRET: ${APP_GRPC_PROFILE_SERVICE_SECRET:?APP_GRPC_PROFILE_SERVICE_SECRET must be set}
       APP_KAFKA_TOPIC_USER_REGISTERED: user.registered.v1
       APP_KAFKA_TOPIC_USER_REGISTERED_DLT: user.registered.dlt
-    ports:
-      - "${PROFILE_GRPC_HOST_PORT:-9091}:9091"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8083 && printf \"GET /actuator/health/readiness HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && grep -q \"200\" <&3'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
     networks:
       - ai-platform-network
 
@@ -251,21 +275,28 @@ services:
       file-postgres:
         condition: service_healthy
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://file-postgres:5432/${FILE_DB_NAME:-file_service_db}
-      SPRING_DATASOURCE_USERNAME: ${FILE_DB_USER:-postgres}
-      SPRING_DATASOURCE_PASSWORD: ${FILE_DB_PASSWORD:-postgres}
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      APP_ENV: ${APP_ENV:-production}
+      SERVER_PORT: 8084
       GRPC_SERVER_PORT: 9092
+      SPRING_DATASOURCE_URL: jdbc:postgresql://file-postgres:5432/${FILE_DB_NAME:-file_service_db}
+      SPRING_DATASOURCE_USERNAME: ${FILE_DB_USER:?FILE_DB_USER must be set}
+      SPRING_DATASOURCE_PASSWORD: ${FILE_DB_PASSWORD:?FILE_DB_PASSWORD must be set}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--Xms128m -Xmx512m}
       FILE_STORAGE_ROOT_PATH: /data
-      APP_GRPC_FILE_SERVICE_SECRET: ${APP_GRPC_FILE_SERVICE_SECRET:-change-me-shared-secret}
+      APP_GRPC_FILE_SERVICE_SECRET: ${APP_GRPC_FILE_SERVICE_SECRET:?APP_GRPC_FILE_SERVICE_SECRET must be set}
       APP_KAFKA_FILE_EVENTS_ENABLED: "true"
       APP_KAFKA_TOPIC_FILE_UPLOADED: file.uploaded.v1
       APP_KAFKA_TOPIC_FILE_UPLOADED_V2: file.uploaded.v2
       APP_KAFKA_TOPIC_FILE_DELETED: file.deleted.v1
     volumes:
       - file_storage_data:/data
-    ports:
-      - "${FILE_GRPC_HOST_PORT:-9094}:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8084 && printf \"GET /actuator/health/readiness HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && grep -q \"200\" <&3'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
     networks:
       - ai-platform-network
 
@@ -283,26 +314,36 @@ services:
       redis:
         condition: service_healthy
       file-service:
-        condition: service_started
+        condition: service_healthy
     environment:
+      APP_ENV: ${APP_ENV:-production}
+      SERVER_PORT: 8085
+      GRPC_SERVER_PORT: 9095
       SPRING_DATASOURCE_URL: jdbc:postgresql://chat-postgres:5432/${CHAT_DB_NAME:-chat_service_db}
-      SPRING_DATASOURCE_USERNAME: ${CHAT_DB_USER:-postgres}
-      SPRING_DATASOURCE_PASSWORD: ${CHAT_DB_PASSWORD:-postgres}
+      SPRING_DATASOURCE_USERNAME: ${CHAT_DB_USER:?CHAT_DB_USER must be set}
+      SPRING_DATASOURCE_PASSWORD: ${CHAT_DB_PASSWORD:?CHAT_DB_PASSWORD must be set}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--Xms128m -Xmx512m}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      GRPC_SERVER_PORT: 9095
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       GRPC_FILE_ADDRESS: dns:///file-service:9092
-      APP_GRPC_CHAT_SERVICE_SECRET: ${APP_GRPC_CHAT_SERVICE_SECRET:-change-me-shared-secret}
-      APP_GRPC_FILE_SERVICE_SECRET: ${APP_GRPC_FILE_SERVICE_SECRET:-change-me-shared-secret}
-      APP_KAFKA_TOPIC_AI_MESSAGE: ai.message.requested
+      GRPC_RAG_ADDRESS: dns:///rag-service:9097
+      APP_GRPC_CHAT_SERVICE_SECRET: ${APP_GRPC_CHAT_SERVICE_SECRET:?APP_GRPC_CHAT_SERVICE_SECRET must be set}
+      APP_GRPC_FILE_SERVICE_SECRET: ${APP_GRPC_FILE_SERVICE_SECRET:?APP_GRPC_FILE_SERVICE_SECRET must be set}
+      APP_GRPC_RAG_SERVICE_SECRET: ${APP_GRPC_RAG_SERVICE_SECRET:?APP_GRPC_RAG_SERVICE_SECRET must be set}
+      APP_KAFKA_TOPIC_AI_MESSAGE: ai.message.requested.v2
       APP_KAFKA_TOPIC_AI_MESSAGE_V2: ai.message.requested.v2
-      APP_KAFKA_TOPIC_AI_MESSAGE_CHUNK: ai.message.chunk.v1
-      APP_KAFKA_TOPIC_AI_MESSAGE_COMPLETED: ai.message.completed.v1
-      APP_KAFKA_TOPIC_AI_MESSAGE_FAILED: ai.message.failed.v1
-      APP_KAFKA_TOPIC_AI_MESSAGE_CANCELLED: ai.message.cancelled.v1
-    ports:
-      - "${CHAT_GRPC_HOST_PORT:-9095}:9095"
+      APP_KAFKA_TOPIC_AI_MESSAGE_CHUNK: ai.message.chunk.v2
+      APP_KAFKA_TOPIC_AI_MESSAGE_COMPLETED: ai.message.completed.v2
+      APP_KAFKA_TOPIC_AI_MESSAGE_FAILED: ai.message.failed.v2
+      APP_KAFKA_TOPIC_AI_MESSAGE_CANCELLED: ai.message.cancelled.v2
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8085 && printf \"GET /actuator/health/readiness HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && grep -q \"200\" <&3'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
     networks:
       - ai-platform-network
 
@@ -315,18 +356,28 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_GROUP_ID: notification-service-v1
       KAFKA_TOPIC_EMAIL_VERIFICATION: user.email.verification.v1
       KAFKA_TOPIC_EMAIL_FAILED: notification.email.failed.v1
+      IDEMPOTENCY_BACKEND: ${IDEMPOTENCY_BACKEND:-redis}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/0
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-no-reply@aiplatform.local}
-    ports:
-      - "${NOTIFICATION_HOST_PORT:-8086}:8086"
+      SMTP_FROM: ${SMTP_FROM:-no-reply@ai-learning-platform.local}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8086/ready')\""]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
     networks:
       - ai-platform-network
 
@@ -346,9 +397,9 @@ services:
       rag-postgres:
         condition: service_healthy
       tei:
-        condition: service_started
+        condition: service_healthy
       file-service:
-        condition: service_started
+        condition: service_healthy
     environment:
       RAG_HOST: 0.0.0.0
       RAG_PORT: 8087
@@ -356,45 +407,47 @@ services:
       RAG_GRPC_PORT: 9097
       APP_ENV: ${APP_ENV:-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      ENCRYPTION_KEY: ${RAG_ENCRYPTION_KEY:-local-dev-rag-encryption-key-32-bytes}
-      AI_KEY_ENCRYPTION_SECRET: ${AI_KEY_ENCRYPTION_SECRET:-local-dev-rag-encryption-key-32-bytes}
+      AI_KEY_ENCRYPTION_SECRET: ${AI_KEY_ENCRYPTION_SECRET:?AI_KEY_ENCRYPTION_SECRET must be set}
+      AI_KEY_ENCRYPTION_PREVIOUS_SECRETS: ${AI_KEY_ENCRYPTION_PREVIOUS_SECRETS:-}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      KAFKA_GROUP_ID: rag-service-v1
+      KAFKA_GROUP_ID: rag-service-v2
       KAFKA_TOPIC_FILE_UPLOADED_V2: file.uploaded.v2
       KAFKA_TOPIC_FILE_DELETED_V1: file.deleted.v1
       KAFKA_TOPIC_AI_MESSAGE_REQUESTED_V2: ai.message.requested.v2
-      KAFKA_TOPIC_AI_MESSAGE_CANCELLED_V1: ai.message.cancelled.v1
-      KAFKA_TOPIC_AI_MESSAGE_CHUNK_V1: ai.message.chunk.v1
-      KAFKA_TOPIC_AI_MESSAGE_COMPLETED_V1: ai.message.completed.v1
-      KAFKA_TOPIC_AI_MESSAGE_FAILED_V1: ai.message.failed.v1
+      KAFKA_TOPIC_AI_MESSAGE_CANCELLED_V2: ai.message.cancelled.v2
+      KAFKA_TOPIC_AI_MESSAGE_CHUNK_V2: ai.message.chunk.v2
+      KAFKA_TOPIC_AI_MESSAGE_COMPLETED_V2: ai.message.completed.v2
+      KAFKA_TOPIC_AI_MESSAGE_FAILED_V2: ai.message.failed.v2
       QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:?QDRANT_API_KEY must be set}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-rag_chunks_prod}
+      QDRANT_VECTOR_SIZE: ${QDRANT_VECTOR_SIZE:-1024}
       TEI_BASE_URL: http://tei:80
+      TEI_MODEL: ${TEI_MODEL:-BAAI/bge-large-en-v1.5}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       FILE_STORAGE_ROOT_PATH: /data
       GRPC_FILE_SERVICE_ADDRESS: file-service:9092
-      APP_GRPC_SERVICE_SECRET: ${APP_GRPC_RAG_SERVICE_SECRET:-change-me-shared-secret}
-      RAG_DATABASE_URL: postgresql+asyncpg://${RAG_DB_USER:-postgres}:${RAG_DB_PASSWORD:-postgres}@rag-postgres:5432/${RAG_DB_NAME:-rag_db}
-      REDIS_URL: redis://redis:6379/0
+      APP_GRPC_SERVICE_SECRET: ${APP_GRPC_RAG_SERVICE_SECRET:?APP_GRPC_RAG_SERVICE_SECRET must be set}
+      RAG_DATABASE_URL: postgresql+asyncpg://${RAG_DB_USER:?RAG_DB_USER must be set}:${RAG_DB_PASSWORD:?RAG_DB_PASSWORD must be set}@rag-postgres:5432/${RAG_DB_NAME:-rag_db}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/0
+      STREAM_BACKEND: ${STREAM_BACKEND:-dual}
     volumes:
       - file_storage_data:/data:ro
-    ports:
-      - "${RAG_HTTP_HOST_PORT:-8087}:8087"
-      - "${RAG_GRPC_HOST_PORT:-9097}:9097"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8087/health')\""]
-      interval: 30s
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8087/ready')\""]
+      interval: 15s
       timeout: 10s
-      retries: 5
-      start_period: 40s
+      retries: 20
+      start_period: 90s
     networks:
       - ai-platform-network
 
   # =============================================================================
-  # GATEWAY & FRONTEND: Public API Ingress & Client Application
+  # PUBLIC EDGE: API Gateway & Web Client
   # =============================================================================
 
   api-gateway:
@@ -405,40 +458,53 @@ services:
     restart: unless-stopped
     depends_on:
       auth-service:
-        condition: service_started
+        condition: service_healthy
       user-profile-service:
-        condition: service_started
+        condition: service_healthy
       file-service:
-        condition: service_started
+        condition: service_healthy
       chat-service:
-        condition: service_started
+        condition: service_healthy
       rag-service:
-        condition: service_started
+        condition: service_healthy
       redis:
         condition: service_healthy
+    secrets:
+      - source: jwt_public_key
+        target: jwt_public_key.pem
     environment:
+      APP_ENV: ${APP_ENV:-production}
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--Xms128m -Xmx512m}
       SERVER_PORT: 8080
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      GATEWAY_ALLOWED_ORIGINS: ${GATEWAY_ALLOWED_ORIGINS:-http://localhost:3000}
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+      GATEWAY_ALLOWED_ORIGINS: ${GATEWAY_ALLOWED_ORIGINS:?GATEWAY_ALLOWED_ORIGINS must be set}
+      APP_JWT_ISSUER: ${APP_JWT_ISSUER:-ai-learning-platform-auth}
+      APP_JWT_AUDIENCE: ${APP_JWT_AUDIENCE:-ai-learning-platform-clients}
+      APP_JWT_PUBLIC_KEY_LOCATION: file:/run/secrets/jwt_public_key.pem
+      APP_AUTH_COOKIE_SECURE: ${APP_AUTH_COOKIE_SECURE:-true}
+      APP_AUTH_COOKIE_SAME_SITE: ${APP_AUTH_COOKIE_SAME_SITE:-Lax}
+      APP_AUTH_COOKIE_DOMAIN: ${APP_AUTH_COOKIE_DOMAIN:-}
+      APP_AUTH_EXPOSE_TOKENS_IN_BODY: ${APP_AUTH_EXPOSE_TOKENS_IN_BODY:-false}
       GRPC_AUTH_ADDRESS: dns:///auth-service:9090
       GRPC_PROFILE_ADDRESS: dns:///user-profile-service:9091
       GRPC_FILE_ADDRESS: dns:///file-service:9092
       GRPC_CHAT_ADDRESS: dns:///chat-service:9095
       GRPC_RAG_ADDRESS: dns:///rag-service:9097
-      APP_GRPC_AUTH_SERVICE_SECRET: ${APP_GRPC_AUTH_SERVICE_SECRET:-change-me-shared-secret}
-      APP_GRPC_PROFILE_SERVICE_SECRET: ${APP_GRPC_PROFILE_SERVICE_SECRET:-change-me-shared-secret}
-      APP_GRPC_FILE_SERVICE_SECRET: ${APP_GRPC_FILE_SERVICE_SECRET:-change-me-shared-secret}
-      APP_GRPC_CHAT_SERVICE_SECRET: ${APP_GRPC_CHAT_SERVICE_SECRET:-change-me-shared-secret}
-      APP_GRPC_RAG_SERVICE_SECRET: ${APP_GRPC_RAG_SERVICE_SECRET:-change-me-shared-secret}
+      APP_GRPC_AUTH_SERVICE_SECRET: ${APP_GRPC_AUTH_SERVICE_SECRET:?APP_GRPC_AUTH_SERVICE_SECRET must be set}
+      APP_GRPC_PROFILE_SERVICE_SECRET: ${APP_GRPC_PROFILE_SERVICE_SECRET:?APP_GRPC_PROFILE_SERVICE_SECRET must be set}
+      APP_GRPC_FILE_SERVICE_SECRET: ${APP_GRPC_FILE_SERVICE_SECRET:?APP_GRPC_FILE_SERVICE_SECRET must be set}
+      APP_GRPC_CHAT_SERVICE_SECRET: ${APP_GRPC_CHAT_SERVICE_SECRET:?APP_GRPC_CHAT_SERVICE_SECRET must be set}
+      APP_GRPC_RAG_SERVICE_SECRET: ${APP_GRPC_RAG_SERVICE_SECRET:?APP_GRPC_RAG_SERVICE_SECRET must be set}
     ports:
       - "${GATEWAY_HOST_PORT:-8080}:8080"
     healthcheck:
-      test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/8080'"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf \"GET /actuator/health/readiness HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && grep -q \"200\" <&3'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
     networks:
       - ai-platform-network
 
@@ -457,22 +523,29 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080/api}
       NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:8080}
+      INTERNAL_API_URL: ${INTERNAL_API_URL:-http://api-gateway:8080/api}
       NODE_ENV: production
       PORT: 3000
     ports:
       - "${FRONTEND_HOST_PORT:-3000}:3000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/ >/dev/null || exit 1"]
       interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
     networks:
       - ai-platform-network
 
 # =============================================================================
-# VOLUMES & NETWORKS
+# SECRETS, VOLUMES & NETWORKS
 # =============================================================================
+
+secrets:
+  jwt_private_key:
+    file: ${JWT_PRIVATE_KEY_FILE:-./secrets/jwt_private_key.pem}
+  jwt_public_key:
+    file: ${JWT_PUBLIC_KEY_FILE:-./secrets/jwt_public_key.pem}
 
 volumes:
   auth_postgres_data:

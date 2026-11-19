@@ -2,6 +2,7 @@ package com.aiplatform.gateway.websocket;
 
 import com.aiplatform.chat.proto.ChatServiceGrpc;
 import com.aiplatform.chat.proto.GetChatroomRequest;
+import com.aiplatform.gateway.config.GatewayAuthCookieProperties;
 import com.aiplatform.gateway.config.GrpcChatProperties;
 import com.aiplatform.gateway.security.JwtValidationService;
 import io.jsonwebtoken.Claims;
@@ -10,6 +11,8 @@ import io.grpc.stub.MetadataUtils;
 import net.devh.boot.grpc.client.inject.GrpcClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpCookie;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -49,15 +52,27 @@ public class ChatWebSocketHandler implements WebSocketHandler {
     private final ChatRedisSubscriber redisSubscriber;
     private final JwtValidationService jwtValidationService;
     private final GrpcChatProperties grpcChatProperties;
+    private final GatewayAuthCookieProperties cookieProperties;
+
+    @Autowired
+    public ChatWebSocketHandler(
+            ChatRedisSubscriber redisSubscriber,
+            JwtValidationService jwtValidationService,
+            GrpcChatProperties grpcChatProperties,
+            GatewayAuthCookieProperties cookieProperties
+    ) {
+        this.redisSubscriber = redisSubscriber;
+        this.jwtValidationService = jwtValidationService;
+        this.grpcChatProperties = grpcChatProperties;
+        this.cookieProperties = cookieProperties;
+    }
 
     public ChatWebSocketHandler(
             ChatRedisSubscriber redisSubscriber,
             JwtValidationService jwtValidationService,
             GrpcChatProperties grpcChatProperties
     ) {
-        this.redisSubscriber = redisSubscriber;
-        this.jwtValidationService = jwtValidationService;
-        this.grpcChatProperties = grpcChatProperties;
+        this(redisSubscriber, jwtValidationService, grpcChatProperties, new GatewayAuthCookieProperties());
     }
 
     @GrpcClient("chat-service")
@@ -143,7 +158,16 @@ public class ChatWebSocketHandler implements WebSocketHandler {
             return authHeader.substring(7);
         }
 
-        // 2. Sec-WebSocket-Protocol header (e.g. browser clients: ['bearer', '<token>'])
+        // 2. HttpOnly access token cookie (primary browser authentication)
+        var cookies = session.getHandshakeInfo().getCookies();
+        if (cookies != null) {
+            HttpCookie accessCookie = cookies.getFirst(cookieProperties.getAccessTokenName());
+            if (accessCookie != null && StringUtils.hasText(accessCookie.getValue())) {
+                return accessCookie.getValue().trim();
+            }
+        }
+
+        // 3. Sec-WebSocket-Protocol header (backward compatibility for explicit bearer subprotocol)
         List<String> protocolHeaders = session.getHandshakeInfo().getHeaders().get("Sec-WebSocket-Protocol");
         if (protocolHeaders != null) {
             for (String header : protocolHeaders) {
@@ -160,16 +184,6 @@ public class ChatWebSocketHandler implements WebSocketHandler {
                     }
                 }
             }
-        }
-
-        // 3. Fallback: Query parameter (log deprecation warning)
-        String tokenFromQuery = params.getFirst("token");
-        if (StringUtils.hasText(tokenFromQuery)) {
-            log.warn("WebSocket client using token in query parameter (deprecated for security)");
-            if (tokenFromQuery.startsWith("Bearer ")) {
-                return tokenFromQuery.substring(7);
-            }
-            return tokenFromQuery;
         }
 
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing authentication credentials for WebSocket");

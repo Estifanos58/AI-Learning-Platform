@@ -60,8 +60,8 @@ export const authMockService = {
       email: request.email,
       username: request.username,
       role: request.role ?? 'STUDENT',
-      status: 'UNVERIFIED',
-      emailVerified: false,
+      status: 'ACTIVE',
+      emailVerified: true,
     };
 
     mockUsers.set(newUserId, {

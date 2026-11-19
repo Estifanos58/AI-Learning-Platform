@@ -1,5 +1,4 @@
-# RAG Service Dependencies
-# Core
+# Core web / API
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic==2.10.6
@@ -13,28 +12,29 @@ redis==5.2.1
 grpcio==1.69.0
 grpcio-tools==1.69.0
 
-# HTTP client (TEI calls, LLM API fallbacks)
+# HTTP async client (for TEI embeddings + web search)
 httpx==0.28.1
-
-# Database / security
 sqlalchemy==2.0.38
 asyncpg==0.30.0
+alembic==1.14.1
 cryptography==44.0.0
 aiosqlite==0.20.0
 
-# Vector DB
+# Vector database
 qdrant-client==1.12.1
 
-# LLM providers (optional but recommended)
+# LLM SDKs
 openai==1.58.1
-google-genai>=0.8.0
+google-genai==1.2.0
 
-# Text extraction
-# kreuzberg==0.7.0  # install separately; requires system deps (pandoc, tesseract)
-
-# Chunking / ML utilities
-# sentence-transformers==3.3.1  # for local reranking (optional)
-# tiktoken==0.8.0               # for accurate token counting (optional)
+# Document extraction & OCR
+pymupdf==1.25.3
+python-docx==1.1.2
+openpyxl==3.1.5
+python-pptx==1.0.2
+Pillow==11.1.0
+pytesseract==0.3.13
+chardet==5.2.0
 
 # Observability
 prometheus-client==0.21.1

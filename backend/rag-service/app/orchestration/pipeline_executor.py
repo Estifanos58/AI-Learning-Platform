@@ -10,6 +10,11 @@ from typing import Any, Awaitable, Callable, Dict
 
 from app.agents.base_agent import AgentContext
 from app.llm.model_orchestrator import EndpointSelection, ModelOrchestrator
+from app.llm.provider_executor import (
+    ProviderPermanentError,
+    ProviderTransientError,
+    is_retryable_exception,
+)
 from app.orchestration.planner_agent import PlannerAgent
 from app.orchestration.response_aggregator import ResponseAggregator
 from app.orchestration.workflow_builder import WorkflowBuilder
@@ -21,7 +26,7 @@ from app.usage.token_meter import TokenMeter
 
 log = logging.getLogger(__name__)
 
-# In-process cancellation registry (request_id → Event)
+# In-process cancellation registry (request_id -> Event)
 _CANCELLATION_REGISTRY: Dict[str, asyncio.Event] = {}
 
 PartialPersistHook = Callable[[str, str], Awaitable[None]]
@@ -37,8 +42,8 @@ class PipelineExecutor:
       1. Authorize file IDs via file-service gRPC
       2. Vector search + rerank
       3. Plan agent workflow
-      4. Execute agents
-      5. Aggregate + stream response chunks to Kafka
+      4. Execute agents with endpoint failover
+      5. Aggregate + stream response chunks
       6. Record usage
     """
 
@@ -70,25 +75,28 @@ class PipelineExecutor:
         options = payload.get("options", {})
         context_window = payload.get("context_window", [])
         max_retries = int(options.get("max_endpoint_retries", 3))
+        defer_failure_handling = bool(payload.get("defer_failure_handling", False))
+
         on_partial_persist: PartialPersistHook | None = payload.get("on_partial_persist")
         on_completed: CompletionHook | None = payload.get("on_completed")
         on_failed: FailureHook | None = payload.get("on_failed")
         on_cancelled: CancelledHook | None = payload.get("on_cancelled")
         is_cancelled: CancelledProbe | None = payload.get("is_cancelled")
+
         if not model_id:
-            raise RuntimeError("ai_model_id is required")
+            raise ProviderPermanentError("ai_model_id is required", error_code="MISSING_MODEL_ID")
 
         candidate_endpoints = await self._orchestrator.select_endpoints(
             model_id=model_id,
             limit=max_retries,
         )
         if not candidate_endpoints:
-            raise RuntimeError(
-                f"No active endpoints available for ai_model_id '{model_id}'"
+            raise ProviderTransientError(
+                f"No active endpoints available for ai_model_id '{model_id}'",
+                error_code="NO_ACTIVE_ENDPOINTS",
             )
 
-        # Register cancellation event
-        cancel_event = asyncio.Event()
+        cancel_event = _CANCELLATION_REGISTRY.get(request_id) or asyncio.Event()
         _CANCELLATION_REGISTRY[request_id] = cancel_event
 
         start_ts = time.monotonic()
@@ -108,11 +116,12 @@ class PipelineExecutor:
                 cancel_event=cancel_event,
                 on_partial_persist=on_partial_persist,
                 on_completed=on_completed,
-                on_failed=on_failed,
                 is_cancelled=is_cancelled,
             )
         except asyncio.CancelledError:
-            await self._streamer.publish_cancelled(
+            if defer_failure_handling:
+                raise
+            await self.publish_cancelled(
                 chatroom_id=chatroom_id,
                 message_id=message_id,
                 request_id=request_id,
@@ -121,7 +130,9 @@ class PipelineExecutor:
                 await on_cancelled(request_id)
         except Exception as exc:  # noqa: BLE001
             log.error("Pipeline failed for request_id=%s: %s", request_id, exc)
-            await self._streamer.publish_failed(
+            if defer_failure_handling:
+                raise
+            await self.publish_failed(
                 chatroom_id=chatroom_id,
                 message_id=message_id,
                 request_id=request_id,
@@ -133,8 +144,36 @@ class PipelineExecutor:
             _CANCELLATION_REGISTRY.pop(request_id, None)
             latency_ms = int((time.monotonic() - start_ts) * 1000)
             log.info(
-                "Pipeline complete: request_id=%s latency_ms=%d", request_id, latency_ms
+                "Pipeline finished: request_id=%s latency_ms=%d", request_id, latency_ms
             )
+
+    async def publish_failed(
+        self,
+        *,
+        chatroom_id: str,
+        message_id: str,
+        request_id: str,
+        error: str,
+    ) -> None:
+        await self._streamer.publish_failed(
+            chatroom_id=chatroom_id,
+            message_id=message_id,
+            request_id=request_id,
+            error=error,
+        )
+
+    async def publish_cancelled(
+        self,
+        *,
+        chatroom_id: str,
+        message_id: str,
+        request_id: str,
+    ) -> None:
+        await self._streamer.publish_cancelled(
+            chatroom_id=chatroom_id,
+            message_id=message_id,
+            request_id=request_id,
+        )
 
     async def _run_pipeline(
         self,
@@ -152,7 +191,6 @@ class PipelineExecutor:
         cancel_event: asyncio.Event,
         on_partial_persist: PartialPersistHook | None,
         on_completed: CompletionHook | None,
-        on_failed: FailureHook | None,
         is_cancelled: CancelledProbe | None,
     ) -> None:
         await self._check_cancel(cancel_event, request_id, is_cancelled)
@@ -165,10 +203,11 @@ class PipelineExecutor:
             )
             await self._check_cancel(cancel_event, request_id, is_cancelled)
 
-            raw_chunks = await self._search.search(question, allowed_file_ids)
-            await self._check_cancel(cancel_event, request_id, is_cancelled)
-            chunks = await self._reranker.rerank(question, raw_chunks)
-            await self._check_cancel(cancel_event, request_id, is_cancelled)
+            if allowed_file_ids:
+                raw_chunks = await self._search.search(question, allowed_file_ids)
+                await self._check_cancel(cancel_event, request_id, is_cancelled)
+                chunks = await self._reranker.rerank(question, raw_chunks)
+                await self._check_cancel(cancel_event, request_id, is_cancelled)
         else:
             log.info(
                 "No file_ids attached for request_id=%s; skipping vector search",
@@ -193,14 +232,16 @@ class PipelineExecutor:
         agents = self._builder.build(plan)
         await self._check_cancel(cancel_event, request_id, is_cancelled)
 
-        # 4. Execute agents (sequential with endpoint retries)
+        # 4. Execute agents (sequential with endpoint failover)
         results = []
         for agent in agents:
             await self._check_cancel(cancel_event, request_id, is_cancelled)
             agent_result = None
             last_exc: Exception | None = None
+            saw_retryable = False
 
             for endpoint in candidate_endpoints[: max(1, max_retries)]:
+                await self._check_cancel(cancel_event, request_id, is_cancelled)
                 agent_ctx = AgentContext(
                     request_id=request_id,
                     user_id=user_id,
@@ -218,8 +259,12 @@ class PipelineExecutor:
                 try:
                     agent_result = await agent.run(agent_ctx)
                     break
+                except asyncio.CancelledError:
+                    raise
                 except Exception as exc:  # noqa: BLE001
                     last_exc = exc
+                    if is_retryable_exception(exc):
+                        saw_retryable = True
                     log.warning(
                         "Agent %s failed on endpoint %s, trying next: %s",
                         agent.name,
@@ -228,9 +273,15 @@ class PipelineExecutor:
                     )
 
             if agent_result is None:
-                raise RuntimeError(
-                    f"All endpoints failed for agent '{agent.name}': {last_exc}"
-                )
+                if saw_retryable:
+                    raise ProviderTransientError(
+                        f"All endpoints failed transiently for agent '{agent.name}': {last_exc}",
+                        error_code=getattr(last_exc, "error_code", "ALL_ENDPOINTS_TRANSIENT_FAILURE"),
+                    ) from last_exc
+                raise ProviderPermanentError(
+                    f"All endpoints failed permanently for agent '{agent.name}': {last_exc}",
+                    error_code=getattr(last_exc, "error_code", "ALL_ENDPOINTS_PERMANENT_FAILURE"),
+                ) from last_exc
 
             results.append(agent_result)
 
@@ -266,7 +317,7 @@ class PipelineExecutor:
             )
             seq += 1
 
-        # 7. Publish completion
+        # 6. Publish completion
         model_used = candidate_endpoints[0].provider_model_name if candidate_endpoints else model_id
         usage = await self._meter.estimate(question, full_text, model_used)
         if on_partial_persist is not None:
@@ -286,9 +337,11 @@ class PipelineExecutor:
     @staticmethod
     def cancel(request_id: str) -> None:
         event = _CANCELLATION_REGISTRY.get(request_id)
-        if event:
-            event.set()
-            log.info("Cancellation signal set for request_id=%s", request_id)
+        if event is None:
+            event = asyncio.Event()
+            _CANCELLATION_REGISTRY[request_id] = event
+        event.set()
+        log.info("Cancellation signal set for request_id=%s", request_id)
 
     @staticmethod
     async def _check_cancel(

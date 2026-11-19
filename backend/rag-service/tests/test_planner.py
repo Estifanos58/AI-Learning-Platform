@@ -1,6 +1,5 @@
 """Tests for the planner agent heuristic."""
 
-import pytest
 from app.orchestration.planner_agent import PlannerAgent
 
 

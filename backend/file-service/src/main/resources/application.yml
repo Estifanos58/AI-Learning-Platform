@@ -1,5 +1,5 @@
 server:
-  port: ${SERVER_PORT:9093}
+  port: ${SERVER_PORT:8084}
 
 grpc:
   server:
@@ -26,12 +26,29 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+
+logging:
+  structured:
+    format:
+      console: logstash
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
 
 file:
   storage:
@@ -40,12 +57,13 @@ file:
     chunk-size-bytes: ${FILE_STORAGE_CHUNK_SIZE_BYTES:262144}
 
 app:
+  environment: ${APP_ENV:production}
   grpc:
     file:
-      service-secret: ${APP_GRPC_FILE_SERVICE_SECRET:change-me-shared-secret}
+      service-secret: ${APP_GRPC_FILE_SERVICE_SECRET:}
   kafka:
     file-events:
-      enabled: ${APP_KAFKA_FILE_EVENTS_ENABLED:false}
+      enabled: ${APP_KAFKA_FILE_EVENTS_ENABLED:true}
       uploaded-topic: ${APP_KAFKA_TOPIC_FILE_UPLOADED:file.uploaded.v1}
       uploaded-v2-topic: ${APP_KAFKA_TOPIC_FILE_UPLOADED_V2:file.uploaded.v2}
       deleted-topic: ${APP_KAFKA_TOPIC_FILE_DELETED:file.deleted.v1}

@@ -11,9 +11,9 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.config import get_settings
-from app.db.base import Base
-from app.models.ai_model import AIModel  # noqa: F401
+from app.db.base import Base  # noqa: F401
 from app.models.ai_execution import AIExecution  # noqa: F401
+from app.models.ai_model import AIModel  # noqa: F401
 from app.models.chat_room import ChatRoom  # noqa: F401
 from app.models.message import Message  # noqa: F401
 from app.models.model_definition import ModelDefinition  # noqa: F401
@@ -33,50 +33,27 @@ async def get_db_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
-async def ensure_ai_models_schema() -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-        if conn.dialect.name != "postgresql":
-            return
-
-        await conn.execute(
-            text(
-                """
-                ALTER TABLE ai_models
-                ADD COLUMN IF NOT EXISTS encrypted_platform_key TEXT
-                """
-            )
-        )
-        await conn.execute(
-            text(
-                """
-                ALTER TABLE ai_models
-                ADD COLUMN IF NOT EXISTS platform_key_available BOOLEAN NOT NULL DEFAULT FALSE
-                """
-            )
-        )
-        await conn.execute(
-            text(
-                """
-                UPDATE ai_models
-                SET platform_key_available = FALSE
-                WHERE platform_key_available IS NULL
-                """
-            )
-        )
-        await conn.execute(
-            text(
-                """
-                ALTER TABLE ai_executions
-                ADD COLUMN IF NOT EXISTS payload_json TEXT,
-                ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0,
-                ADD COLUMN IF NOT EXISTS max_retries INTEGER NOT NULL DEFAULT 3
-                """
-            )
-        )
+async def ping_database() -> None:
+    """Verify database connectivity."""
+    async with engine.connect() as conn:
+        await conn.execute(text("SELECT 1"))
 
 
 async def init_database() -> None:
-    await ensure_ai_models_schema()
-    log.info("Database schema initialized")
+    """
+    Verify PostgreSQL connectivity and that Alembic migrations have been applied.
+    Schema changes are managed strictly by versioned Alembic migrations (`alembic upgrade head`).
+    """
+    async with engine.connect() as conn:
+        await conn.execute(text("SELECT 1"))
+        if conn.dialect.name == "postgresql":
+            result = await conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
+            version = result.scalar_one_or_none()
+            if not version:
+                raise RuntimeError(
+                    "Database schema is not migrated (alembic_version is empty). "
+                    "Run 'alembic upgrade head' before starting rag-service."
+                )
+            log.info("Database verified at Alembic revision=%s", version)
+        else:
+            log.info("Database connectivity verified (dialect=%s)", conn.dialect.name)

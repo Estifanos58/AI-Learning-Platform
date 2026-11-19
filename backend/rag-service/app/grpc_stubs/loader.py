@@ -65,3 +65,8 @@ def ensure_ai_models_stubs() -> None:
 
 def ensure_rag_stubs() -> None:
     _ensure_stubs("rag")
+
+
+def ensure_file_stubs() -> None:
+    _ensure_stubs("file")
+

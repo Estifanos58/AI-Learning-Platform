@@ -16,10 +16,11 @@ Chat Service owns conversational state for direct and AI-enabled chatrooms. It p
 - Application layer: `ChatApplicationService` with chatroom resolution, authorization, and orchestration logic.
 - Persistence layer: JPA entities and repositories for `chatrooms`, `chatroom_members`, and `messages`.
 - Integration layer:
-  - `ChatKafkaPublisher` for request/cancel events.
-  - `RagStreamConsumer` for inbound AI stream topics.
-  - `ChatRedisPublisher` for realtime user-facing events.
+  - Transactional Outbox (`outbox_events` via `V2__create_outbox_events.sql` + `ChatKafkaPublisher` + `ChatOutboxPublisher`) for request/cancel events.
+  - `RagStreamConsumer` with Spring Kafka `DefaultErrorHandler` + `DeadLetterPublishingRecoverer` for inbound AI stream topics (`*.v2`).
+  - `ChatRedisPublisher` for realtime user-facing events (with authenticated Redis support).
   - `FileServiceClient` and `RagExecutionClient` for gRPC integrations.
+- Operations: HTTP Actuator on port `8085` (`/actuator/health/liveness`, `/actuator/health/readiness`, `/actuator/prometheus`), structured JSON logging, constant-time gRPC secret validation.
 
 ## API / gRPC Contracts
 ### gRPC Service
@@ -46,7 +47,7 @@ From `proto/chat.proto`:
 ## Data Layer
 ### Database Overview
 - PostgreSQL database: `chat_service_db`.
-- Migration strategy: Flyway SQL migration `V1__init_chat.sql`.
+- Migration strategy: Flyway SQL migrations (`V1__init_chat.sql`, `V2__create_outbox_events.sql`).
 - Realtime cache/event bus: Redis.
 
 ### Entities
@@ -59,7 +60,7 @@ From `proto/chat.proto`:
 - One `chatrooms` row has many `messages`.
 - A user can belong to many chatrooms and contribute many messages.
 
-### Database Diagram (MANDATORY)
+### Database Diagram
 ```mermaid
 erDiagram
     CHATROOMS ||--o{ CHATROOM_MEMBERS : has
@@ -92,7 +93,7 @@ erDiagram
 2. Stream AI response: consume RAG topic events -> map to chat event types -> publish Redis chunks/completion/failure.
 3. Cancel generation: receive cancel RPC -> publish cancel topic -> downstream RAG worker halts execution.
 
-## Service Architecture Diagram (MANDATORY)
+## Service Architecture Diagram
 ```mermaid
 graph TD
     APIGateway --> ChatGrpcService
@@ -109,7 +110,7 @@ graph TD
     RagStreamConsumer --> ChatRedisPublisher
 ```
 
-## Inter-Service Communication Diagram (MANDATORY)
+## Inter-Service Communication Diagram
 ```mermaid
 graph LR
     APIGateway -->|gRPC| ChatService

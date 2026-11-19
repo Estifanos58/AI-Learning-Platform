@@ -88,4 +88,46 @@ class ChatWebSocketHandlerTest {
 
         verify(session).close(CloseStatus.POLICY_VIOLATION);
     }
+
+    @Test
+    @DisplayName("WebSocket authenticates via HttpOnly app_access_token cookie")
+    void handle_authenticatesViaHttpOnlyCookie() {
+        HttpHeaders headers = new HttpHeaders();
+        org.springframework.util.MultiValueMap<String, org.springframework.http.HttpCookie> cookies =
+                new org.springframework.util.LinkedMultiValueMap<>();
+        cookies.add("app_access_token", new org.springframework.http.HttpCookie("app_access_token", "cookie-jwt-token"));
+
+        when(session.getHandshakeInfo()).thenReturn(handshakeInfo);
+        when(handshakeInfo.getUri()).thenReturn(URI.create("ws://localhost:8080/ws/chat"));
+        when(handshakeInfo.getHeaders()).thenReturn(headers);
+        when(handshakeInfo.getCookies()).thenReturn(cookies);
+
+        UUID userId = UUID.randomUUID();
+        when(jwtValidationService.parseClaims("cookie-jwt-token")).thenReturn(claims);
+        when(claims.getSubject()).thenReturn(userId.toString());
+
+        when(redisSubscriber.subscribeToNewChatroom(userId.toString())).thenReturn(Flux.empty());
+        when(session.receive()).thenReturn(Flux.empty());
+        when(session.send(any())).thenReturn(Mono.empty());
+
+        StepVerifier.create(handler.handle(session)).verifyComplete();
+
+        verify(jwtValidationService).parseClaims("cookie-jwt-token");
+    }
+
+    @Test
+    @DisplayName("WebSocket rejects insecure query parameter token authentication")
+    void handle_rejectsQueryParameterToken() {
+        HttpHeaders headers = new HttpHeaders();
+        when(session.getHandshakeInfo()).thenReturn(handshakeInfo);
+        when(handshakeInfo.getUri()).thenReturn(URI.create("ws://localhost:8080/ws/chat?token=leaked-jwt"));
+        when(handshakeInfo.getHeaders()).thenReturn(headers);
+        when(handshakeInfo.getCookies()).thenReturn(new org.springframework.util.LinkedMultiValueMap<>());
+        when(session.close(CloseStatus.POLICY_VIOLATION)).thenReturn(Mono.empty());
+
+        StepVerifier.create(handler.handle(session)).verifyComplete();
+
+        verify(session).close(CloseStatus.POLICY_VIOLATION);
+        verify(jwtValidationService, never()).parseClaims(any());
+    }
 }

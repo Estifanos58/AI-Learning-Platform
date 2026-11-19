@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import importlib
 import json
 import logging
@@ -10,12 +11,13 @@ import grpc  # type: ignore[import]
 
 from app.config import get_settings
 from app.db.session import AsyncSessionLocal
-from app.grpc_stubs.loader import ensure_ai_models_stubs, ensure_rag_stubs
+from app.grpc_stubs.loader import ensure_ai_models_stubs, ensure_file_stubs, ensure_rag_stubs
 from app.ingestion.chunker import RecursiveCharacterTextSplitter
 from app.ingestion.embedding_pipeline import EmbeddingPipeline
 from app.ingestion.extractor import TextExtractor
 from app.ingestion.file_loader import FileLoader
 from app.llm.provider_executor import ProviderExecutor
+from app.observability import set_correlation_id
 from app.orchestration.pipeline_executor import PipelineExecutor
 from app.repositories.direct_ai_repository import DirectAIRepository
 from app.repositories.model_orchestration_repository import (
@@ -25,6 +27,7 @@ from app.repositories.model_orchestration_repository import (
 from app.retrieval.reranker import Reranker
 from app.retrieval.vector_search import VectorSearch
 from app.security.encryption import encrypt_key
+from app.security.file_validator import FileValidator
 from app.security.user_permission_checker import UserPermissionChecker
 from app.storage.qdrant_client import get_qdrant_client
 from app.streaming.response_streamer import ResponseStreamer
@@ -50,8 +53,11 @@ def _metadata_value(context: grpc.aio.ServicerContext, key: str) -> str:
 async def _require_service_auth(context: grpc.aio.ServicerContext) -> str:
     service_secret = _metadata_value(context, "x-service-secret")
     user_id = _metadata_value(context, "x-user-id")
+    correlation_id = _metadata_value(context, "x-correlation-id")
+    set_correlation_id(correlation_id)
 
-    if service_secret != settings.grpc_service_secret:
+    expected = settings.grpc_service_secret or ""
+    if not service_secret or not hmac.compare_digest(service_secret, expected):
         await context.abort(grpc.StatusCode.UNAUTHENTICATED, "Invalid service secret")
     if not user_id:
         await context.abort(grpc.StatusCode.UNAUTHENTICATED, "Missing user id")
@@ -259,13 +265,21 @@ class _RagService:
         pb2 = importlib.import_module("app.grpc_stubs.rag_pb2")
         try:
             loader = FileLoader()
+            validator = FileValidator()
             extractor = TextExtractor()
             splitter = RecursiveCharacterTextSplitter()
             pipeline = EmbeddingPipeline()
 
             content = loader.load(request.storage_path)
+            validator.validate(
+                content_type=request.content_type,
+                file_size_bytes=len(content),
+                file_name=request.file_name,
+            )
             result = extractor.extract(content, request.content_type, request.file_name)
             chunks = splitter.split(result.text)
+            if not chunks:
+                await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "Document produced no indexable text chunks")
             count = await pipeline.embed_and_store(
                 chunks=chunks,
                 file_id=request.file_id,
@@ -279,6 +293,8 @@ class _RagService:
                 file_id=request.file_id,
                 chunks_stored=count,
             )
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
         except FileNotFoundError as exc:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
         except PermissionError as exc:
@@ -341,6 +357,8 @@ class _RagService:
         if not request.request_id:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "request_id is required")
 
+        await self._direct_repo.cancel_execution(request.request_id)
+        get_direct_execution_worker().cancel_local(request.request_id)
         PipelineExecutor.cancel(request.request_id)
         pb2 = importlib.import_module("app.grpc_stubs.rag_pb2")
         return pb2.CancelGenerationResponse(
@@ -443,13 +461,16 @@ class _RagService:
         if execution is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, "Execution not found")
 
+        was_terminal = execution.status in {"COMPLETED", "FAILED", "CANCELLED"}
         await self._direct_repo.cancel_execution(request.execution_id)
+        get_direct_execution_worker().cancel_local(request.execution_id)
         PipelineExecutor.cancel(request.execution_id)
-        await self._streamer.publish_cancelled(
-            chatroom_id=execution.chatroom_id,
-            message_id=execution.message_id,
-            request_id=execution.request_id,
-        )
+        if not was_terminal:
+            await self._streamer.publish_cancelled(
+                chatroom_id=execution.chatroom_id,
+                message_id=execution.message_id,
+                request_id=execution.request_id,
+            )
         return pb2.CancelExecutionResponse(
             status="cancelled",
             execution_id=request.execution_id,
@@ -611,8 +632,7 @@ class _RagService:
         pb2 = importlib.import_module("app.grpc_stubs.rag_pb2")
         try:
             client = get_qdrant_client()
-            raw_client = await client._get_client()
-            info = await raw_client.get_collection(settings.qdrant_collection)
+            info = await client.get_collection_info()
             vectors_count = getattr(info, "vectors_count", None)
             return pb2.CollectionInfoResponse(
                 collection=settings.qdrant_collection,
@@ -633,6 +653,7 @@ class AiModelsGrpcServer:
     def __init__(self) -> None:
         ensure_ai_models_stubs()
         ensure_rag_stubs()
+        ensure_file_stubs()
         self.server = grpc.aio.server()
         pb2_grpc = importlib.import_module("app.grpc_stubs.ai_models_pb2_grpc")
         rag_pb2_grpc = importlib.import_module("app.grpc_stubs.rag_pb2_grpc")

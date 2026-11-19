@@ -6,6 +6,41 @@ import { revokeObjectUrl } from './workspace-context.utils';
 
 export type { WorkspaceFilePreview } from './workspace-context.types';
 
+export const WORKSPACE_PREFS_STORAGE_KEY = 'ai_learning_platform.workspace.prefs.v1';
+
+interface PersistedWorkspacePrefs {
+  sidebarOpen: boolean;
+  chatPanelOpen: boolean;
+  leftSidebarWidth: number;
+  rightSidebarWidth: number;
+  preferredAiModelId: string | null;
+}
+
+function clampWidth(value: unknown, min: number, max: number, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+export function loadWorkspacePrefs(): Partial<PersistedWorkspacePrefs> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_PREFS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      ...(typeof parsed.sidebarOpen === 'boolean' ? { sidebarOpen: parsed.sidebarOpen } : {}),
+      ...(typeof parsed.chatPanelOpen === 'boolean' ? { chatPanelOpen: parsed.chatPanelOpen } : {}),
+      leftSidebarWidth: clampWidth(parsed.leftSidebarWidth, 52, 500, 280),
+      rightSidebarWidth: clampWidth(parsed.rightSidebarWidth, 220, 500, 320),
+      ...(parsed.preferredAiModelId === null || typeof parsed.preferredAiModelId === 'string'
+        ? { preferredAiModelId: parsed.preferredAiModelId }
+        : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
@@ -22,6 +57,40 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [isProfileOpen, setProfileOpen] = useState(false);
   const [filePreviews, setFilePreviews] = useState<Record<string, WorkspaceFilePreview>>({});
   const previewUrlsRef = useRef<Record<string, string | undefined>>({});
+  const hasHydratedPrefsRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      const saved = loadWorkspacePrefs();
+      if (saved.sidebarOpen !== undefined) setSidebarOpen(saved.sidebarOpen);
+      if (saved.chatPanelOpen !== undefined) setChatPanelOpen(saved.chatPanelOpen);
+      if (saved.leftSidebarWidth !== undefined) setLeftSidebarWidth(saved.leftSidebarWidth);
+      if (saved.rightSidebarWidth !== undefined) setRightSidebarWidth(saved.rightSidebarWidth);
+      if (saved.preferredAiModelId !== undefined) setPreferredAiModelId(saved.preferredAiModelId);
+      hasHydratedPrefsRef.current = true;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasHydratedPrefsRef.current || typeof window === 'undefined') return;
+    try {
+      const payload: PersistedWorkspacePrefs = {
+        sidebarOpen,
+        chatPanelOpen,
+        leftSidebarWidth,
+        rightSidebarWidth,
+        preferredAiModelId,
+      };
+      window.localStorage.setItem(WORKSPACE_PREFS_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [sidebarOpen, chatPanelOpen, leftSidebarWidth, rightSidebarWidth, preferredAiModelId]);
 
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), []);
   const toggleChatPanel = useCallback(() => setChatPanelOpen((prev) => !prev), []);

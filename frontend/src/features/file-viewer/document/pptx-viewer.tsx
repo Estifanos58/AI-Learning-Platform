@@ -316,22 +316,24 @@ function ThumbnailStrip({
 
 // ── Main component ─────────────────────────────────────────────────────────
 export function PptxViewer({ file, src, publicUrl, onDownload }: PptxViewerProps) {
-  const [state, setState] = useState<State>({ status: 'idle' });
-  const [currentSlide, setCurrentSlide] = useState(0);
+  const [loadedState, setLoadedState] = useState<
+    | { status: 'ready'; forSrc: string; slides: Slide[] }
+    | { status: 'error'; forSrc: string; message: string }
+    | null
+  >(null);
+  const [slideSelection, setSlideSelection] = useState<{ forSrc: string | undefined; index: number }>({
+    forSrc: src,
+    index: 0,
+  });
   const [showThumbnails, setShowThumbnails] = useState(false);
   const [useOfficeOnline, setUseOfficeOnline] = useState(!!publicUrl);
 
   const label = file.originalName.toLowerCase().endsWith('.pptx') ? 'PPTX' : 'PPT';
 
   useEffect(() => {
-    if (!src) {
-      setState({ status: 'idle' });
-      return;
-    }
+    if (!src) return;
 
     let cancelled = false;
-    setState({ status: 'loading' });
-    setCurrentSlide(0);
 
     (async () => {
       try {
@@ -344,11 +346,12 @@ export function PptxViewer({ file, src, publicUrl, onDownload }: PptxViewerProps
 
         if (cancelled) return;
 
-        setState({ status: 'ready', slides });
+        setLoadedState({ status: 'ready', forSrc: src, slides });
       } catch (err) {
         if (!cancelled) {
-          setState({
+          setLoadedState({
             status: 'error',
+            forSrc: src,
             message: err instanceof Error ? err.message : 'Failed to parse presentation',
           });
         }
@@ -359,6 +362,21 @@ export function PptxViewer({ file, src, publicUrl, onDownload }: PptxViewerProps
       cancelled = true;
     };
   }, [src]);
+
+  const state: State = !src
+    ? { status: 'idle' }
+    : loadedState && loadedState.forSrc === src
+      ? loadedState
+      : { status: 'loading' };
+
+  const currentSlide = slideSelection.forSrc === src ? slideSelection.index : 0;
+  const setCurrentSlide = (updater: number | ((prev: number) => number)) => {
+    setSlideSelection((prev) => {
+      const base = prev.forSrc === src ? prev.index : 0;
+      const next = typeof updater === 'function' ? updater(base) : updater;
+      return { forSrc: src, index: next };
+    });
+  };
 
   const slides = state.status === 'ready' ? state.slides : [];
   const total = slides.length;

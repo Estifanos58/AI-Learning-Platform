@@ -1,7 +1,25 @@
 import { attemptRefresh } from './auth-refresh';
 import { buildRequestUrl } from './config';
+import { getCsrfToken, isRealBearerToken, isStateChangingMethod } from './csrf';
 import { createCorrelationId } from './helpers';
 import type { FormDataRequestOptions, RequestOptions } from './types';
+
+function buildAuthAndCsrfHeaders(
+  method: string,
+  token?: string | null,
+  customHeaders?: Record<string, string>,
+  hasBody?: boolean,
+): Record<string, string> {
+  const csrfToken = isStateChangingMethod(method) ? getCsrfToken() : null;
+  return {
+    Accept: 'application/json',
+    'X-Correlation-ID': createCorrelationId(),
+    ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+    ...(isRealBearerToken(token) ? { Authorization: `Bearer ${token}` } : {}),
+    ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+    ...(customHeaders ?? {}),
+  };
+}
 
 export async function executeRequest(path: string, options: RequestOptions = {}): Promise<Response> {
   const {
@@ -12,18 +30,11 @@ export async function executeRequest(path: string, options: RequestOptions = {})
     next,
     signal,
     baseUrl,
-    credentials,
+    credentials = 'include',
     headers: customHeaders,
   } = options;
 
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    'X-Correlation-ID': createCorrelationId(),
-    ...(body ? { 'Content-Type': 'application/json' } : {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(customHeaders ?? {}),
-  };
-
+  const headers = buildAuthAndCsrfHeaders(method, token, customHeaders, Boolean(body));
   const requestUrl = buildRequestUrl(path, baseUrl);
   let response = await fetch(requestUrl, {
     method,
@@ -35,13 +46,14 @@ export async function executeRequest(path: string, options: RequestOptions = {})
     credentials,
   });
 
-  if (response.status === 401 && path !== '/auth/refresh' && typeof window !== 'undefined') {
-    const newToken = await attemptRefresh();
-    if (newToken) {
-      headers.Authorization = `Bearer ${newToken}`;
+  const isAuthBootstrapPath = path === '/auth/refresh' || path === '/auth/login' || path === '/auth/signup' || path === '/auth/session';
+  if (response.status === 401 && !isAuthBootstrapPath && typeof window !== 'undefined') {
+    const refreshed = await attemptRefresh();
+    if (refreshed) {
+      const retryHeaders = buildAuthAndCsrfHeaders(method, token, customHeaders, Boolean(body));
       response = await fetch(requestUrl, {
         method,
-        headers,
+        headers: retryHeaders,
         body: body ? JSON.stringify(body) : undefined,
         cache,
         next,
@@ -72,10 +84,17 @@ export function sendFormDataRequest(
     const activeToken = overrideToken ?? token;
 
     xhr.open(method, requestUrl, true);
+    xhr.withCredentials = true;
     xhr.setRequestHeader('Accept', 'application/json');
     xhr.setRequestHeader('X-Correlation-ID', createCorrelationId());
-    if (activeToken) {
+    if (isRealBearerToken(activeToken)) {
       xhr.setRequestHeader('Authorization', `Bearer ${activeToken}`);
+    }
+    if (isStateChangingMethod(method)) {
+      const csrfToken = getCsrfToken();
+      if (csrfToken) {
+        xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+      }
     }
 
     const handleAbort = () => {

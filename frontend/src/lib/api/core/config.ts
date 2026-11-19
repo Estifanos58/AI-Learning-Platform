@@ -5,12 +5,27 @@ export const API_BASE_URL = envApiUrl
   ? (envApiUrl.endsWith('/api') ? envApiUrl : `${envApiUrl.replace(/\/api\/internal\/?$/i, '').replace(/\/+$/, '')}/api`)
   : 'http://localhost:8080/api';
 
+export function getServerApiBaseUrl(): string {
+  if (typeof process !== 'undefined') {
+    const internalUrl =
+      process.env.INTERNAL_API_URL?.trim() ||
+      process.env.API_GATEWAY_INTERNAL_URL?.trim();
+    if (internalUrl) {
+      return internalUrl.endsWith('/api')
+        ? internalUrl
+        : `${internalUrl.replace(/\/api\/internal\/?$/i, '').replace(/\/+$/, '')}/api`;
+    }
+  }
+  return API_BASE_URL;
+}
+
 export function buildRequestUrl(path: string, baseUrl?: string): string {
   if (/^https?:\/\//i.test(path)) {
     return path;
   }
 
-  const normalizedBase = (baseUrl ?? API_BASE_URL).replace(/\/+$/, '');
+  const defaultBase = typeof window === 'undefined' ? getServerApiBaseUrl() : API_BASE_URL;
+  const normalizedBase = (baseUrl ?? defaultBase).replace(/\/+$/, '');
   if (!normalizedBase) {
     return path;
   }

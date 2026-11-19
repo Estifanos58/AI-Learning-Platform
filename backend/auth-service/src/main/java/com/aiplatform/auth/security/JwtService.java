@@ -28,6 +28,8 @@ public class JwtService {
         Instant expiry = now.plus(jwtProperties.getAccessTokenExpirationMinutes(), ChronoUnit.MINUTES);
 
         return Jwts.builder()
+                .header().keyId(jwtProperties.getKeyId()).and()
+                .id(UUID.randomUUID().toString())
                 .subject(user.getId().toString())
                 .issuer(jwtProperties.getIssuer())
                 .audience().add(jwtProperties.getAudience()).and()
@@ -47,6 +49,7 @@ public class JwtService {
             return Jwts.parser()
                     .verifyWith(rsaKeyProvider.getPublicKey())
                     .requireIssuer(jwtProperties.getIssuer())
+                    .requireAudience(jwtProperties.getAudience())
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();

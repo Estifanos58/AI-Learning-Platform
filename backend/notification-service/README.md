@@ -12,16 +12,18 @@ Notification Service is an event-driven email delivery worker. It consumes verif
 - Expose health endpoint for runtime checks.
 
 ## Architecture
-- API layer: FastAPI app with lifecycle hooks in `app/main.py`.
+- API layer: FastAPI app with `lifespan`, structured JSON logging, `/health`, `/ready` (deduplication store + Kafka consumer checks), and `/metrics` (Prometheus).
 - Config layer: Pydantic settings in `app/config.py`.
-- Consumer layer: `VerificationConsumer` running in a managed background thread.
-- Handler layer: `VerificationHandler` for payload validation and orchestration.
-- Delivery layer: `EmailSender` with HTML template rendering and SMTP send.
-- Utility layer: in-memory idempotency store and retry helper utilities.
+- Consumer layer: `VerificationConsumer` with `enable_auto_commit=False`; commits exact per-record offsets only after delivery, duplicate skip, or confirmed synchronous DLQ publication.
+- Handler layer: `VerificationHandler` for payload validation and retry/non-retryable error classification.
+- Delivery layer: `EmailSender` (`smtplib` with HTML-escaped templates and SMTP TLS).
+- Utility layer: persistent deduplication (`RedisIdempotencyStore` via atomic `SET NX EX`, or `SqliteIdempotencyStore`) and exponential backoff retry helper.
 
 ## API / gRPC Contracts
 ### HTTP API
-- `GET /health` returns service health status.
+- `GET /health` returns liveness status.
+- `GET /ready` verifies persistent deduplication store connectivity and Kafka consumer health.
+- `GET /metrics` exposes Prometheus operational metrics.
 
 ### Event Contracts
 - Consumes: `user.email.verification.v1` (JSON payload with eventId, userId, email, username, verificationCode).
@@ -34,7 +36,7 @@ Notification Service is an event-driven email delivery worker. It consumes verif
 
 ## Data Layer
 ### Database Overview
-This service has no persistent database. Runtime state is process-local.
+Deduplication state is persisted in Redis (default, via `IDEMPOTENCY_BACKEND=redis` and `REDIS_URL`) or SQLite (`IDEMPOTENCY_BACKEND=sqlite`) to guarantee idempotency across restarts and replicas.
 
 ### Entities
 - `verification_event`: parsed incoming notification request.
@@ -45,7 +47,7 @@ This service has no persistent database. Runtime state is process-local.
 - One `verification_event` may generate one `processed_event` marker.
 - One failed `verification_event` generates one `dead_letter_event`.
 
-### Database Diagram (MANDATORY)
+### Database Diagram
 ```mermaid
 erDiagram
     VERIFICATION_EVENT ||--o| PROCESSED_EVENT : marks
@@ -75,7 +77,7 @@ erDiagram
 2. Process event: parse payload -> validate required fields -> idempotency check -> send email -> mark processed.
 3. Failure path: capture exception -> publish dead-letter event with correlation metadata.
 
-## Service Architecture Diagram (MANDATORY)
+## Service Architecture Diagram
 ```mermaid
 graph TD
     FastAPIApp --> VerificationConsumer
@@ -87,7 +89,7 @@ graph TD
     DeadLetterProducer --> Kafka
 ```
 
-## Inter-Service Communication Diagram (MANDATORY)
+## Inter-Service Communication Diagram
 ```mermaid
 graph LR
     AuthService -->|Kafka user.email.verification.v1| NotificationService
@@ -107,15 +109,17 @@ graph LR
 | `smtp_username` / `SMTP_USERNAME` | SMTP auth username | Yes |
 | `smtp_password` / `SMTP_PASSWORD` | SMTP auth password | Yes |
 | `smtp_from` / `SMTP_FROM` | Sender email address | Yes |
-| `idempotency_ttl_seconds` | TTL for processed-event cache | No |
-| `consumer_poll_timeout_seconds` | Poll timeout for consumer loop | No |
+| `IDEMPOTENCY_BACKEND` | Persistent deduplication backend (`redis` or `sqlite`) | Yes |
+| `REDIS_URL` | Authenticated Redis connection URL | Required when backend is `redis` |
+| `IDEMPOTENCY_TTL_SECONDS` | TTL for processed-event markers (default `86400`) | No |
+| `CONSUMER_POLL_TIMEOUT_SECONDS` | Poll timeout for consumer loop | No |
 
 ## Running the Service
-- Docker: `docker compose up notification-service kafka`.
+- Docker: `docker compose up notification-service kafka redis`.
 - Local: `pip install -r notification-service/requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8086` (run inside `notification-service`).
 
 ## Scaling & Reliability Considerations
-- Current idempotency cache is in-memory; duplicates can occur across replicas after restarts.
-- For multi-replica operation, move idempotency keys to Redis/PostgreSQL.
+- Persistent Redis deduplication (`SET NX EX`) prevents duplicate sends across replicas and restarts.
+- Manual Kafka commits ensure records are never acknowledged unless delivered or confirmed written to `notification.email.failed.v1`.
 - Configure SMTP retry/backoff and DLT retention aligned with incident response objectives.
-- Kafka topic partitioning can scale consume throughput for high-volume notification campaigns.
+- Kafka topic partitioning scales consume throughput across multiple service replicas.

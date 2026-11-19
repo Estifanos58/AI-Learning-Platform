@@ -1,7 +1,6 @@
 """Tests for the RecursiveCharacterTextSplitter."""
 
-import pytest
-from app.ingestion.chunker import RecursiveCharacterTextSplitter, TextChunk
+from app.ingestion.chunker import RecursiveCharacterTextSplitter
 
 
 def test_split_short_text_single_chunk():

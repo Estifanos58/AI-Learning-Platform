@@ -104,9 +104,12 @@ function triggerDownload(url: string, filename: string) {
 }
 
 export function useFilePagePreview({ file, accessToken }: UseFilePagePreviewOptions) {
-  const [objectUrl, setObjectUrl] = useState<string | undefined>(undefined);
-  const [textContent, setTextContent] = useState<string | undefined>(undefined);
-  const [downloadBlob, setDownloadBlob] = useState<Blob | null>(null);
+  const [previewState, setPreviewState] = useState<{
+    fileId: string;
+    objectUrl?: string;
+    textContent?: string;
+    downloadBlob: Blob | null;
+  }>({ fileId: '', objectUrl: undefined, textContent: undefined, downloadBlob: null });
 
   const resolvedContentType = useMemo(() => resolveContentType(file), [file]);
   const resolvedFile = useMemo(() => ({ ...file, contentType: resolvedContentType }), [file, resolvedContentType]);
@@ -114,10 +117,6 @@ export function useFilePagePreview({ file, accessToken }: UseFilePagePreviewOpti
   const category = useMemo(() => getFileCategory(resolvedContentType), [resolvedContentType]);
 
   useEffect(() => {
-    setTextContent(undefined);
-    setObjectUrl(undefined);
-    setDownloadBlob(null);
-
     if (!accessToken) {
       return;
     }
@@ -128,32 +127,30 @@ export function useFilePagePreview({ file, accessToken }: UseFilePagePreviewOpti
 
     let cancelled = false;
     let nextObjectUrl: string | null = null;
+    const targetFileId = file.id;
 
     const loadPreview = async () => {
       try {
-        const blob = await fetchFileBlob(file.id, accessToken, resolvedContentType || '*/*');
+        const blob = await fetchFileBlob(targetFileId, accessToken, resolvedContentType || '*/*');
 
         if (cancelled) {
           return;
         }
 
-        setDownloadBlob(blob);
-
         if (blob.type.startsWith('text/') || ['application/json', 'application/xml', 'application/javascript', 'application/typescript'].includes(blob.type)) {
-          setTextContent(await blob.text());
-          setObjectUrl(undefined);
+          const text = await blob.text();
+          if (!cancelled) {
+            setPreviewState({ fileId: targetFileId, textContent: text, objectUrl: undefined, downloadBlob: blob });
+          }
           return;
         }
 
         nextObjectUrl = URL.createObjectURL(blob);
-        setTextContent(undefined);
-        setObjectUrl(nextObjectUrl);
+        setPreviewState({ fileId: targetFileId, textContent: undefined, objectUrl: nextObjectUrl, downloadBlob: blob });
       } catch (error) {
         if (!cancelled) {
           console.error('Failed to load file preview', error);
-          setTextContent(undefined);
-          setObjectUrl(undefined);
-          setDownloadBlob(null);
+          setPreviewState({ fileId: targetFileId, textContent: undefined, objectUrl: undefined, downloadBlob: null });
         }
       }
     };
@@ -167,6 +164,11 @@ export function useFilePagePreview({ file, accessToken }: UseFilePagePreviewOpti
       }
     };
   }, [accessToken, category, file.id, resolvedContentType]);
+
+  const isCurrentFile = previewState.fileId === file.id;
+  const objectUrl = isCurrentFile ? previewState.objectUrl : undefined;
+  const textContent = isCurrentFile ? previewState.textContent : undefined;
+  const downloadBlob = isCurrentFile ? previewState.downloadBlob : null;
 
   const handleDownload = useCallback(async () => {
     if (downloadBlob) {

@@ -54,14 +54,14 @@ export function TopBar() {
           <div className="bg-primary/10 p-1.5 rounded-lg border border-primary/20">
             <BookOpen className="h-5 w-5" />
           </div>
-          <h1 className="text-lg font-bold tracking-tight hidden sm:inline">NotebookLM</h1>
+          <h1 className="text-lg font-bold tracking-tight hidden sm:inline">AI Learning Platform</h1>
         </div>
         
-        {/* Simple Breadcrumb (Mock) */}
+        {/* Workspace Breadcrumb */}
         <div className="hidden md:flex items-center gap-1 text-sm text-muted-foreground ml-4 pl-4 border-l border-border h-6">
             <Home className="h-3.5 w-3.5" />
             <ChevronRight className="h-3 w-3 opacity-50" />
-            <span className="font-medium text-foreground/80 truncate max-w-[150px]">My Project</span>
+            <span className="font-medium text-foreground/80 truncate max-w-[150px]">Workspace</span>
         </div>
       </div>
 

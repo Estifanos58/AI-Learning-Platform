@@ -7,6 +7,7 @@ import com.aiplatform.profile.exception.UnauthorizedAccessException;
 import com.aiplatform.profile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -129,8 +130,12 @@ public class UserProfileApplicationService {
                 .deleted(Boolean.FALSE)
                 .build();
 
-        userProfileRepository.save(profile);
-        log.info("Default profile created. userId={}, correlationId={}", userId, correlationId);
+        try {
+            userProfileRepository.saveAndFlush(profile);
+            log.info("Default profile created. userId={}, correlationId={}", userId, correlationId);
+        } catch (DataIntegrityViolationException duplicateEx) {
+            log.info("Concurrent duplicate profile creation ignored safely. userId={}, correlationId={}", userId, correlationId);
+        }
     }
 
     public int completionScore(UserProfile profile) {

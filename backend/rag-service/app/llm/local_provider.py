@@ -51,7 +51,7 @@ class LocalProvider(BaseLLMProvider):
                     break
         except Exception as exc:  # noqa: BLE001
             log.error("Local LLM streaming error: %s", exc)
-            yield LLMChunk(delta="", done=True, finish_reason="error")
+            raise
 
     async def get_usage(self) -> LLMUsage:
         return self._usage

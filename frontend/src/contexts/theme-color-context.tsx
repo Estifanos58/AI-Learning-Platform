@@ -21,6 +21,35 @@ export const themeColors: { name: ThemeColor; label: string; class: string }[] =
     { name: 'lime',    label: 'Lime',    class: 'bg-lime-500' },
 ];
 
+const THEME_COLOR_STORAGE_KEY = 'theme-color';
+const THEME_COLOR_CHANGE_EVENT = 'ai-learning-platform:theme-color-change';
+
+function getStoredThemeColor(): ThemeColor {
+  if (typeof window === 'undefined') return 'zinc';
+  try {
+    const saved = window.localStorage.getItem(THEME_COLOR_STORAGE_KEY) as ThemeColor | null;
+    if (saved && themeColors.some((c) => c.name === saved)) {
+      return saved;
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+  return 'zinc';
+}
+
+function subscribeThemeColor(callback: () => void) {
+  if (typeof window === 'undefined') return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === THEME_COLOR_STORAGE_KEY) callback();
+  };
+  window.addEventListener('storage', onStorage);
+  window.addEventListener(THEME_COLOR_CHANGE_EVENT, callback);
+  return () => {
+    window.removeEventListener('storage', onStorage);
+    window.removeEventListener(THEME_COLOR_CHANGE_EVENT, callback);
+  };
+}
+
 interface ThemeColorContextType {
   themeColor: ThemeColor;
   setThemeColor: (color: ThemeColor) => void;
@@ -29,27 +58,28 @@ interface ThemeColorContextType {
 const ThemeColorContext = React.createContext<ThemeColorContextType | undefined>(undefined);
 
 export function ThemeColorProvider({ children }: { children: React.ReactNode }) {
-  const [themeColor, setThemeColor] = React.useState<ThemeColor>('zinc');
+  const themeColor = React.useSyncExternalStore<ThemeColor>(
+    subscribeThemeColor,
+    getStoredThemeColor,
+    () => 'zinc',
+  );
 
-  React.useEffect(() => {
-    // Determine initial color from local storage or default
-    const savedColor = localStorage.getItem('theme-color') as ThemeColor;
-    if (savedColor) {
-      setThemeColor(savedColor);
+  const setThemeColor = React.useCallback((color: ThemeColor) => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(THEME_COLOR_STORAGE_KEY, color);
+    } catch {
+      // Ignore storage access errors
     }
+    window.dispatchEvent(new Event(THEME_COLOR_CHANGE_EVENT));
   }, []);
 
   React.useEffect(() => {
-    // Remove old theme classes
     const root = document.body;
     root.classList.remove(
       ...themeColors.map(c => `theme-${c.name}`)
     );
-    // Add new theme class
     root.classList.add(`theme-${themeColor}`);
-    
-    // Save preference
-    localStorage.setItem('theme-color', themeColor);
   }, [themeColor]);
 
   return (

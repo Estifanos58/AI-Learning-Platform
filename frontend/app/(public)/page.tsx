@@ -36,7 +36,7 @@ export default function LandingPage() {
                 <div className="bg-primary/10 p-1.5 rounded-lg text-primary">
                   <Sparkles className="w-5 h-5" />
                 </div>
-                <span>NotebookLM</span>
+                <span>AI Learning Platform</span>
             </div>
             
             <div className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
@@ -344,7 +344,7 @@ export default function LandingPage() {
                         <div className="bg-primary/10 p-1.5 rounded-lg text-primary">
                         <Sparkles className="w-4 h-4" />
                         </div>
-                        <span>NotebookLM</span>
+                        <span>AI Learning Platform</span>
                     </div>
                     <p className="text-sm text-muted-foreground">
                         Empowering learning through artificial intelligence and seamless collaboration.

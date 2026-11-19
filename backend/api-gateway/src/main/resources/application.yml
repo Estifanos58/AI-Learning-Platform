@@ -188,41 +188,18 @@ spring:
                 redis-rate-limiter.replenishRate: 100
                 redis-rate-limiter.burstCapacity: 120
             - RewritePath=/api/rag(?<segment>/.*|$), /api/internal/rag${segment}
-      globalcors:
-        cors-configurations:
-          '[/**]':
-            allowedOrigins: ${GATEWAY_ALLOWED_ORIGINS:http://localhost:3000}
-            allowedMethods:
-              - GET
-              - POST
-              - PUT
-              - PATCH
-              - DELETE
-              - OPTIONS
-            allowedHeaders:
-              - Content-Type
-              - Authorization
-              - X-Correlation-ID
-              - Accept
-              - Cache-Control
-              - Sec-WebSocket-Protocol
-              - X-Requested-With
-            allowCredentials: true
   data:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
   codec:
     max-in-memory-size: ${SPRING_CODEC_MAX_IN_MEMORY_SIZE:314572800}
-  servlet:
-    multipart:
-      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:300MB}
-      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:300MB}
 
 grpc:
   client:
     auth-service:
-      address: ${GRPC_AUTH_ADDRESS:static://localhost:9090}  # in docker change the localhost to auth-service
+      address: ${GRPC_AUTH_ADDRESS:static://localhost:9090}
       negotiationType: ${GRPC_AUTH_NEGOTIATION:PLAINTEXT}
     profile-service:
       address: ${GRPC_PROFILE_ADDRESS:static://localhost:9091}
@@ -239,23 +216,54 @@ grpc:
       negotiationType: ${GRPC_RAG_NEGOTIATION:PLAINTEXT}
 
 app:
+  environment: ${APP_ENV:production}
   jwt:
     issuer: ${APP_JWT_ISSUER:ai-learning-platform-auth}
-    public-key-location: ${APP_JWT_PUBLIC_KEY_LOCATION:classpath:keys/public_key.pem}
+    audience: ${APP_JWT_AUDIENCE:ai-learning-platform-clients}
+    public-key-location: ${APP_JWT_PUBLIC_KEY_LOCATION:file:/run/secrets/jwt_public_key.pem}
+    public-key-pem: ${APP_JWT_PUBLIC_KEY_PEM:}
+    previous-public-key-location: ${APP_JWT_PREVIOUS_PUBLIC_KEY_LOCATION:}
+    previous-public-key-pem: ${APP_JWT_PREVIOUS_PUBLIC_KEY_PEM:}
+  auth:
+    cookie:
+      access-token-name: ${APP_AUTH_COOKIE_ACCESS_NAME:app_access_token}
+      refresh-token-name: ${APP_AUTH_COOKIE_REFRESH_NAME:app_refresh_token}
+      csrf-token-name: ${APP_AUTH_COOKIE_CSRF_NAME:app_csrf_token}
+      secure: ${APP_AUTH_COOKIE_SECURE:true}
+      same-site: ${APP_AUTH_COOKIE_SAME_SITE:Lax}
+      path: ${APP_AUTH_COOKIE_PATH:/}
+      domain: ${APP_AUTH_COOKIE_DOMAIN:}
+      refresh-token-max-age-seconds: ${APP_AUTH_COOKIE_REFRESH_MAX_AGE:604800}
+      expose-tokens-in-body: ${APP_AUTH_EXPOSE_TOKENS_IN_BODY:false}
   grpc:
     auth:
-      service-secret: ${APP_GRPC_AUTH_SERVICE_SECRET:change-me-shared-secret}
+      service-secret: ${APP_GRPC_AUTH_SERVICE_SECRET:}
     profile:
-      service-secret: ${APP_GRPC_PROFILE_SERVICE_SECRET:change-me-shared-secret}
+      service-secret: ${APP_GRPC_PROFILE_SERVICE_SECRET:}
     file:
-      service-secret: ${APP_GRPC_FILE_SERVICE_SECRET:change-me-shared-secret}
+      service-secret: ${APP_GRPC_FILE_SERVICE_SECRET:}
     chat:
-      service-secret: ${APP_GRPC_CHAT_SERVICE_SECRET:change-me-shared-secret}
+      service-secret: ${APP_GRPC_CHAT_SERVICE_SECRET:}
     rag:
-      service-secret: ${APP_GRPC_RAG_SERVICE_SECRET:change-me-shared-secret}
+      service-secret: ${APP_GRPC_RAG_SERVICE_SECRET:}
+
+logging:
+  structured:
+    format:
+      console: logstash
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true

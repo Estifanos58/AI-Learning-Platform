@@ -15,7 +15,8 @@ User Profile Service manages user-facing profile metadata and privacy controls. 
 - Transport layer: `UserProfileGrpcService` implementing `UserProfileService`.
 - Application layer: `UserProfileApplicationService` with visibility and update rules.
 - Persistence layer: `UserProfileRepository` over PostgreSQL.
-- Event ingestion layer: `UserRegisteredConsumer` with Kafka consumer configuration and DLT support.
+- Event ingestion layer: `UserRegisteredConsumer` with Kafka manual commit + DLT support and concurrent duplicate-safe idempotent creation.
+- Operations: HTTP Actuator on port `8083` (`/actuator/health/liveness`, `/actuator/health/readiness`, `/actuator/prometheus`), structured JSON logging, constant-time gRPC secret validation.
 
 ## API / gRPC Contracts
 ### gRPC Service
@@ -47,7 +48,7 @@ From `proto/profile.proto`:
 - Logical 1:1 with auth-service `users.id` via `user_id`.
 - Logical optional reference to file-service file object via `profile_image_file_id`.
 
-### Database Diagram (MANDATORY)
+### Database Diagram
 ```mermaid
 erDiagram
     AUTH_USERS ||--|| USER_PROFILES : owns
@@ -80,7 +81,7 @@ erDiagram
 3. Profile update: validate authenticated principal -> persist updated fields.
 4. Search: apply query filters and visibility filtering before response.
 
-## Service Architecture Diagram (MANDATORY)
+## Service Architecture Diagram
 ```mermaid
 graph TD
     APIGateway --> UserProfileGrpcService
@@ -91,7 +92,7 @@ graph TD
     UserRegisteredConsumer --> UserProfileApplicationService
 ```
 
-## Inter-Service Communication Diagram (MANDATORY)
+## Inter-Service Communication Diagram
 ```mermaid
 graph LR
     APIGateway -->|gRPC| UserProfileService

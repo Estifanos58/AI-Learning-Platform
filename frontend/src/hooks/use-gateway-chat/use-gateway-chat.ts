@@ -157,13 +157,20 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
   }, [token, chatroomId, sortMessagesByCreatedAt]);
 
   useEffect(() => {
-    setTypingUserIds([]);
-    if (!chatroomId) {
-      setMessages([]);
-      return;
-    }
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      setTypingUserIds([]);
+      if (!chatroomId) {
+        setMessages([]);
+        return;
+      }
 
-    refreshMessages().catch(() => undefined);
+      refreshMessages().catch(() => undefined);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [chatroomId, refreshMessages]);
 
   useEffect(() => {
@@ -172,7 +179,13 @@ export function useGatewayChat(token?: string | null, chatroomId?: string | null
         activeAiAbortControllerRef.current.abort();
         activeAiAbortControllerRef.current = null;
       }
-      setActiveAiRequestMessageId(null);
+      let cancelled = false;
+      void Promise.resolve().then(() => {
+        if (!cancelled) setActiveAiRequestMessageId(null);
+      });
+      return () => {
+        cancelled = true;
+      };
     }
   }, [chatroomId]);
 

@@ -25,7 +25,7 @@ export default function SignupPage() {
   } = useSignupForm({
     signup,
     clearError,
-    onSuccess: () => router.push('/auth/verify-email'),
+    onSuccess: () => router.push('/app/workspace'),
   });
 
   const displayError = localError || error;
@@ -54,7 +54,7 @@ export default function SignupPage() {
 
         <div className="relative z-10 max-w-lg animate-fade-in-up animation-delay-2000">
           <blockquote className="space-y-2">
-            <div className="absolute -left-4 -top-4 text-6xl text-primary/20 font-serif">"</div>
+            <div className="absolute -left-4 -top-4 text-6xl text-primary/20 font-serif">&ldquo;</div>
             <p className="text-2xl font-medium leading-relaxed text-zinc-200 relative">
               Join thousands of students and educators transforming their document interaction workflow. A new era of learning awaits.
             </p>

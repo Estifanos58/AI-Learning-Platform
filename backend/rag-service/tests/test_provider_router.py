@@ -1,110 +1,111 @@
-"""Tests for the provider router."""
+"""Regression tests for ProviderExecutor error classification and streaming error propagation."""
+
+from __future__ import annotations
+
+import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
-from app.llm.provider_router import ProviderRouter
+
+from app.llm.base_provider import LLMChunk, LLMMessage
+from app.llm.provider_executor import (
+    ProviderExecutor,
+    ProviderPermanentError,
+    ProviderRateLimitError,
+    ProviderTimeoutError,
+    ProviderTransientError,
+    ProviderUnauthorizedError,
+    is_retryable_exception,
+)
 
 
-def test_route_openai_keyword():
-    router = ProviderRouter()
-    # Even without API key, routing decision is by keyword
-    provider = None
-    try:
-        provider = router.route("gpt-4o-mini")
-    except RuntimeError:
-        pass  # expected if no keys configured
+class _FakeProvider:
+    def __init__(self, behavior):
+        self._behavior = behavior
+
+    async def stream(self, _request):
+        if isinstance(self._behavior, Exception):
+            raise self._behavior
+        for item in self._behavior:
+            yield item
 
 
-def test_route_gemini_keyword():
-    router = ProviderRouter()
-    try:
-        provider = router.route("gemini-3.0")
-    except RuntimeError:
-        pass
+@pytest.mark.asyncio
+async def test_provider_executor_classifies_rate_limit_as_retryable(monkeypatch):
+    executor = ProviderExecutor()
+    err = RuntimeError("HTTP 429 rate limit exceeded")
+    executor._providers["openai"] = _FakeProvider(err)
+    executor._pool_manager.mark_throttled = AsyncMock()
+
+    with pytest.raises(ProviderRateLimitError) as exc_info:
+        await executor.execute(
+            provider_name="openai",
+            provider_model_name="gpt-4o-mini",
+            api_key="sk-test",
+            messages=[LLMMessage(role="user", content="hi")],
+            endpoint_id="ep-1",
+            account_id="acc-1",
+        )
+    assert is_retryable_exception(exc_info.value) is True
 
 
-def test_route_deepseek_keyword():
-    router = ProviderRouter()
-    try:
-        provider = router.route("deepseek-chat")
-    except RuntimeError:
-        pass
+@pytest.mark.asyncio
+async def test_provider_executor_classifies_unauthorized_as_permanent():
+    executor = ProviderExecutor()
+    err = RuntimeError("HTTP 401 unauthorized invalid api key")
+    executor._providers["openai"] = _FakeProvider(err)
+    executor._pool_manager.mark_unauthorized = AsyncMock()
+
+    with pytest.raises(ProviderUnauthorizedError) as exc_info:
+        await executor.execute(
+            provider_name="openai",
+            provider_model_name="gpt-4o-mini",
+            api_key="bad-key",
+            messages=[LLMMessage(role="user", content="hi")],
+            endpoint_id="ep-1",
+            account_id="acc-1",
+        )
+    assert is_retryable_exception(exc_info.value) is False
 
 
-def test_route_openrouter_keyword():
-    router = ProviderRouter()
-    try:
-        router.route("openrouter/openai/gpt-4o-mini")
-    except RuntimeError:
-        pass
+@pytest.mark.asyncio
+async def test_provider_executor_classifies_timeout_and_error_chunk_as_retryable():
+    executor = ProviderExecutor()
+    executor._providers["openai"] = _FakeProvider(asyncio.TimeoutError("timed out"))
+    executor._pool_manager.mark_timeout = AsyncMock()
+
+    with pytest.raises(ProviderTimeoutError) as exc_info:
+        await executor.execute(
+            provider_name="openai",
+            provider_model_name="gpt-4o-mini",
+            api_key="sk-test",
+            messages=[LLMMessage(role="user", content="hi")],
+            endpoint_id="ep-1",
+            account_id="acc-1",
+        )
+    assert is_retryable_exception(exc_info.value) is True
+
+    executor._providers["openai"] = _FakeProvider([LLMChunk(delta="", done=True, finish_reason="error")])
+    with pytest.raises(ProviderTransientError):
+        await executor.execute(
+            provider_name="openai",
+            provider_model_name="gpt-4o-mini",
+            api_key="sk-test",
+            messages=[LLMMessage(role="user", content="hi")],
+            endpoint_id="ep-1",
+            account_id="acc-1",
+        )
 
 
-def test_route_groq_keyword():
-    router = ProviderRouter()
-    try:
-        router.route("groq/llama-3.3-70b-versatile")
-    except RuntimeError:
-        pass
-
-
-def test_available_providers_returns_list():
-    router = ProviderRouter()
-    providers = router.available_providers()
-    assert isinstance(providers, list)
-
-
-def test_route_none_raises_if_no_provider(monkeypatch):
-    """When no providers are configured, route() should raise RuntimeError."""
-    router = ProviderRouter()
-    # Disable all providers
-    for p in router._providers.values():
-        monkeypatch.setattr(p, "is_available", lambda: False)
-    with pytest.raises(RuntimeError):
-        router.route(None)
-
-
-def test_route_uses_user_key_even_when_provider_not_available(monkeypatch):
-    router = ProviderRouter()
-    provider = router._providers["openai"]
-    monkeypatch.setattr(provider, "is_available", lambda: False)
-
-    selected = router.route("gpt-4o", user_api_key="user-key-present")
-    assert selected.provider_name == "openai"
-
-
-def test_route_explicit_model_does_not_fallback(monkeypatch):
-    router = ProviderRouter()
-    monkeypatch.setattr(router._providers["openai"], "is_available", lambda: False)
-    monkeypatch.setattr(router._providers["deepseek"], "is_available", lambda: True)
-
-    with pytest.raises(RuntimeError, match="maps to provider 'openai'"):
-        router.route("gpt-4o-mini", allow_fallback=False)
-
-
-def test_route_explicit_provider_alias_google_maps_to_gemini(monkeypatch):
-    router = ProviderRouter()
-    monkeypatch.setattr(router._providers["gemini"], "is_available", lambda: True)
-
-    selected = router.route(None, preferred_provider="google", allow_fallback=False)
-    assert selected.provider_name == "gemini"
-
-
-def test_route_explicit_unknown_model_raises_when_fallback_disabled():
-    router = ProviderRouter()
-    with pytest.raises(RuntimeError, match="Unable to map requested model"):
-        router.route("custom-unknown-model", allow_fallback=False)
-
-
-def test_route_explicit_provider_openrouter(monkeypatch):
-    router = ProviderRouter()
-    monkeypatch.setattr(router._providers["openrouter"], "is_available", lambda: True)
-
-    selected = router.route(None, preferred_provider="openrouter", allow_fallback=False)
-    assert selected.provider_name == "openrouter"
-
-
-def test_route_explicit_provider_groq(monkeypatch):
-    router = ProviderRouter()
-    monkeypatch.setattr(router._providers["groq"], "is_available", lambda: True)
-
-    selected = router.route(None, preferred_provider="groq", allow_fallback=False)
-    assert selected.provider_name == "groq"
+@pytest.mark.asyncio
+async def test_provider_executor_unsupported_provider_is_permanent():
+    executor = ProviderExecutor()
+    with pytest.raises(ProviderPermanentError):
+        await executor.execute(
+            provider_name="nonexistent",
+            provider_model_name="model",
+            api_key="k",
+            messages=[LLMMessage(role="user", content="hi")],
+            endpoint_id="ep-1",
+            account_id="acc-1",
+        )

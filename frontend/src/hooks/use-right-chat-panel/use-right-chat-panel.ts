@@ -224,6 +224,7 @@ export function useRightChatPanel() {
     }
   }, [user?.id, chatroomId, draftOtherUserId, chatroom, aiModels, preferredAiModelId, selectedFileId, sendMessage, setChatroomId, setDraftOtherUserId, refreshChatroom, refreshChatrooms]);
 
+  const currentUserId = user?.id;
   const openDraftDm = useCallback((profile: UserProfile) => {
     cacheDisplayName(profile.userId, profile);
     setChatroomId(null);
@@ -231,11 +232,11 @@ export function useRightChatPanel() {
     setLocalChatroom({
       id: `draft-${profile.userId}`,
       type: 'DIRECT',
-      memberIds: user?.id ? [user.id, profile.userId] : [profile.userId],
+      memberIds: currentUserId ? [currentUserId, profile.userId] : [profile.userId],
       name: `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'New direct message',
       createdAt: new Date().toISOString(),
     });
-  }, [user?.id, setChatroomId, setDraftOtherUserId, cacheDisplayName]);
+  }, [currentUserId, setChatroomId, setDraftOtherUserId, cacheDisplayName]);
 
   const openChatroom = useCallback((room: Chatroom) => {
     setDraftOtherUserId(null);

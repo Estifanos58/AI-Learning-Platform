@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react';
 import mammoth from 'mammoth';
 import { FileItem } from '@/src/lib/types';
+import { sanitizeDocxHtml } from '@/src/lib/security/sanitize';
 import { ViewerToolbar } from '../viewer-toolbar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { FileText, Loader2, AlertCircle, Download } from 'lucide-react';
@@ -23,6 +24,10 @@ interface DocxViewerProps {
   onDownload?: () => void;
 }
 
+type LoadedState =
+  | { status: 'ready'; forSrc: string; html: string }
+  | { status: 'error'; forSrc: string; message: string };
+
 type State =
   | { status: 'idle' }
   | { status: 'loading' }
@@ -30,16 +35,12 @@ type State =
   | { status: 'error'; message: string };
 
 export function DocxViewer({ file, src, onDownload }: DocxViewerProps) {
-  const [state, setState] = useState<State>({ status: 'idle' });
+  const [loadedState, setLoadedState] = useState<LoadedState | null>(null);
 
   useEffect(() => {
-    if (!src) {
-      setState({ status: 'idle' });
-      return;
-    }
+    if (!src) return;
 
     let cancelled = false;
-    setState({ status: 'loading' });
 
     (async () => {
       try {
@@ -52,11 +53,12 @@ export function DocxViewer({ file, src, onDownload }: DocxViewerProps) {
 
         if (cancelled) return;
 
-        setState({ status: 'ready', html: result.value });
+        setLoadedState({ status: 'ready', forSrc: src, html: sanitizeDocxHtml(result.value) });
       } catch (err) {
         if (!cancelled) {
-          setState({
+          setLoadedState({
             status: 'error',
+            forSrc: src,
             message: err instanceof Error ? err.message : 'Failed to render document',
           });
         }
@@ -67,6 +69,12 @@ export function DocxViewer({ file, src, onDownload }: DocxViewerProps) {
       cancelled = true;
     };
   }, [src]);
+
+  const state: State = !src
+    ? { status: 'idle' }
+    : loadedState && loadedState.forSrc === src
+      ? loadedState
+      : { status: 'loading' };
 
   const ext = file.originalName.split('.').pop()?.toLowerCase() ?? '';
   const label = ext === 'docx' ? 'DOCX' : ext === 'doc' ? 'DOC' : 'Document';
@@ -124,8 +132,7 @@ export function DocxViewer({ file, src, onDownload }: DocxViewerProps) {
             <div className="flex justify-center px-6 py-8">
               <div
                 className="w-full max-w-3xl bg-white dark:bg-zinc-900 shadow-xl rounded border border-border/20 px-12 py-14 min-h-[900px]"
-                /* mammoth produces safe HTML from docx – no user-controlled scripts */
-                /* eslint-disable-next-line react/no-danger */
+                /* HTML is sanitized through strict DOMPurify allowlist + URL protocol filter */
                 dangerouslySetInnerHTML={{ __html: state.html }}
                 style={{
                   fontFamily: 'Georgia, "Times New Roman", serif',

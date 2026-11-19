@@ -1,14 +1,23 @@
-"""Ingestion – Kafka consumer for file upload and AI request events."""
+"""Ingestion – Kafka consumer for file upload, deletion, and AI execution events."""
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import json
 import logging
 import threading
-import asyncio
-from typing import Any, Dict
+from datetime import datetime, timezone
+from typing import Any, Callable, Dict
 
 from app.config import get_settings
+from app.observability import (
+    INGESTION_TOTAL,
+    KAFKA_CONSUME_TOTAL,
+    KAFKA_DLT_TOTAL,
+    reset_correlation_id,
+    set_correlation_id,
+)
 
 log = logging.getLogger(__name__)
 settings = get_settings()
@@ -18,25 +27,46 @@ class IngestionConsumer:
     """
     Multi-topic Kafka consumer (runs in a background daemon thread).
 
-    Handles:
-      • file.uploaded.v2   → ingest file into Qdrant
-      • file.deleted.v1    → remove vectors from Qdrant
-      • ai.message.requested.v2 → orchestrate RAG and stream response
-            • ai.message.cancelled.v2 → cancel active generation
+    Commit semantics:
+      - enable_auto_commit=False
+      - Records are deserialized safely per record (malformed payloads never crash poll()).
+      - Exact per-partition offset (record.offset + 1) is committed ONLY AFTER:
+          1. Successful processing of that record, OR
+          2. Confirmed broker-acknowledged publication to the corresponding Dead-Letter Topic.
+      - If DLT publication fails, the offset is NOT committed and consumption pauses/aborts
+        so the broker redelivers the record without data loss.
     """
 
-    def __init__(self, event_loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(
+        self,
+        event_loop: asyncio.AbstractEventLoop,
+        *,
+        producer_factory: Callable[[], Any] | None = None,
+        record_timeout_seconds: float = 240.0,
+    ) -> None:
         self._event_loop = event_loop
+        self._producer_factory = producer_factory
+        self._record_timeout_seconds = record_timeout_seconds
         self._stop_event = threading.Event()
+        self._connected = False
         self._thread = threading.Thread(
             target=self._run, daemon=True, name="ingestion-consumer"
         )
+
+    @property
+    def is_alive(self) -> bool:
+        return self._thread.is_alive()
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected and self._thread.is_alive()
 
     def start(self) -> None:
         self._thread.start()
 
     def stop(self) -> None:
         self._stop_event.set()
+        self._connected = False
         if self._thread.is_alive():
             self._thread.join(timeout=5)
 
@@ -49,9 +79,8 @@ class IngestionConsumer:
         ]
         try:
             from kafka import KafkaConsumer  # type: ignore[import]
-            from kafka.errors import NoBrokersAvailable  # type: ignore[import]
         except ImportError:
-            log.warning("kafka-python not installed; consumer disabled")
+            log.error("kafka-python is not installed; consumer cannot start")
             return
 
         consumer = None
@@ -64,16 +93,17 @@ class IngestionConsumer:
                     group_id=settings.kafka_group_id,
                     auto_offset_reset=settings.kafka_auto_offset_reset,
                     enable_auto_commit=False,
-                    value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-                    key_deserializer=lambda k: k.decode("utf-8") if k else None,
+                    key_deserializer=lambda k: k.decode("utf-8", errors="replace") if k else None,
                     session_timeout_ms=30000,
                     heartbeat_interval_ms=10000,
                     max_poll_interval_ms=300000,
                 )
+                self._connected = True
                 log.info("Kafka consumer connected, topics=%s", topics)
-                retry_delay = 5  # reset on success
+                retry_delay = 5
                 self._consume_loop(consumer)
             except Exception as exc:  # noqa: BLE001
+                self._connected = False
                 log.error(
                     "Kafka consumer error (retrying in %ds): %s", retry_delay, exc
                 )
@@ -93,23 +123,104 @@ class IngestionConsumer:
                 if not batch:
                     continue
                 for tp, records in batch.items():
+                    abort_partition = False
                     for record in records:
-                        try:
-                            future = asyncio.run_coroutine_threadsafe(
-                                self._dispatch(record.topic, record.value),
-                                self._event_loop,
-                            )
-                            future.result()
-                            consumer.commit()
-                        except Exception as exc:  # noqa: BLE001
-                            log.error(
-                                "Failed to process record from %s: %s",
-                                record.topic,
-                                exc,
-                            )
-                            self._send_to_dlt(record)
+                        if self._stop_event.is_set():
+                            break
+                        committed = self._process_single_record(consumer, tp, record)
+                        if not committed:
+                            # Do not advance past an uncommitted record in this partition
+                            abort_partition = True
+                            break
+                    if abort_partition:
+                        break
         finally:
-            consumer.close()
+            self._connected = False
+            try:
+                consumer.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _process_single_record(self, consumer: Any, tp: Any, record: Any) -> bool:
+        """
+        Process one record and commit ONLY its exact offset (record.offset + 1).
+        Returns True if the offset was safely committed (either after success or confirmed DLT).
+        Returns False if DLT delivery failed and offset must NOT be committed.
+        """
+        correlation_id = self._extract_correlation_id(record)
+        token = set_correlation_id(correlation_id)
+        try:
+            payload = self._decode_payload(record.value)
+            future = asyncio.run_coroutine_threadsafe(
+                self._dispatch_with_correlation(record.topic, payload, correlation_id),
+                self._event_loop,
+            )
+            future.result(timeout=self._record_timeout_seconds)
+            self._commit_record_offset(consumer, tp, record)
+            KAFKA_CONSUME_TOTAL.labels(topic=record.topic, status="success").inc()
+            return True
+        except Exception as exc:  # noqa: BLE001
+            KAFKA_CONSUME_TOTAL.labels(topic=record.topic, status="error").inc()
+            log.error(
+                "Failed to process Kafka record topic=%s partition=%s offset=%s: %s",
+                record.topic,
+                getattr(record, "partition", "?"),
+                getattr(record, "offset", "?"),
+                exc,
+            )
+            dlt_sent = self._send_to_dlt(record, exc, correlation_id)
+            if dlt_sent:
+                self._commit_record_offset(consumer, tp, record)
+                return True
+
+            log.error(
+                "DLT publish failed; leaving offset uncommitted for redelivery topic=%s partition=%s offset=%s",
+                record.topic,
+                getattr(record, "partition", "?"),
+                getattr(record, "offset", "?"),
+            )
+            return False
+        finally:
+            reset_correlation_id(token)
+
+    def _commit_record_offset(self, consumer: Any, tp: Any, record: Any) -> None:
+        from kafka.structs import OffsetAndMetadata  # type: ignore[import]
+
+        try:
+            offset_meta = OffsetAndMetadata(record.offset + 1, "")
+        except TypeError:
+            offset_meta = OffsetAndMetadata(record.offset + 1, "", -1)
+        consumer.commit({tp: offset_meta})
+
+    def _decode_payload(self, raw_value: Any) -> Dict[str, Any]:
+        if isinstance(raw_value, dict):
+            return raw_value
+        if isinstance(raw_value, (bytes, bytearray)):
+            decoded = json.loads(raw_value.decode("utf-8"))
+        elif isinstance(raw_value, str):
+            decoded = json.loads(raw_value)
+        else:
+            raise ValueError(f"Unsupported Kafka message value type: {type(raw_value).__name__}")
+        if not isinstance(decoded, dict):
+            raise ValueError("Kafka JSON payload must be an object")
+        return decoded
+
+    def _extract_correlation_id(self, record: Any) -> str:
+        headers = getattr(record, "headers", None) or []
+        for key, value in headers:
+            if key and key.lower() in {"correlationid", "correlation_id", "x-correlation-id"} and value:
+                return value.decode("utf-8", errors="replace") if isinstance(value, (bytes, bytearray)) else str(value)
+        return ""
+
+    async def _dispatch_with_correlation(
+        self, topic: str, payload: Dict[str, Any], correlation_id: str
+    ) -> None:
+        corr = correlation_id or str(payload.get("correlationId") or payload.get("correlation_id") or "")
+        token = set_correlation_id(corr)
+        try:
+            await self._dispatch(topic, payload)
+        finally:
+            reset_correlation_id(token)
 
     async def _dispatch(self, topic: str, payload: Dict[str, Any]) -> None:
         if topic == settings.topic_file_uploaded_v2:
@@ -124,10 +235,11 @@ class IngestionConsumer:
     # ── Handlers ─────────────────────────────────────────────────────────────
 
     async def _handle_file_uploaded(self, event: Dict[str, Any]) -> None:
+        from app.ingestion.chunker import RecursiveCharacterTextSplitter
         from app.ingestion.embedding_pipeline import EmbeddingPipeline
         from app.ingestion.extractor import TextExtractor
         from app.ingestion.file_loader import FileLoader
-        from app.ingestion.chunker import RecursiveCharacterTextSplitter
+        from app.security.file_validator import FileValidator
 
         p = event.get("payload", event)
         file_id = p.get("file_id") or p.get("fileId", "")
@@ -137,33 +249,46 @@ class IngestionConsumer:
         content_type = p.get("content_type") or p.get("contentType", "application/octet-stream")
         file_name = p.get("file_name") or p.get("fileName", "")
 
-        log.info("Ingesting file_id=%s owner=%s", file_id, owner_id)
+        if not file_id or not storage_path:
+            raise ValueError("file.uploaded event missing required file_id or storage_path")
 
-        loader = FileLoader()
-        extractor = TextExtractor()
-        splitter = RecursiveCharacterTextSplitter()
-        pipeline = EmbeddingPipeline()
+        log.info("Ingesting file_id=%s owner=%s content_type=%s", file_id, owner_id, content_type)
 
-        content = loader.load(storage_path)
-        result = extractor.extract(content, content_type, file_name)
-        chunks = splitter.split(result.text)
-        count = await pipeline.embed_and_store(
-            chunks=chunks,
-            file_id=file_id,
-            owner_id=owner_id,
-            user_id=owner_id,
-            folder_id=folder_id,
-            extraction_version=result.extraction_version,
-        )
-        log.info(
-            "Ingestion complete: file_id=%s chunks=%d", file_id, count
-        )
+        try:
+            loader = FileLoader()
+            validator = FileValidator()
+            extractor = TextExtractor()
+            splitter = RecursiveCharacterTextSplitter()
+            pipeline = EmbeddingPipeline()
+
+            content = loader.load(storage_path)
+            validator.validate(content_type=content_type, file_size_bytes=len(content), file_name=file_name)
+            result = extractor.extract(content, content_type, file_name)
+            chunks = splitter.split(result.text)
+            if not chunks:
+                raise ValueError(f"Chunker produced zero chunks for file_id={file_id}")
+
+            count = await pipeline.embed_and_store(
+                chunks=chunks,
+                file_id=file_id,
+                owner_id=owner_id,
+                user_id=owner_id,
+                folder_id=folder_id,
+                extraction_version=result.extraction_version,
+            )
+            INGESTION_TOTAL.labels(status="success", content_type=content_type).inc()
+            log.info("Ingestion complete: file_id=%s chunks=%d", file_id, count)
+        except Exception:
+            INGESTION_TOTAL.labels(status="error", content_type=content_type).inc()
+            raise
 
     async def _handle_file_deleted(self, event: Dict[str, Any]) -> None:
         from app.storage.qdrant_client import get_qdrant_client
 
         p = event.get("payload", event)
         file_id = p.get("file_id") or p.get("fileId", "")
+        if not file_id:
+            raise ValueError("file.deleted event missing file_id")
         log.info("Deleting vectors for file_id=%s", file_id)
         await get_qdrant_client().delete_by_file_id(file_id)
 
@@ -176,23 +301,76 @@ class IngestionConsumer:
 
     async def _handle_ai_message_cancelled(self, event: Dict[str, Any]) -> None:
         from app.orchestration.pipeline_executor import PipelineExecutor
+        from app.repositories.direct_ai_repository import DirectAIRepository
+        from app.workers.direct_execution_runtime import get_direct_execution_worker
 
         p = event.get("payload", event)
         request_id = p.get("request_id") or p.get("messageId", "")
+        if not request_id:
+            return
+        await DirectAIRepository().cancel_execution(request_id)
+        get_direct_execution_worker().cancel_local(request_id)
         PipelineExecutor.cancel(request_id)
-        log.info("Cancellation requested for request_id=%s", request_id)
+        log.info("Cancellation persisted and signalled for request_id=%s", request_id)
 
-    def _send_to_dlt(self, record: Any) -> None:
-        """Send failed record to dead-letter topic."""
+    def _dlt_topic_for(self, source_topic: str) -> str:
+        if source_topic == settings.topic_file_uploaded_v2:
+            return settings.topic_file_uploaded_dlt
+        if source_topic == settings.topic_file_deleted_v1:
+            return settings.topic_file_deleted_dlt
+        return settings.topic_ai_message_requested_dlt
+
+    def _send_to_dlt(self, record: Any, exc: Exception, correlation_id: str) -> bool:
+        """Synchronously publish failed record to dead-letter topic and verify broker ack."""
+        dlt_topic = self._dlt_topic_for(record.topic)
         try:
-            from app.streaming.response_streamer import get_producer
+            if self._producer_factory is not None:
+                producer = self._producer_factory()
+            else:
+                from app.streaming.response_streamer import get_producer
 
-            dlt_topic = (
-                settings.topic_file_uploaded_dlt
-                if settings.topic_file_uploaded_v2 in record.topic
-                else settings.topic_ai_message_requested_dlt
+                producer = get_producer()
+                if not producer.is_started:
+                    producer.start()
+
+            raw_val = record.value
+            if isinstance(raw_val, (bytes, bytearray)):
+                try:
+                    serialized_payload: Any = json.loads(raw_val.decode("utf-8"))
+                except Exception:
+                    serialized_payload = {
+                        "raw_base64": base64.b64encode(bytes(raw_val)).decode("ascii")
+                    }
+            else:
+                serialized_payload = raw_val
+
+            envelope = {
+                "original_topic": record.topic,
+                "original_partition": getattr(record, "partition", None),
+                "original_offset": getattr(record, "offset", None),
+                "correlation_id": correlation_id,
+                "error_type": type(exc).__name__,
+                "error": str(exc)[:2000],
+                "failed_at": datetime.now(timezone.utc).isoformat(),
+                "payload": serialized_payload,
+            }
+            headers = [
+                ("x-original-topic", str(record.topic).encode("utf-8")),
+                ("x-error-type", type(exc).__name__.encode("utf-8")),
+            ]
+            if correlation_id:
+                headers.append(("x-correlation-id", correlation_id.encode("utf-8")))
+
+            producer.send_sync(dlt_topic, key=record.key, value=envelope, headers=headers)
+            KAFKA_DLT_TOTAL.labels(topic=dlt_topic, status="success").inc()
+            log.warning(
+                "Published failed record to DLT topic=%s original_topic=%s offset=%s",
+                dlt_topic,
+                record.topic,
+                getattr(record, "offset", "?"),
             )
-            producer = get_producer()
-            producer.send(dlt_topic, key=record.key, value=record.value)
-        except Exception as exc:  # noqa: BLE001
-            log.error("Failed to send to DLT: %s", exc)
+            return True
+        except Exception as dlt_exc:  # noqa: BLE001
+            KAFKA_DLT_TOTAL.labels(topic=dlt_topic, status="error").inc()
+            log.error("Failed to publish record to DLT topic=%s: %s", dlt_topic, dlt_exc)
+            return False

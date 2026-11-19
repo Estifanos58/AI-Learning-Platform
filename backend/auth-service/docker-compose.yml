@@ -1,41 +1,58 @@
+# =============================================================================
+# Auth + Gateway Isolated Compose Stack
+# All credentials and RSA keys MUST be supplied via environment / secrets.
+# =============================================================================
+
 services:
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     environment:
-      - CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk
-      - KAFKA_NODE_ID=0
-      - KAFKA_PROCESS_ROLES=controller,broker
-      - KAFKA_LISTENERS=PLAINTEXT://:29092,PLAINTEXT_HOST://:9092,CONTROLLER://:9093
-      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
-      - KAFKA_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
-      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
-      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
-      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
-      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
-    ports:
-      - "19092:9092"
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?KAFKA_CLUSTER_ID must be set}
+      KAFKA_NODE_ID: 0
+      KAFKA_PROCESS_ROLES: controller,broker
+      KAFKA_LISTENERS: PLAINTEXT://:29092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
     healthcheck:
-      test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/9092'"]
+      test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/29092'"]
       interval: 5s
       timeout: 10s
       retries: 20
       start_period: 20s
 
   postgres:
-    image: postgres:15
+    image: postgres:15-alpine
     environment:
-      POSTGRES_DB: auth_db
-      POSTGRES_USER: auth_user
-      POSTGRES_PASSWORD: auth_pass
-    ports:
-      - "15432:5432"
+      POSTGRES_DB: ${AUTH_DB_NAME:-auth_db}
+      POSTGRES_USER: ${AUTH_DB_USER:?AUTH_DB_USER must be set}
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD:?AUTH_DB_PASSWORD must be set}
     volumes:
       - auth_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U auth_user -d auth_db"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.2-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -49,35 +66,55 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    secrets:
+      - source: jwt_private_key
+        target: jwt_private_key.pem
+      - source: jwt_public_key
+        target: jwt_public_key.pem
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/auth_db
-      SPRING_DATASOURCE_USERNAME: auth_user
-      SPRING_DATASOURCE_PASSWORD: auth_pass
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      APP_ENV: ${APP_ENV:-production}
+      SERVER_PORT: 8082
       GRPC_SERVER_PORT: 9090
-      APP_GRPC_AUTH_SERVICE_SECRET: change-me-shared-secret
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${AUTH_DB_NAME:-auth_db}
+      SPRING_DATASOURCE_USERNAME: ${AUTH_DB_USER:?AUTH_DB_USER must be set}
+      SPRING_DATASOURCE_PASSWORD: ${AUTH_DB_PASSWORD:?AUTH_DB_PASSWORD must be set}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      APP_GRPC_AUTH_SERVICE_SECRET: ${APP_GRPC_AUTH_SERVICE_SECRET:?APP_GRPC_AUTH_SERVICE_SECRET must be set}
+      APP_JWT_PRIVATE_KEY_LOCATION: file:/run/secrets/jwt_private_key.pem
+      APP_JWT_PUBLIC_KEY_LOCATION: file:/run/secrets/jwt_public_key.pem
       APP_KAFKA_TOPIC_USER_EMAIL_VERIFICATION: user.email.verification.v1
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "16379:6379"
 
   api-gateway:
     build:
       context: ..
       dockerfile: api-gateway/Dockerfile
     depends_on:
-      - auth-service
-      - redis
+      auth-service:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    secrets:
+      - source: jwt_public_key
+        target: jwt_public_key.pem
     environment:
+      APP_ENV: ${APP_ENV:-production}
       SERVER_PORT: 8080
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      GRPC_AUTH_ADDRESS: static://auth-service:9090
-      APP_GRPC_AUTH_SERVICE_SECRET: change-me-shared-secret
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+      GATEWAY_ALLOWED_ORIGINS: ${GATEWAY_ALLOWED_ORIGINS:?GATEWAY_ALLOWED_ORIGINS must be set}
+      APP_JWT_PUBLIC_KEY_LOCATION: file:/run/secrets/jwt_public_key.pem
+      APP_AUTH_COOKIE_SECURE: ${APP_AUTH_COOKIE_SECURE:-true}
+      GRPC_AUTH_ADDRESS: dns:///auth-service:9090
+      APP_GRPC_AUTH_SERVICE_SECRET: ${APP_GRPC_AUTH_SERVICE_SECRET:?APP_GRPC_AUTH_SERVICE_SECRET must be set}
     ports:
-      - "18080:8080"
+      - "127.0.0.1:${GATEWAY_HOST_PORT:-18080}:8080"
+
+secrets:
+  jwt_private_key:
+    file: ${JWT_PRIVATE_KEY_FILE:-../../secrets/jwt_private_key.pem}
+  jwt_public_key:
+    file: ${JWT_PUBLIC_KEY_FILE:-../../secrets/jwt_public_key.pem}
 
 volumes:
   auth_postgres_data:

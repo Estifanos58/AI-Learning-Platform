@@ -44,11 +44,15 @@ public class SecurityConfig {
                 "Authorization",
                 "Content-Type",
                 "X-Correlation-ID",
+                "X-CSRF-Token",
                 "Accept",
                 "Origin",
                 "Cache-Control",
                 "Sec-WebSocket-Protocol",
                 "X-Requested-With"
+        ));
+        config.setExposedHeaders(Arrays.asList(
+                "X-Correlation-ID"
         ));
         config.setAllowCredentials(true);
 

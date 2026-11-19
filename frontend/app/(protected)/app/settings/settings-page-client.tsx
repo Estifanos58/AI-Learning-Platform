@@ -57,11 +57,7 @@ export function SettingsPageClient() {
   const [accountRateLimitPerMinute, setAccountRateLimitPerMinute] = useState('60');
   const [accountDailyQuota, setAccountDailyQuota] = useState('10000');
 
-  useEffect(() => {
-    if (!providerModelId && selectedAiModelId) {
-      setProviderModelId(selectedAiModelId);
-    }
-  }, [providerModelId, selectedAiModelId]);
+  const effectiveProviderModelId = providerModelId || selectedAiModelId;
 
   const onCreateModel = async () => {
     if (!newModelName || !newModelFamily) return;
@@ -83,10 +79,10 @@ export function SettingsPageClient() {
   };
 
   const onAttachProvider = async () => {
-    if (!providerModelId || !providerName || !providerModelName) return;
+    if (!effectiveProviderModelId || !providerName || !providerModelName) return;
     try {
       await handleAttachProvider({
-        modelId: providerModelId,
+        modelId: effectiveProviderModelId,
         providerName,
         providerModelName,
         priority: Number(providerPriority) || 0,
@@ -290,7 +286,7 @@ export function SettingsPageClient() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label className="text-xs">Model</Label>
-                    <Select value={providerModelId} onValueChange={setProviderModelId}>
+                    <Select value={effectiveProviderModelId} onValueChange={setProviderModelId}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select model" />
                       </SelectTrigger>
@@ -332,7 +328,7 @@ export function SettingsPageClient() {
                 <Button
                   size="sm"
                   onClick={onAttachProvider}
-                  disabled={!providerModelId || !providerName || !providerModelName || isAttachingProvider}
+                  disabled={!effectiveProviderModelId || !providerName || !providerModelName || isAttachingProvider}
                 >
                   {isAttachingProvider ? 'Attaching...' : 'Attach Provider'}
                 </Button>

@@ -2,15 +2,18 @@ package com.aiplatform.chat.service;
 
 import com.aiplatform.chat.config.KafkaChatTopicProperties;
 import com.aiplatform.chat.domain.MessageEntity;
+import com.aiplatform.chat.domain.OutboxEvent;
 import com.aiplatform.chat.repository.MessageRepository;
+import com.aiplatform.chat.repository.OutboxEventRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.kafka.core.KafkaTemplate;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -22,7 +25,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ChatKafkaPublisher {
 
-    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final OutboxEventRepository outboxEventRepository;
     private final KafkaChatTopicProperties topicProperties;
     private final ObjectMapper objectMapper;
     private final MessageRepository messageRepository;
@@ -36,7 +39,6 @@ public class ChatKafkaPublisher {
             return;
         }
 
-        // Build file_ids list: include fileId if present
         List<String> fileIds = new ArrayList<>();
         if (message.getFileId() != null) {
             fileIds.add(message.getFileId().toString());
@@ -65,10 +67,10 @@ public class ChatKafkaPublisher {
         );
         try {
             String json = objectMapper.writeValueAsString(payload);
-            kafkaTemplate.send(v2Topic, message.getChatroomId().toString(), json);
-            log.info("Published ai.message.requested.v2. messageId={}", message.getId());
+            enqueueOutbox(v2Topic, message.getChatroomId().toString(), json);
+            log.info("Queued ai.message.requested.v2 outbox event. messageId={}", message.getId());
         } catch (JsonProcessingException e) {
-            log.error("Failed to serialize AI message v2 event. messageId={}", message.getId(), e);
+            throw new IllegalStateException("Failed to serialize AI message v2 event", e);
         }
     }
 
@@ -123,10 +125,26 @@ public class ChatKafkaPublisher {
         );
         try {
             String json = objectMapper.writeValueAsString(payload);
-            kafkaTemplate.send(topic, chatroomId, json);
-            log.info("Published ai.message.cancelled.v2. messageId={}", messageId);
+            enqueueOutbox(topic, chatroomId, json);
+            log.info("Queued ai.message.cancelled.v2 outbox event. messageId={}", messageId);
         } catch (JsonProcessingException e) {
-            log.error("Failed to serialize cancellation event. messageId={}", messageId, e);
+            throw new IllegalStateException("Failed to serialize cancellation event", e);
         }
+    }
+
+    private void enqueueOutbox(String topic, String eventKey, String json) {
+        LocalDateTime now = LocalDateTime.now();
+        String correlationId = MDC.get("correlationId");
+        outboxEventRepository.save(OutboxEvent.builder()
+                .id(UUID.randomUUID())
+                .topic(topic)
+                .eventKey(eventKey)
+                .payload(json)
+                .headersJson(correlationId == null ? "" : correlationId)
+                .status("PENDING")
+                .retryCount(0)
+                .nextAttemptAt(now)
+                .createdAt(now)
+                .build());
     }
 }

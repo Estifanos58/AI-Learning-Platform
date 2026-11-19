@@ -59,7 +59,7 @@ export default function ForgotPasswordPage() {
             </div>
             <h1 className="text-3xl font-bold mb-2">Check Your Email</h1>
             <p className="text-muted-foreground mb-6">
-              We've sent password reset instructions to <strong className="text-foreground">{email}</strong>
+              We&apos;ve sent password reset instructions to <strong className="text-foreground">{email}</strong>
             </p>
             <Button onClick={() => router.push('/auth/login')} className="w-full h-11 text-base shadow-lg shadow-primary/20">
               Back to Login
@@ -91,7 +91,7 @@ export default function ForgotPasswordPage() {
             </div>
             <h1 className="text-3xl font-bold tracking-tight mb-2">Forgot password?</h1>
             <p className="text-muted-foreground">
-              No worries, we'll send you reset instructions.
+              No worries, we&apos;ll send you reset instructions.
             </p>
           </div>
 

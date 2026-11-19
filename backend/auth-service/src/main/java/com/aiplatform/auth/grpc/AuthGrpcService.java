@@ -16,6 +16,7 @@ import com.aiplatform.auth.proto.SimpleResponse;
 import com.aiplatform.auth.proto.VerifyRequest;
 import com.aiplatform.auth.grpc.util.AuthGrpcExceptionMapper;
 import com.aiplatform.auth.grpc.util.AuthGrpcProtoMapper;
+import com.aiplatform.auth.security.JwtProperties;
 import com.aiplatform.auth.service.AuthService;
 import io.grpc.stub.StreamObserver;
 import jakarta.validation.Valid;
@@ -29,6 +30,7 @@ import net.devh.boot.grpc.server.service.GrpcService;
 public class AuthGrpcService extends AuthServiceGrpc.AuthServiceImplBase {
 
     private final AuthService authService;
+    private final JwtProperties jwtProperties;
 
     @Override
     public void signup(@Valid SignupRequest request, StreamObserver<AuthResponse> responseObserver) {
@@ -47,6 +49,8 @@ public class AuthGrpcService extends AuthServiceGrpc.AuthServiceImplBase {
                     .setMessage(signupResponse.message())
                     .setAccessToken(signupResponse.accessToken())
                     .setRefreshToken(signupResponse.refreshToken())
+                    .setTokenType("Bearer")
+                    .setAccessTokenExpiresInSeconds(jwtProperties.getAccessTokenExpirationMinutes() * 60)
                     .setUser(AuthGrpcProtoMapper.toProtoUser(signupResponse.user()))
                     .build());
             responseObserver.onCompleted();

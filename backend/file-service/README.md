@@ -16,7 +16,8 @@ File Service owns file/folder metadata, physical file persistence, and sharing a
 - Application layer: `FileApplicationService` and `FolderApplicationService`.
 - Persistence layer: JPA repositories for files, folders, file shares, folder shares.
 - Storage layer: local filesystem rooted at configurable `FILE_STORAGE_ROOT_PATH`.
-- Integration layer: Kafka producer in `FileEventPublisher`.
+- Integration layer: Transactional Outbox (`outbox_events` via `V3__create_outbox_events.sql` + Jackson-serialized `FileEventPublisher` + `FileOutboxPublisher` with synchronous Kafka acks).
+- Operations: HTTP Actuator on port `8084` (`/actuator/health/liveness`, `/actuator/health/readiness`, `/actuator/prometheus`), structured JSON logging, constant-time gRPC secret validation.
 
 ## API / gRPC Contracts
 ### gRPC Service
@@ -36,7 +37,7 @@ From `proto/file.proto`:
 ## Data Layer
 ### Database Overview
 - PostgreSQL database: `file_service_db`.
-- Migration strategy: Flyway (`V1__init.sql`, `V2__folders_and_file_folder_ref.sql`).
+- Migration strategy: Flyway (`V1__init.sql`, `V2__folders_and_file_folder_ref.sql`, `V3__create_outbox_events.sql`).
 - Object storage abstraction: filesystem paths persisted in table metadata.
 
 ### Entities
@@ -51,7 +52,7 @@ From `proto/file.proto`:
 - One `folders` row has many `folder_shares`.
 - Folders can self-reference parent/child via `parent_id`.
 
-### Database Diagram (MANDATORY)
+### Database Diagram
 ```mermaid
 erDiagram
     FOLDERS ||--o{ FOLDERS : contains
@@ -96,7 +97,7 @@ erDiagram
 3. Read/preview: verify owner/share relationship -> return bytes or stream chunks.
 4. RAG authorization: filter requested file IDs to allowed IDs and return deny reasons.
 
-## Service Architecture Diagram (MANDATORY)
+## Service Architecture Diagram
 ```mermaid
 graph TD
     APIGateway --> FileGrpcService
@@ -116,7 +117,7 @@ graph TD
     FileEventPublisher --> Kafka
 ```
 
-## Inter-Service Communication Diagram (MANDATORY)
+## Inter-Service Communication Diagram
 ```mermaid
 graph LR
     APIGateway -->|gRPC| FileService

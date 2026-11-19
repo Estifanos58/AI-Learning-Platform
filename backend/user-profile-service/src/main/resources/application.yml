@@ -1,5 +1,5 @@
 server:
-  port: ${SERVER_PORT:9091}
+  port: ${SERVER_PORT:8083}
 
 grpc:
   server:
@@ -31,17 +31,35 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+
+logging:
+  structured:
+    format:
+      console: logstash
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
 
 app:
+  environment: ${APP_ENV:production}
   grpc:
     profile:
-      service-secret: ${APP_GRPC_PROFILE_SERVICE_SECRET:change-me-shared-secret}
+      service-secret: ${APP_GRPC_PROFILE_SERVICE_SECRET:}
   kafka:
     topics:
       user-registered: ${APP_KAFKA_TOPIC_USER_REGISTERED:user.registered.v1}

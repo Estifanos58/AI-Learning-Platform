@@ -87,10 +87,22 @@ class Settings(BaseSettings):
     topic_file_uploaded_dlt: str = Field(
         default="file.uploaded.dlt.v1", alias="KAFKA_TOPIC_FILE_UPLOADED_DLT"
     )
+    topic_file_deleted_dlt: str = Field(
+        default="file.deleted.dlt.v1", alias="KAFKA_TOPIC_FILE_DELETED_DLT"
+    )
     topic_ai_message_requested_dlt: str = Field(
         default="ai.message.requested.dlt.v2",
         alias="KAFKA_TOPIC_AI_MESSAGE_REQUESTED_DLT",
     )
+
+    # ── Execution worker concurrency & leases ────────────────────────────────
+    worker_max_concurrency: int = Field(default=5, alias="WORKER_MAX_CONCURRENCY")
+    worker_max_queue_size: int = Field(default=100, alias="WORKER_MAX_QUEUE_SIZE")
+    worker_lease_seconds: int = Field(default=90, alias="WORKER_LEASE_SECONDS")
+    worker_heartbeat_seconds: float = Field(default=20.0, alias="WORKER_HEARTBEAT_SECONDS")
+    worker_poll_interval_seconds: float = Field(default=2.0, alias="WORKER_POLL_INTERVAL_SECONDS")
+    worker_retry_base_delay_seconds: float = Field(default=2.0, alias="WORKER_RETRY_BASE_DELAY_SECONDS")
+    worker_retry_max_delay_seconds: float = Field(default=60.0, alias="WORKER_RETRY_MAX_DELAY_SECONDS")
 
     # ── File storage ─────────────────────────────────────────────────────────
     file_storage_root: str = Field(default="/data", alias="FILE_STORAGE_ROOT_PATH")
@@ -177,12 +189,20 @@ class Settings(BaseSettings):
     )
 
     # ── Security ─────────────────────────────────────────────────────────────
-    encryption_key: str = Field(
-        default="change-me-32-byte-encryption-key!!", alias="ENCRYPTION_KEY"
+    encryption_key: Optional[str] = Field(
+        default=None, alias="ENCRYPTION_KEY"
     )
-    ai_key_encryption_secret: str = Field(
-        default="change-me-32-byte-encryption-key!!",
+    ai_key_encryption_secret: Optional[str] = Field(
+        default=None,
         alias="AI_KEY_ENCRYPTION_SECRET",
+    )
+    ai_key_encryption_secret_file: Optional[str] = Field(
+        default=None,
+        alias="AI_KEY_ENCRYPTION_SECRET_FILE",
+    )
+    ai_key_encryption_previous_secrets: str = Field(
+        default="",
+        alias="AI_KEY_ENCRYPTION_PREVIOUS_SECRETS",
     )
     max_prompt_length: int = Field(default=8000, alias="MAX_PROMPT_LENGTH")
 
@@ -206,10 +226,19 @@ class Settings(BaseSettings):
     @field_validator("environment")
     @classmethod
     def validate_env(cls, v: str) -> str:
-        allowed = {"development", "staging", "production"}
+        allowed = {"development", "staging", "production", "test"}
         if v not in allowed:
             raise ValueError(f"environment must be one of {allowed}")
         return v
+
+    def get_previous_encryption_secrets(self) -> List[str]:
+        if not self.ai_key_encryption_previous_secrets:
+            return []
+        return [
+            item.strip()
+            for item in self.ai_key_encryption_previous_secrets.split(",")
+            if item.strip()
+        ]
 
     def model_post_init(self, __context: object) -> None:
         self.gemini_api_key = self.gemini_api_key or self._read_secret_file(self.gemini_api_key_file)
@@ -217,14 +246,59 @@ class Settings(BaseSettings):
         self.groq_api_key = self.groq_api_key or self._read_secret_file(self.groq_api_key_file)
         self.openrouter_api_key = self.openrouter_api_key or self._read_secret_file(self.openrouter_api_key_file)
 
-        """Warn if insecure defaults are used in non-development environments."""
-        import logging
-        _log = logging.getLogger("rag-service.config")
-        if self.environment != "development":
-            if self.encryption_key == "change-me-32-byte-encryption-key!!":
-                raise ValueError("ENCRYPTION_KEY must be explicitly set in non-development environments")
-            if self.grpc_service_secret == "change-me-shared-secret":
-                _log.warning("APP_GRPC_SERVICE_SECRET is using the default insecure value")
+        # Resolve unified encryption secret (prefer explicit AI_KEY_ENCRYPTION_SECRET, then file, then legacy ENCRYPTION_KEY)
+        resolved_secret = (
+            (self.ai_key_encryption_secret or "").strip()
+            or (self._read_secret_file(self.ai_key_encryption_secret_file) or "").strip()
+            or (self.encryption_key or "").strip()
+        )
+        if not resolved_secret and self.environment in {"development", "test"}:
+            resolved_secret = "dev-only-ephemeral-encryption-key-not-for-prod-32b"
+        self.ai_key_encryption_secret = resolved_secret
+        self.encryption_key = resolved_secret
+
+        insecure_encryption_placeholders = {
+            "",
+            "change-me-32-byte-encryption-key!!",
+            "local-dev-rag-encryption-key-32-bytes",
+            "dev-only-ephemeral-encryption-key-not-for-prod-32b",
+            "changeme",
+        }
+        insecure_grpc_placeholders = {
+            "",
+            "change-me-shared-secret",
+            "change-me-shared-secret-rag",
+            "changeme",
+        }
+
+        if self.environment not in {"development", "test"}:
+            if (
+                not self.ai_key_encryption_secret
+                or self.ai_key_encryption_secret in insecure_encryption_placeholders
+                or len(self.ai_key_encryption_secret) < 32
+            ):
+                raise ValueError(
+                    "AI_KEY_ENCRYPTION_SECRET must be explicitly set to a strong non-default secret "
+                    "(at least 32 characters or a valid Fernet key) in non-development environments"
+                )
+            for prev in self.get_previous_encryption_secrets():
+                if prev in insecure_encryption_placeholders or len(prev) < 32:
+                    raise ValueError(
+                        "Each key in AI_KEY_ENCRYPTION_PREVIOUS_SECRETS must be at least 32 characters "
+                        "and not a placeholder value"
+                    )
+            if (
+                not self.grpc_service_secret
+                or self.grpc_service_secret in insecure_grpc_placeholders
+                or len(self.grpc_service_secret) < 16
+            ):
+                raise ValueError(
+                    "APP_GRPC_SERVICE_SECRET must be explicitly set to a strong non-default secret "
+                    "(at least 16 characters) in non-development environments"
+                )
+        else:
+            if not self.ai_key_encryption_secret or len(self.ai_key_encryption_secret) < 16:
+                raise ValueError("AI_KEY_ENCRYPTION_SECRET must be at least 16 characters")
 
     def _read_secret_file(self, path_value: Optional[str]) -> Optional[str]:
         if not path_value:

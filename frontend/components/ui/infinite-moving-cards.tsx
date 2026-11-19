@@ -56,7 +56,7 @@ export const InfiniteMovingCards = ({
                 className="user-select-none -z-1 pointer-events-none absolute -left-0.5 -top-0.5 h-[calc(100%_+_4px)] w-[calc(100%_+_4px)]"
               ></div>
               <p className=" relative z-20 text-sm leading-[1.6] text-card-foreground font-normal italic">
-                "{item.quote}"
+                &ldquo;{item.quote}&rdquo;
               </p>
               <div className="relative z-20 mt-6 flex flex-row items-center">
                 <span className="flex flex-col gap-1">

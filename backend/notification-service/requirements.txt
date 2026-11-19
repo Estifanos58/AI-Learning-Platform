@@ -3,3 +3,5 @@ uvicorn[standard]==0.34.0
 kafka-python==2.2.15
 pydantic==2.10.6
 pydantic-settings==2.7.1
+redis==5.2.1
+prometheus-client==0.21.1

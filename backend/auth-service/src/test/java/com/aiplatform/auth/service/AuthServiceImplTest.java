@@ -84,7 +84,6 @@ class AuthServiceImplTest {
         when(userRepository.existsByEmailIgnoreCase(any())).thenReturn(false);
         when(userRepository.existsByUsernameIgnoreCase(any())).thenReturn(false);
         when(passwordEncoder.encode(any())).thenReturn("hashed-password");
-        when(tokenGeneratorUtil.generateNumericCode(6)).thenReturn("123456");
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // When
@@ -98,6 +97,27 @@ class AuthServiceImplTest {
         assertThat(savedUser.getRole()).isEqualTo(Role.STUDENT);
         assertThat(savedUser.getStatus()).isEqualTo(UserStatus.ACTIVE);
         assertThat(savedUser.getEmail()).isEqualTo("attacker@example.com");
+        assertThat(savedUser.getEmailVerified()).isTrue();
+        verify(verificationEmailEventPublisher, never()).publish(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Public signup automatically marks email verified and does not publish verification email event")
+    void signup_registersUserWithEmailVerifiedTrueAndNoVerificationEmail() {
+        // Given
+        SignupRequest request = new SignupRequest("newuser@example.com", "newuser", "SecurePass123!", Role.STUDENT);
+        when(userRepository.existsByEmailIgnoreCase(any())).thenReturn(false);
+        when(userRepository.existsByUsernameIgnoreCase(any())).thenReturn(false);
+        when(passwordEncoder.encode(any())).thenReturn("hashed-password");
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // When
+        var response = authService.signup(request, metadata);
+
+        // Then
+        assertThat(response.message()).isEqualTo("Signup successful.");
+        verify(verificationEmailEventPublisher, never()).publish(any(), any(), any(), any(), any());
+        verify(emailVerificationRepository, never()).save(any());
     }
 
     @Test
@@ -136,5 +156,24 @@ class AuthServiceImplTest {
                 .hasFieldOrPropertyWithValue("status", HttpStatus.BAD_REQUEST);
 
         verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("refresh returns 401 UNAUTHORIZED when revoked token has no replacement (e.g. after logout)")
+    void refresh_revokedTokenWithoutReplacementThrowsUnauthorized() {
+        com.aiplatform.auth.domain.RefreshToken loggedOutToken = com.aiplatform.auth.domain.RefreshToken.builder()
+                .id(UUID.randomUUID())
+                .tokenHash("hashed-token")
+                .revoked(Boolean.TRUE)
+                .replacedBy(null)
+                .expiresAt(LocalDateTime.now().plusDays(1))
+                .build();
+
+        when(tokenHashUtil.sha256("raw-token")).thenReturn("hashed-token");
+        when(refreshTokenRepository.findByTokenHash("hashed-token")).thenReturn(Optional.of(loggedOutToken));
+
+        assertThatThrownBy(() -> authService.refresh(new com.aiplatform.auth.dto.RefreshRequest("raw-token"), metadata))
+                .isInstanceOf(ApiException.class)
+                .hasFieldOrPropertyWithValue("status", HttpStatus.UNAUTHORIZED);
     }
 }

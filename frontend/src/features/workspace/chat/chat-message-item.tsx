@@ -5,7 +5,8 @@ import { cn } from '@/lib/utils';
 import { User, Sparkles, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Avatar } from '@/components/ui/avatar'; 
+import { Avatar } from '@/components/ui/avatar';
+import { AiMessageRenderer } from './ai-message-renderer';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
@@ -80,6 +81,8 @@ export function ChatMessageItem({ message, currentUserId, isCompact }: ChatMessa
                     <span className="w-1 h-1 bg-current rounded-full animate-bounce [animation-delay:-0.15s]" />
                     <span className="w-1 h-1 bg-current rounded-full animate-bounce" />
                 </div>
+            ) : isAI ? (
+                <AiMessageRenderer content={message.content} />
             ) : (
                 <div className="whitespace-pre-wrap wrap-break-word">
                     {message.content}

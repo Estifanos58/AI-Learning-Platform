@@ -1,10 +1,10 @@
 import { attemptRefresh } from './core/auth-refresh';
-import { API_BASE_URL } from './core/config';
+import { API_BASE_URL, getServerApiBaseUrl } from './core/config';
 import { mapErrorMessage, parseApiError, parseSuccessResponse } from './core/helpers';
 import { executeRequest, sendFormDataRequest } from './core/http';
 import type { FormDataRequestOptions, RequestOptions } from './core/types';
 
-export { API_BASE_URL, mapErrorMessage };
+export { API_BASE_URL, getServerApiBaseUrl, mapErrorMessage };
 export type { FormDataRequestOptions, RequestOptions };
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -45,9 +45,9 @@ export async function formDataRequest<T>(path: string, options: FormDataRequestO
   let response = await sendFormDataRequest(path, options);
 
   if (response.status === 401 && path !== '/auth/refresh' && typeof window !== 'undefined') {
-    const newToken = await attemptRefresh();
-    if (newToken) {
-      response = await sendFormDataRequest(path, options, newToken);
+    const refreshed = await attemptRefresh();
+    if (refreshed) {
+      response = await sendFormDataRequest(path, options);
     }
   }
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Dict, List
 
 from app.agents.base_agent import BaseAgent
 from app.agents.citation_agent import CitationAgent

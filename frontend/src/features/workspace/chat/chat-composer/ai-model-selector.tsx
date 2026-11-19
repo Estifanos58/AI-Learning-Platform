@@ -49,20 +49,17 @@ export function AiModelSelector({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showModelPicker, onDismiss]);
 
-  // Reset filter when picker opens/closes
-  useEffect(() => {
-    if (!showModelPicker) setFilterText('');
-  }, [showModelPicker]);
+  const effectiveFilterText = showModelPicker ? filterText : '';
 
   const filteredModels = useMemo(() => {
-    if (!filterText.trim()) return models;
-    const lower = filterText.toLowerCase();
+    if (!effectiveFilterText.trim()) return models;
+    const lower = effectiveFilterText.toLowerCase();
     return models.filter((m) => {
       const name = getModelName(m).toLowerCase();
       const provider = (m.provider || '').toLowerCase();
       return name.includes(lower) || provider.includes(lower);
     });
-  }, [models, filterText]);
+  }, [models, effectiveFilterText]);
 
   if (models.length === 0) return null;
 

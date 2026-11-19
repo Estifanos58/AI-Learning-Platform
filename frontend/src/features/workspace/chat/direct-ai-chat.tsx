@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/select';
 import { DirectChatMessageResponse } from '@/src/lib/types/chat';
 import { mutate } from 'swr';
+import { AiMessageRenderer, MessageCitation } from './ai-message-renderer';
 
 interface DirectAiChatProps {
   tabId: string;
@@ -30,6 +31,8 @@ export type LocalMessage = {
   content: string;
   status?: "STREAMING" | "COMPLETED" | "FAILED" | "CANCELLED";
   sanitizationFlags?: string[];
+  citations?: MessageCitation[];
+  stageLabel?: string;
 };
 
 type Execution = {
@@ -67,7 +70,8 @@ async function waitWithAbort(ms: number, signal: AbortSignal): Promise<void> {
 
 export function DirectAiChat({ tabId }: DirectAiChatProps) {
   const { session } = useAuth();
-  const { aiModels, isLoading: isLoadingModels } = useAiModels(session?.accessToken);
+  const accessToken = session?.accessToken;
+  const { aiModels, isLoading: isLoadingModels } = useAiModels(accessToken);
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -75,6 +79,7 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
   
   const [attachedFiles, setAttachedFiles] = useState<{ id: string; name: string }[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>('');
+  const effectiveSelectedModelId = selectedModelId || aiModels?.[0]?.id || '';
   
   // Execution tracking
   const [execution, setExecution] = useState<Execution | null>(null);
@@ -84,9 +89,9 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const refreshAiHistory = useCallback(() => {
-    if (!session?.accessToken) return;
-    void mutate(['direct-chatrooms', session.accessToken]);
-  }, [session?.accessToken]);
+    if (!accessToken) return;
+    void mutate(['direct-chatrooms', accessToken]);
+  }, [accessToken]);
 
   const setAssistantMessage = useCallback(
     (
@@ -151,14 +156,14 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
 
   const startExecutionPollingFallback = useCallback(
     async (activeExecution: Execution, assistantMessageId: string, streamMessageId?: string) => {
-      if (!session?.accessToken) return;
+      if (!accessToken) return;
 
       const controller = new AbortController();
       pollAbortRef.current = controller;
 
       while (!controller.signal.aborted) {
         try {
-          const current = await gatewayApi.chat.getAiExecution(session.accessToken, activeExecution.executionId);
+          const current = await gatewayApi.chat.getAiExecution(accessToken, activeExecution.executionId);
           const status = (current.status || 'RUNNING').toUpperCase() as ExecutionStatus;
           const messageId = current.messageId;
           const terminalContent = current.finalContent || current.content;
@@ -212,12 +217,12 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
         }
       }
     },
-    [refreshAiHistory, session?.accessToken, setAssistantMessage],
+    [refreshAiHistory, accessToken, setAssistantMessage],
   );
 
   const connectExecutionStream = useCallback(
     async (activeExecution: Execution, assistantMessageId: string) => {
-      if (!session?.accessToken) return;
+      if (!accessToken) return;
 
       if (streamAbortRef.current) {
         streamAbortRef.current.abort();
@@ -232,7 +237,7 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
 
         try {
           await gatewayApi.chat.streamAiExecution({
-            token: session.accessToken,
+            token: accessToken,
             requestId: activeExecution.executionId,
             signal: controller.signal,
             onReplay: ({ content, status, messageId, sanitizationFlags }) => {
@@ -253,7 +258,7 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
                 sanitizationFlags: sanitizationFlags?.length ? sanitizationFlags : msg.sanitizationFlags,
               }));
             },
-            onChunk: ({ contentDelta, messageId, sanitizationFlags }) => {
+            onChunk: ({ contentDelta, messageId, sanitizationFlags, citations }) => {
               streamedMessageId = messageId || streamedMessageId;
               setExecution((prev) =>
                 prev && prev.executionId === activeExecution.executionId
@@ -265,15 +270,25 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
                 content: msg.content + contentDelta,
                 status: 'STREAMING',
                 sanitizationFlags: sanitizationFlags?.length ? sanitizationFlags : msg.sanitizationFlags,
+                citations: citations?.length ? citations : msg.citations,
               }));
             },
-            onCompleted: ({ finalContent, messageId, sanitizationFlags }) => {
+            onStage: ({ stageName, stageStatus }) => {
+              if (!stageName) return;
+              setAssistantMessage(assistantMessageId, streamedMessageId, (msg) => ({
+                ...msg,
+                stageLabel: stageStatus ? `${stageName} (${stageStatus})` : stageName,
+              }));
+            },
+            onCompleted: ({ finalContent, messageId, sanitizationFlags, citations }) => {
               reachedTerminal = true;
               setAssistantMessage(assistantMessageId, messageId, (msg) => ({
                 ...msg,
                 content: finalContent || msg.content,
                 status: 'COMPLETED',
                 sanitizationFlags: sanitizationFlags?.length ? sanitizationFlags : msg.sanitizationFlags,
+                citations: citations?.length ? citations : msg.citations,
+                stageLabel: undefined,
               }));
               setExecution(null);
               refreshAiHistory();
@@ -325,15 +340,15 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
         }
       }
     },
-    [refreshAiHistory, session?.accessToken, setAssistantMessage, startExecutionPollingFallback],
+    [refreshAiHistory, accessToken, setAssistantMessage, startExecutionPollingFallback],
   );
 
   const loadHistory = useCallback(
     async (roomId: string) => {
-      if (!session?.accessToken) return;
+      if (!accessToken) return;
       setIsLoadingHistory(true);
       try {
-        const messagesRes = await gatewayApi.chat.listDirectChatroomMessages(session.accessToken, roomId, 0, 100);
+        const messagesRes = await gatewayApi.chat.listDirectChatroomMessages(accessToken, roomId, 0, 100);
         const historyLoaded = messagesRes
           .slice()
           .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
@@ -351,33 +366,31 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
         setIsLoadingHistory(false);
       }
     },
-    [session?.accessToken],
+    [accessToken],
   );
 
   // Initialize chatroom from tabId
   useEffect(() => {
     stopAllExecutionWorkers();
+    let cancelled = false;
 
-    if (!tabId.startsWith('chat-') && tabId) {
-      setActiveChatroomId(tabId);
-      void loadHistory(tabId);
-    } else {
-      setActiveChatroomId(null);
-      setMessages([]);
-    }
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
       setExecution(null);
+      if (!tabId.startsWith('chat-') && tabId) {
+        setActiveChatroomId(tabId);
+        void loadHistory(tabId);
+      } else {
+        setActiveChatroomId(null);
+        setMessages([]);
+      }
+    });
 
     return () => {
+      cancelled = true;
       stopAllExecutionWorkers();
     };
   }, [loadHistory, stopAllExecutionWorkers, tabId]);
-
-  // Auto-select first model
-  useEffect(() => {
-    if (aiModels?.length > 0 && !selectedModelId) {
-      setSelectedModelId(aiModels[0].id);
-    }
-  }, [aiModels, selectedModelId]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -463,7 +476,7 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
       const response = await gatewayApi.chat.startAiExecution(session.accessToken, {
         prompt: userInput,
         mode: 'chat',
-        aiModelId: selectedModelId || undefined,
+        aiModelId: effectiveSelectedModelId || undefined,
         fileIds: attachedFiles.map(f => f.id),
         chatroomId: activeChatroomId || undefined,
       });
@@ -533,7 +546,11 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
               <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${msg.role === 'USER' ? 'bg-primary text-primary-foreground' : 'bg-muted'} ${msg.status === 'CANCELLED' ? 'opacity-50' : ''}`}>
                 {msg.content ? (
                   <div className="space-y-1">
-                    <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
+                    {msg.role === 'ASSISTANT' ? (
+                      <AiMessageRenderer content={msg.content} citations={msg.citations} />
+                    ) : (
+                      <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
+                    )}
                     {msg.sanitizationFlags && msg.sanitizationFlags.length > 0 && (
                       <div className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700"
                         title={`Output was sanitized: ${msg.sanitizationFlags.join(', ')}`}>
@@ -548,7 +565,7 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
                   msg.status === 'STREAMING' && (
                     <div className="flex items-center space-x-2 text-muted-foreground py-1">
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span className="text-xs">Thinking...</span>
+                      <span className="text-xs">{msg.stageLabel || 'Thinking...'}</span>
                     </div>
                   )
                 )}
@@ -585,7 +602,7 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
         )}
         
         <div className="flex gap-2 mb-3">
-          <Select value={selectedModelId} onValueChange={setSelectedModelId} disabled={isLoadingModels}>
+          <Select value={effectiveSelectedModelId} onValueChange={setSelectedModelId} disabled={isLoadingModels}>
             <SelectTrigger className="w-[200px] h-8 text-xs bg-card border-border">
               <div className="flex items-center gap-2">
                 <Bot className="w-3.5 h-3.5" />

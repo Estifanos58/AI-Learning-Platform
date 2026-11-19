@@ -47,7 +47,7 @@ export default function LoginPage() {
 
         <div className="relative z-10 max-w-lg animate-fade-in-up animation-delay-2000">
           <blockquote className="space-y-2">
-            <div className="absolute -left-4 -top-4 text-6xl text-primary/20 font-serif">"</div>
+            <div className="absolute -left-4 -top-4 text-6xl text-primary/20 font-serif">&ldquo;</div>
             <p className="text-2xl font-medium leading-relaxed text-zinc-200 relative">
               The future of learning is here. Coordinate with AI agents and your team in real-time.
             </p>

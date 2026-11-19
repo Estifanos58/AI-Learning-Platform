@@ -41,12 +41,14 @@ export function ProfileModal() {
         updateVisibility,
     } = useGatewayProfile(session?.accessToken);
   const [activeTab, setActiveTab] = useState("view");
-    const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [localProfile, setLocalProfile] = useState<UserProfile | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Form State
+  const profile = localProfile ?? serverProfile;
+
+  // Form State (populated when switching to Edit tab or opening modal)
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -56,27 +58,39 @@ export function ProfileModal() {
     visibility: 'PRIVATE' as ProfileVisibility
   });
 
+  const syncFormFromProfile = (source: UserProfile | null | undefined) => {
+    if (!source) return;
+    setFormData({
+      firstName: source.firstName,
+      lastName: source.lastName,
+      universityId: source.universityId,
+      department: source.department,
+      bio: source.bio,
+      visibility: source.visibility,
+    });
+  };
+
   useEffect(() => {
-    if (isProfileOpen) {
-            refresh();
+    if (!isProfileOpen) return;
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      refresh();
       setActiveTab("view");
       setError(null);
       setSaveSuccess(false);
-    }
-    }, [isProfileOpen, user?.id, refresh]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isProfileOpen, user?.id, refresh]);
 
-    useEffect(() => {
-        if (!serverProfile) return;
-        setProfile(serverProfile);
-        setFormData({
-            firstName: serverProfile.firstName,
-            lastName: serverProfile.lastName,
-            universityId: serverProfile.universityId,
-            department: serverProfile.department,
-            bio: serverProfile.bio,
-            visibility: serverProfile.visibility,
-        });
-    }, [serverProfile]);
+  const handleTabChange = (nextTab: string) => {
+    if (nextTab === 'edit') {
+      syncFormFromProfile(profile);
+    }
+    setActiveTab(nextTab);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,7 +113,7 @@ export function ProfileModal() {
                 await updateVisibility(formData.visibility);
             }
 
-      setProfile(updatedProfile);
+      setLocalProfile(updatedProfile);
       setSaveSuccess(true);
       setTimeout(() => setActiveTab("view"), 1000); // Switch back to view after success
     } catch (err) {
@@ -129,7 +143,7 @@ export function ProfileModal() {
                 <p className="text-sm text-muted-foreground">Loading profile...</p>
              </div>
         ) : (
-             <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+             <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col overflow-hidden">
                 <div className="px-6 pb-2 border-b">
                     <TabsList className="grid w-full grid-cols-2">
                         <TabsTrigger value="view">Overview</TabsTrigger>
@@ -159,7 +173,7 @@ export function ProfileModal() {
                                          </Badge>
                                     </div>
                                 </div>
-                                <Button variant="outline" size="sm" onClick={() => setActiveTab('edit')}>
+                                <Button variant="outline" size="sm" onClick={() => handleTabChange('edit')}>
                                     <Edit2 className="h-3.5 w-3.5 mr-2" />
                                     Edit
                                 </Button>

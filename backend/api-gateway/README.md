@@ -12,15 +12,17 @@ The API Gateway is the single public entrypoint for the platform backend. It acc
 
 ## Architecture
 - API layer: Spring WebFlux controllers under `controller/` mapped to `/api/internal/**`.
-- Edge policy layer: `JwtGlobalFilter`, security configuration, and prompt sanitization filter.
+- Edge policy layer: `CorrelationIdWebFilter`, `CookieAuthAndCsrfWebFilter` (server-managed `HttpOnly`/`Secure`/`SameSite` cookies + double-submit `X-CSRF-Token` + `Origin`/`Referer` validation), `JwtGlobalFilter` (RSA verification with optional previous public key rotation), security configuration, and prompt sanitization filter.
 - Integration layer: gRPC blocking stubs for Auth, Profile, File, Chat, RAG, and AI models.
 - Realtime layer: `ChatWebSocketHandler` and `ChatRedisSubscriber` for pub/sub and stream fan-out.
 
 ## API / gRPC Contracts
 ### REST Endpoints
 - Auth:
-  - `POST /api/auth/signup` (enforces STUDENT role)
-  - `POST /api/auth/login`
+  - `GET /api/auth/session` (authenticated cookie session check)
+  - `GET /api/auth/csrf` (bootstrap/refresh double-submit CSRF cookie)
+  - `POST /api/auth/signup` (enforces STUDENT role; sets HttpOnly cookies)
+  - `POST /api/auth/login` (sets HttpOnly cookies)
   - `POST /api/auth/verify-email`
   - `POST /api/auth/resend-verification`
   - `POST /api/auth/forgot-password`
@@ -109,7 +111,7 @@ The gateway is stateless and does not own a relational database. Redis is used f
 - A `realtime_channel_event` belongs to one channel and can emit many payloads.
 - An `ai_execution_stream_record` belongs to one execution stream key and contains ordered fragments.
 
-### Database Diagram (MANDATORY)
+### Database Diagram
 ```mermaid
 erDiagram
     RATE_LIMIT_BUCKET ||--o{ REQUEST_CHECK : throttles
@@ -146,7 +148,7 @@ erDiagram
 2. Chat send and stream: message POST -> chat gRPC -> Redis event subscription -> SSE/WebSocket push.
 3. Direct AI execution: execution POST -> RAG gRPC `ExecuteDirect` -> status/stream polling endpoints.
 
-## Service Architecture Diagram (MANDATORY)
+## Service Architecture Diagram
 ```mermaid
 graph TD
     Client --> GatewayController
@@ -163,7 +165,7 @@ graph TD
     SSEWebSocket --> Client
 ```
 
-## Inter-Service Communication Diagram (MANDATORY)
+## Inter-Service Communication Diagram
 ```mermaid
 graph LR
     APIGateway -->|gRPC| AuthService
@@ -181,13 +183,19 @@ graph LR
 | `SERVER_PORT` | HTTP port for gateway | No |
 | `SPRING_DATA_REDIS_HOST` | Redis host for rate limiter and realtime subscriptions | Yes |
 | `SPRING_DATA_REDIS_PORT` | Redis port | Yes |
+| `SPRING_DATA_REDIS_PASSWORD` | Redis password | Yes |
 | `GRPC_AUTH_ADDRESS` | gRPC target for auth-service | Yes |
 | `GRPC_PROFILE_ADDRESS` | gRPC target for user-profile-service | Yes |
 | `GRPC_FILE_ADDRESS` | gRPC target for file-service | Yes |
 | `GRPC_CHAT_ADDRESS` | gRPC target for chat-service | Yes |
 | `GRPC_RAG_ADDRESS` | gRPC target for rag-service | Yes |
 | `APP_JWT_ISSUER` | Expected JWT issuer | Yes |
-| `APP_JWT_PUBLIC_KEY_LOCATION` | Public key path for JWT signature verification | Yes |
+| `APP_JWT_AUDIENCE` | Expected JWT audience | Yes |
+| `APP_JWT_PUBLIC_KEY_LOCATION` | Primary X.509 RSA public key path (`file:/run/secrets/jwt_public_key.pem`) | Yes (or `_PEM`) |
+| `APP_JWT_PREVIOUS_PUBLIC_KEY_LOCATION` | Optional previous public key path during key rotation | No |
+| `APP_AUTH_COOKIE_SECURE` | `Secure` cookie flag (`true` in production) | No |
+| `APP_AUTH_COOKIE_SAME_SITE` | `SameSite` attribute (`Lax` / `Strict` / `None`) | No |
+| `APP_AUTH_EXPOSE_TOKENS_IN_BODY` | Return raw JWTs in JSON body (default `false`) | No |
 | `APP_GRPC_AUTH_SERVICE_SECRET` | Shared secret metadata for auth-service | Yes |
 | `APP_GRPC_PROFILE_SERVICE_SECRET` | Shared secret metadata for user-profile-service | Yes |
 | `APP_GRPC_FILE_SERVICE_SECRET` | Shared secret metadata for file-service | Yes |
