@@ -25,6 +25,14 @@ class ChunkPayload(BaseModel):
     user_id: str
     folder_id: Optional[str] = None
     page_number: Optional[int] = None
+    slide_number: Optional[int] = None
+    sheet_name: Optional[str] = None
+    section: Optional[str] = None
+    char_start: Optional[int] = None
+    char_end: Optional[int] = None
+    token_count: Optional[int] = None
+    document_name: Optional[str] = None
+    index_version: Optional[str] = None
     chunk_index: int
     chunk_text: str
     tags: List[str] = Field(default_factory=list)

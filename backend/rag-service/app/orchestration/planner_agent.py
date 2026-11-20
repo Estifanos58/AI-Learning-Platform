@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, Field
+
 from app.llm.base_provider import LLMMessage
 from app.llm.provider_executor import ProviderExecutor
 
@@ -31,6 +33,12 @@ _KEYWORD_TRIGGERS: Dict[str, List[str]] = {
 }
 
 
+class PlannerResponse(BaseModel):
+    agents: List[str] = Field(default_factory=lambda: ["research"])
+    parallel_groups: List[List[str]] = Field(default_factory=list)
+    rationale: str = ""
+
+
 @dataclass
 class ExecutionPlan:
     selected_agents: List[str] = field(default_factory=lambda: ["research"])
@@ -45,7 +53,7 @@ class PlannerAgent:
 
     Strategy:
       1. Keyword-based heuristic (fast, offline).
-      2. Optional LLM-based planning for complex queries (fallback to heuristic if LLM fails).
+      2. Optional LLM-based planning for complex queries with Pydantic structured output validation.
     """
 
     async def plan(
@@ -97,9 +105,14 @@ class PlannerAgent:
         if any(a in selected for a in ("research", "explanation")) and "citation" not in selected:
             selected.append("citation")
 
+        # Independent multi-agent tasks run in parallel
+        parallel_groups: List[List[str]] = []
+        if len(selected) > 1:
+            parallel_groups = [selected[:]]
+
         return ExecutionPlan(
             selected_agents=selected,
-            parallel_groups=[],
+            parallel_groups=parallel_groups,
             rationale="heuristic",
         )
 
@@ -124,8 +137,8 @@ class PlannerAgent:
                     "You are an orchestration planner for a RAG system. "
                     "Given a user question and context summary, select which agents to run. "
                     f"Available agents:\n{agent_list}\n\n"
-                    "Respond with a JSON object: "
-                    '{"agents": ["agent1", "agent2"], "rationale": "reason"}'
+                    "Respond with a valid JSON object matching this schema: "
+                    '{"agents": ["agent1", "agent2"], "parallel_groups": [["agent1", "agent2"]], "rationale": "reason"}'
                 ),
             ),
             LLMMessage(
@@ -153,16 +166,24 @@ class PlannerAgent:
         )
 
         raw = result.content
-        import json
-
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         if match:
-            data = json.loads(match.group())
-            agents = data.get("agents", ["research"])
-            rationale = data.get("rationale", "")
-            valid = [a for a in agents if a in _AGENT_DESCRIPTIONS]
-            if not valid:
-                valid = ["research"]
-            return ExecutionPlan(selected_agents=valid, rationale=rationale)
+            try:
+                parsed = PlannerResponse.model_validate_json(match.group())
+                valid_agents = [a for a in parsed.agents if a in _AGENT_DESCRIPTIONS]
+                if not valid_agents:
+                    valid_agents = ["research"]
+                valid_groups = [
+                    [a for a in g if a in _AGENT_DESCRIPTIONS]
+                    for g in parsed.parallel_groups
+                ]
+                valid_groups = [g for g in valid_groups if len(g) > 1]
+                return ExecutionPlan(
+                    selected_agents=valid_agents,
+                    parallel_groups=valid_groups,
+                    rationale=parsed.rationale,
+                )
+            except Exception as exc:
+                log.warning("Structured output validation failed for planner: %s", exc)
 
         return self._heuristic_plan(question)

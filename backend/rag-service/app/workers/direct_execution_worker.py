@@ -56,6 +56,7 @@ class DirectExecutionWorker:
         self._recovery_task: asyncio.Task[None] | None = None
         self._in_flight_tasks: dict[str, asyncio.Task[None]] = {}
         self._enqueued_ids: set[str] = set()
+        self._lost_leases: set[str] = set()
         self._active_count = 0
         self._running = False
         self._executor = executor or PipelineExecutor()
@@ -114,6 +115,7 @@ class DirectExecutionWorker:
 
         self._in_flight_tasks.clear()
         self._enqueued_ids.clear()
+        self._lost_leases.clear()
         self._active_count = 0
         EXECUTION_ACTIVE_GAUGE.set(0)
         EXECUTION_QUEUED_GAUGE.set(0)
@@ -290,9 +292,24 @@ class DirectExecutionWorker:
                 raise
             EXECUTION_TOTAL.labels(status="cancelled").inc()
             if request_id:
+                if request_id in self._lost_leases:
+                    log.info(
+                        "Worker %s lost lease for request_id=%s; abandoning local task without cancelling remote state",
+                        self._worker_id,
+                        request_id,
+                    )
+                    return
                 existing = await self._repo.get_execution(request_id)
+                if existing is not None and existing.worker_id and existing.worker_id != self._worker_id:
+                    log.info(
+                        "Execution request_id=%s is owned by worker %s; current worker %s will not cancel it",
+                        request_id,
+                        existing.worker_id,
+                        self._worker_id,
+                    )
+                    return
                 if existing is None or existing.status != "CANCELLED":
-                    await self._repo.cancel_execution(request_id)
+                    await self._repo.cancel_execution(request_id, worker_id=self._worker_id)
                     await self._executor.publish_cancelled(
                         chatroom_id=chatroom_id,
                         message_id=message_id,
@@ -341,15 +358,23 @@ class DirectExecutionWorker:
                     pass
             if request_id:
                 self._in_flight_tasks.pop(request_id, None)
+                self._lost_leases.discard(request_id)
 
     async def _complete_with_worker_guard(
-        self, execution_id: str, message_id: str, final_content: str
+        self,
+        execution_id: str,
+        message_id: str,
+        final_content: str,
+        actual_provider: str | None = None,
+        actual_model: str | None = None,
     ) -> None:
         await self._repo.complete_execution(
             execution_id=execution_id,
             message_id=message_id,
             final_content=final_content,
             worker_id=self._worker_id,
+            actual_provider=actual_provider,
+            actual_model=actual_model,
         )
 
     async def _heartbeat_loop(
@@ -367,11 +392,12 @@ class DirectExecutionWorker:
                     lease_seconds=self._lease_seconds,
                 )
                 if not still_owned:
+                    self._lost_leases.add(request_id)
                     log.warning(
-                        "Lost lease or execution cancelled externally for request_id=%s; cancelling local task",
+                        "Lost lease or execution cancelled externally for request_id=%s on worker=%s; cancelling local task",
                         request_id,
+                        self._worker_id,
                     )
-                    PipelineExecutor.cancel(request_id)
                     run_task.cancel()
                     break
             except asyncio.CancelledError:

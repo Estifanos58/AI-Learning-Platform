@@ -35,3 +35,34 @@ class FileValidator:
     def validate_file_size(self, size_bytes: int) -> bool:
         max_bytes = settings.max_file_size_mb * 1024 * 1024
         return 0 < size_bytes <= max_bytes
+
+    def validate(
+        self,
+        content_type: str,
+        file_size_bytes: int,
+        file_name: str = "",
+        storage_path: str = "",
+    ) -> bool:
+        """
+        Validate file metadata and path before ingestion.
+        Raises ValueError with an explanatory message if validation fails.
+        """
+        if storage_path and not self.validate_storage_path(storage_path):
+            raise ValueError(f"Unsafe or invalid storage path: {storage_path!r}")
+
+        normalized_type = (content_type or "").split(";")[0].strip().lower()
+        if not self.validate_content_type(normalized_type):
+            raise ValueError(
+                f"Unsupported content type '{content_type}'. Allowed types: {sorted(settings.allowed_content_types)}"
+            )
+
+        if not self.validate_file_size(file_size_bytes):
+            max_mb = settings.max_file_size_mb
+            raise ValueError(
+                f"File size {file_size_bytes} bytes is invalid (must be between 1 byte and {max_mb} MB)"
+            )
+
+        if file_name and "\x00" in file_name:
+            raise ValueError("File name contains prohibited null bytes")
+
+        return True

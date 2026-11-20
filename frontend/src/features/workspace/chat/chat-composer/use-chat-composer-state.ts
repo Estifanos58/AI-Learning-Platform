@@ -27,9 +27,12 @@ export function useChatComposerState({
   onTypingChange,
 }: UseChatComposerStateOptions) {
   const [content, setContent] = useState('');
-  const [aiModelId, setAiModelId] = useState(() =>
-    isDirectChat ? NO_AI_MODEL_VALUE : (models.length > 0 ? getModelId(models[0]) : ''),
-  );
+  const [aiModelId, setAiModelId] = useState(() => {
+    if (isDirectChat) return NO_AI_MODEL_VALUE;
+    if (models.length === 0) return '';
+    const defaultModel = models.find((m) => m.isDefault || getModelId(m) === 'gemini-2.5-flash') || models[0];
+    return getModelId(defaultModel);
+  });
   const [showModelPicker, setShowModelPicker] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -42,7 +45,10 @@ export function useChatComposerState({
     const preferredModelId = selectedAiModelId ?? aiModelId;
     if (isDirectChat && (preferredModelId === NO_AI_MODEL_VALUE || !preferredModelId)) return NO_AI_MODEL_VALUE;
     if (preferredModelId && preferredModelId !== NO_AI_MODEL_VALUE && models.some((model) => getModelId(model) === preferredModelId)) return preferredModelId;
-    if (!isDirectChat && models.length > 0) return getModelId(models[0]);
+    if (!isDirectChat && models.length > 0) {
+      const defaultModel = models.find((m) => m.isDefault || getModelId(m) === 'gemini-2.5-flash') || models[0];
+      return getModelId(defaultModel);
+    }
     return isDirectChat ? NO_AI_MODEL_VALUE : '';
   }, [aiModelId, isDirectChat, models, selectedAiModelId]);
 

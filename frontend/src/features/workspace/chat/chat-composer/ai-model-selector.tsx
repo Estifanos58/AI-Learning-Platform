@@ -141,6 +141,8 @@ export function AiModelSelector({
                 const modelName = getModelName(model);
                 const isSelected = modelId === value;
                 const isDisabled = model.platformKeyAvailable === false && !model.userKeyConfigured;
+                const isGemini = (model.provider || '').toLowerCase().includes('gemini') || (model.family || '').toLowerCase() === 'gemini' || modelName.toLowerCase().includes('gemini');
+                const isPlatformDefault = model.isDefault || model.platformKeyAvailable;
 
                 return (
                   <button
@@ -159,9 +161,11 @@ export function AiModelSelector({
                       'flex items-center justify-center h-7 w-7 rounded-lg text-[10px] font-bold shrink-0',
                       isSelected
                         ? 'bg-primary/15 text-primary border border-primary/30'
-                        : 'bg-muted/80 text-muted-foreground border border-border/40',
+                        : isGemini
+                          ? 'bg-blue-500/10 text-blue-500 border border-blue-500/30'
+                          : 'bg-muted/80 text-muted-foreground border border-border/40',
                     )}>
-                      {(model.provider || modelName).charAt(0).toUpperCase()}
+                      {isGemini ? 'G' : (model.provider || modelName).charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className={cn('text-xs font-medium truncate', isSelected ? 'text-primary' : 'text-foreground')}>
@@ -172,9 +176,11 @@ export function AiModelSelector({
                       )}
                     </div>
                     {isSelected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                    {isDisabled && (
+                    {isDisabled ? (
                       <span className="text-[9px] text-amber-500 shrink-0 font-medium">Key needed</span>
-                    )}
+                    ) : isPlatformDefault ? (
+                      <span className="text-[9px] text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full shrink-0 font-medium">Default</span>
+                    ) : null}
                   </button>
                 );
               })}

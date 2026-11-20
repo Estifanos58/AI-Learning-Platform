@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { File, X, Sparkles, Loader2, Bot, StopCircle, ShieldAlert } from 'lucide-react';
 import { useAuth } from '@/src/contexts/auth';
 import { gatewayApi } from '@/src/lib/api/gateway';
@@ -79,7 +79,10 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
   
   const [attachedFiles, setAttachedFiles] = useState<{ id: string; name: string }[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>('');
-  const effectiveSelectedModelId = selectedModelId || aiModels?.[0]?.id || '';
+  const defaultModel = useMemo(() => {
+    return aiModels?.find((m) => m.isDefault || m.id === 'gemini-2.5-flash') || aiModels?.[0] || null;
+  }, [aiModels]);
+  const effectiveSelectedModelId = selectedModelId || defaultModel?.id || '';
   
   // Execution tracking
   const [execution, setExecution] = useState<Execution | null>(null);
@@ -610,11 +613,21 @@ export function DirectAiChat({ tabId }: DirectAiChatProps) {
               </div>
             </SelectTrigger>
             <SelectContent>
-              {aiModels?.map((model) => (
-                <SelectItem key={model.id} value={model.id} className="text-xs">
-                  {model.name}
-                </SelectItem>
-              ))}
+              {aiModels?.map((model) => {
+                const isPlatformDefault = model.isDefault || model.platformKeyAvailable;
+                return (
+                  <SelectItem key={model.id} value={model.id} className="text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <span>{model.name}</span>
+                      {isPlatformDefault && (
+                        <span className="text-[9px] text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.2 rounded font-medium">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         </div>

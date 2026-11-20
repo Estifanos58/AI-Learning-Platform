@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Awaitable, Callable, Dict, List, Optional
 
 import httpx
 
@@ -100,6 +100,13 @@ def _extract_status_code(exc: BaseException) -> int | None:
 class ProviderExecutionResult:
     content: str
     tokens_used: int
+    provider_name: str = ""
+    provider_model_name: str = ""
+    endpoint_id: str = ""
+    account_id: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
 
 
 class ProviderExecutor:
@@ -127,6 +134,7 @@ class ProviderExecutor:
         account_id: str,
         max_tokens: int = 2048,
         temperature: float = 0.2,
+        on_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> ProviderExecutionResult:
         provider_key = (provider_name or "").lower()
         provider = self._providers.get(provider_key)
@@ -154,9 +162,19 @@ class ProviderExecutor:
                     )
                 if chunk.delta:
                     parts.append(chunk.delta)
+                    if on_chunk is not None:
+                        await on_chunk(chunk.delta)
 
             content = "".join(parts)
-            tokens_used = self._estimate_tokens(messages, content)
+            prompt_tokens = 0
+            completion_tokens = 0
+            if hasattr(provider, "get_usage"):
+                usage = await provider.get_usage()
+                prompt_tokens = getattr(usage, "prompt_tokens", 0)
+                completion_tokens = getattr(usage, "completion_tokens", 0)
+
+            est_tokens = self._estimate_tokens(messages, content)
+            tokens_used = (prompt_tokens + completion_tokens) if (prompt_tokens + completion_tokens) > 0 else est_tokens
 
             async with AsyncSessionLocal() as session:
                 await self._pool_manager.mark_success(
@@ -166,7 +184,17 @@ class ProviderExecutor:
                     tokens_used=tokens_used,
                 )
 
-            return ProviderExecutionResult(content=content, tokens_used=tokens_used)
+            return ProviderExecutionResult(
+                content=content,
+                tokens_used=tokens_used,
+                provider_name=provider_name,
+                provider_model_name=provider_model_name,
+                endpoint_id=endpoint_id,
+                account_id=account_id,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=tokens_used,
+            )
         except Exception as exc:  # noqa: BLE001
             await self._handle_error(exc, endpoint_id, account_id)
             raise

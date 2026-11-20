@@ -44,6 +44,8 @@ def test_alembic_upgrade_and_downgrade(tmp_path):
             "next_retry_at",
             "last_error_code",
             "version",
+            "actual_provider",
+            "actual_model",
         }.issubset(exec_columns)
     finally:
         sync_engine.dispose()

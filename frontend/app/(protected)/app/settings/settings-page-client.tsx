@@ -302,7 +302,7 @@ export function SettingsPageClient() {
                   <div className="space-y-2">
                     <Label className="text-xs">Provider Name</Label>
                     <Input
-                      placeholder="e.g., openai"
+                      placeholder="e.g., gemini or openai"
                       value={providerName}
                       onChange={(event) => setProviderName(event.target.value)}
                     />
@@ -310,7 +310,7 @@ export function SettingsPageClient() {
                   <div className="space-y-2">
                     <Label className="text-xs">Provider Model Name</Label>
                     <Input
-                      placeholder="e.g., gpt-4o-mini"
+                      placeholder="e.g., gemini-2.5-flash or gpt-4o-mini"
                       value={providerModelName}
                       onChange={(event) => setProviderModelName(event.target.value)}
                     />
@@ -342,7 +342,7 @@ export function SettingsPageClient() {
                   <div className="space-y-2">
                     <Label className="text-xs">Provider Name</Label>
                     <Input
-                      placeholder="e.g., openai"
+                      placeholder="e.g., gemini or openai"
                       value={accountProviderName}
                       onChange={(event) => setAccountProviderName(event.target.value)}
                     />

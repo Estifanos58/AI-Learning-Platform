@@ -44,8 +44,17 @@ class OpenRouterProvider(BaseLLMProvider):
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
                 stream=True,
+                stream_options={"include_usage": True},
             )
             async for chunk in stream:
+                if hasattr(chunk, "usage") and chunk.usage:
+                    self._usage.prompt_tokens = getattr(chunk.usage, "prompt_tokens", 0) or self._usage.prompt_tokens
+                    self._usage.completion_tokens = getattr(chunk.usage, "completion_tokens", 0) or self._usage.completion_tokens
+                    self._usage.total_tokens = getattr(chunk.usage, "total_tokens", 0) or self._usage.total_tokens
+
+                if not chunk.choices:
+                    continue
+
                 delta = chunk.choices[0].delta.content or ""
                 done = chunk.choices[0].finish_reason is not None
                 yield LLMChunk(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import time
+import uuid
 from typing import Any, Dict, List, Optional
 
 from app.config import get_settings
@@ -83,8 +84,10 @@ class EmbeddingPipeline:
         user_id: str,
         folder_id: Optional[str],
         extraction_version: str,
+        document_name: str = "",
+        index_version: Optional[str] = None,
     ) -> int:
-        """Embed chunks and upsert to Qdrant. Returns number of points stored."""
+        """Embed chunks and atomically upsert to Qdrant with versioned cleanup."""
         if not chunks:
             return 0
 
@@ -97,6 +100,7 @@ class EmbeddingPipeline:
             )
 
         model_version = get_embedding_model_version()
+        idx_version = index_version or f"v_{int(time.time())}_{uuid.uuid4().hex[:8]}"
         points: List[Dict[str, Any]] = []
         for chunk, vector in zip(chunks, vectors, strict=True):
             point_id = self._qdrant.deterministic_point_id(
@@ -104,6 +108,7 @@ class EmbeddingPipeline:
                 chunk_index=chunk.index,
                 extraction_version=extraction_version,
                 embedding_model_version=model_version,
+                index_version=idx_version,
             )
             payload = ChunkPayload(
                 chunk_id=point_id,
@@ -111,6 +116,15 @@ class EmbeddingPipeline:
                 owner_id=owner_id,
                 user_id=user_id,
                 folder_id=folder_id,
+                page_number=chunk.page_number,
+                slide_number=chunk.slide_number,
+                sheet_name=chunk.sheet_name,
+                section=chunk.section,
+                char_start=chunk.char_start,
+                char_end=chunk.char_end,
+                token_count=chunk.token_count,
+                document_name=document_name,
+                index_version=idx_version,
                 chunk_index=chunk.index,
                 chunk_text=chunk.text,
                 embedding_model=model_version,
@@ -125,7 +139,23 @@ class EmbeddingPipeline:
             )
 
         await self._qdrant.upsert_chunks(points)
-        log.info("Stored %d vectors for file_id=%s", len(points), file_id)
+        log.info(
+            "Stored %d vectors for file_id=%s (index_version=%s)",
+            len(points),
+            file_id,
+            idx_version,
+        )
+
+        # Post-upsert version cleanup: safely delete stale vectors from older index versions
+        try:
+            if hasattr(self._qdrant, "delete_old_versions"):
+                await self._qdrant.delete_old_versions(
+                    file_id=file_id,
+                    keep_index_version=idx_version,
+                )
+        except Exception as exc:
+            log.warning("Post-ingestion stale version cleanup failed for file_id=%s: %s", file_id, exc)
+
         return len(points)
 
     async def _embed(self, texts: List[str]) -> List[List[float]]:

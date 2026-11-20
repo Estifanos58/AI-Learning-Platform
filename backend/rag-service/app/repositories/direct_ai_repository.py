@@ -436,6 +436,8 @@ class DirectAIRepository:
         message_id: str,
         final_content: str,
         worker_id: str | None = None,
+        actual_provider: str | None = None,
+        actual_model: str | None = None,
     ) -> bool:
         current_time = _utcnow()
         async with self._session_factory() as session:
@@ -451,6 +453,10 @@ class DirectAIRepository:
                 execution.next_retry_at = None
                 execution.completed_at = current_time
                 execution.error = None
+                if actual_provider is not None:
+                    execution.actual_provider = actual_provider
+                if actual_model is not None:
+                    execution.actual_model = actual_model
                 execution.version += 1
 
             message = await session.get(Message, message_id)
@@ -458,6 +464,8 @@ class DirectAIRepository:
                 message.content = final_content
                 message.status = "COMPLETED"
                 message.updated_at = current_time
+            await session.commit()
+            return True
             await session.commit()
             return True
 
@@ -489,7 +497,9 @@ class DirectAIRepository:
             execution.version += 1
             await session.commit()
 
-    async def cancel_execution(self, execution_id: str) -> AIExecution | None:
+    async def cancel_execution(
+        self, execution_id: str, worker_id: str | None = None
+    ) -> AIExecution | None:
         current_time = _utcnow()
         async with self._session_factory() as session:
             execution = await session.get(AIExecution, execution_id)
@@ -497,6 +507,9 @@ class DirectAIRepository:
                 return None
             if execution.status in {"COMPLETED", "FAILED", "CANCELLED"}:
                 return execution
+            if worker_id and execution.worker_id and execution.worker_id != worker_id:
+                # Worker no longer owns this execution; do not cancel another worker's job
+                return None
             execution.status = "CANCELLED"
             execution.worker_id = None
             execution.lease_expires_at = None

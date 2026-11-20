@@ -41,10 +41,16 @@ class ResponseAggregator:
 
         for result in results:
             for c in result.citations:
-                key = (c.get("file_id", ""), c.get("page_number"))
+                chunk_id = c.get("chunk_id")
+                preview = (c.get("preview") or c.get("chunk_text_preview") or "")[:60]
+                file_id = c.get("file_id", "")
+                page = c.get("page_number")
+                section = c.get("section")
+                # Deduplicate identical chunks or same snippet within identical section/page
+                key = chunk_id or (file_id, page, section, preview)
                 if key not in seen_citations:
                     seen_citations.add(key)
-                    all_citations.append(c)
+                    all_citations.append(dict(c))
 
         # Re-index citations
         for i, c in enumerate(all_citations, 1):

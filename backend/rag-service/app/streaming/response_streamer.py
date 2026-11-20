@@ -164,9 +164,33 @@ class _KafkaSink(StreamSink):
         topic = self._topic_for_event(event.get("event_type"))
         if not topic:
             return
+        event_type = event.get("event_type")
+        key = str(event.get("request_id", ""))
+        if event_type in {
+            "ai.message.completed.v2",
+            "ai.message.failed.v2",
+            "ai.message.cancelled.v2",
+        } and hasattr(self._producer, "send_sync"):
+            try:
+                await asyncio.to_thread(
+                    self._producer.send_sync,
+                    topic=topic,
+                    key=key,
+                    value=event,
+                    timeout_seconds=5.0,
+                )
+                return
+            except Exception as exc:
+                log.warning(
+                    "send_sync failed for terminal event %s (request_id=%s): %s; falling back to async send",
+                    event_type,
+                    key,
+                    exc,
+                )
+
         self._producer.send(
             topic=topic,
-            key=str(event.get("request_id", "")),
+            key=key,
             value=event,
         )
 

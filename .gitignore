@@ -38,3 +38,7 @@ htmlcov/
 .venv/
 env/
 venv/
+
+# Generated gRPC stubs
+backend/rag-service/app/grpc_stubs/*_pb2.py
+backend/rag-service/app/grpc_stubs/*_pb2_grpc.py

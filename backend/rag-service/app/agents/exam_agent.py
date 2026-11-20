@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import logging
+from typing import Awaitable, Callable, Optional
 
-from app.agents.base_agent import AgentContext, AgentResult, BaseAgent
+from app.agents.base_agent import (
+    PROMPT_INJECTION_DEFENSE,
+    AgentContext,
+    AgentResult,
+    BaseAgent,
+)
 from app.llm.base_provider import LLMMessage
 
 log = logging.getLogger(__name__)
@@ -20,7 +26,11 @@ class ExamAgent(BaseAgent):
     def description(self) -> str:
         return "Generates exam/quiz questions based on document content."
 
-    async def run(self, context: AgentContext) -> AgentResult:
+    async def run(
+        self,
+        context: AgentContext,
+        on_chunk: Optional[Callable[[str], Awaitable[None]]] = None,
+    ) -> AgentResult:
         ctx_text = self._build_context_text(context.chunks)
         citations = self._extract_citations(context.chunks)
         num_questions = context.options.get("num_questions", 5)
@@ -35,8 +45,9 @@ class ExamAgent(BaseAgent):
             system_prompt = (
                 f"You are an expert educator. "
                 f"Generate {num_questions} exam questions with answers "
-                "based on the provided document excerpts. "
-                "Format: Q: <question>\nA: <answer>\n"
+                "based on the provided document excerpts. Cite sources where relevant with [N]. "
+                "Format: Q: <question>\nA: <answer>\n\n"
+                f"{PROMPT_INJECTION_DEFENSE}"
             )
             user_content = (
                 f"Document excerpts:\n{ctx_text}\n\n"
@@ -63,15 +74,20 @@ class ExamAgent(BaseAgent):
             ),
         ]
 
-        content = await self._execute_llm(
+        exec_res = await self._execute_llm(
             context=context,
             messages=messages,
             max_tokens=context.options.get("max_tokens", 2048),
             temperature=0.4,
+            on_chunk=on_chunk,
         )
+
+        content = exec_res.content if hasattr(exec_res, "content") else str(exec_res)
+        valid_citations = self._validate_and_filter_citations(content, citations)
 
         return AgentResult(
             agent_name=self.name,
             content=content,
-            citations=citations,
+            citations=valid_citations,
+            provider_result=exec_res if hasattr(exec_res, "content") else None,
         )

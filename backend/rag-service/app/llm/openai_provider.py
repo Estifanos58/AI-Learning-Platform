@@ -1,4 +1,4 @@
-"""LLM – OpenAI provider (GPT-4o, GPT-4o-mini, …)."""
+"""LLM – OpenAI provider (GPT-4o, GPT-4o-mini, …) with streaming token usage tracking."""
 
 from __future__ import annotations
 
@@ -42,11 +42,21 @@ class OpenAIProvider(BaseLLMProvider):
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
                 stream=True,
+                stream_options={"include_usage": True},
             )
             async for chunk in stream:
-                delta = chunk.choices[0].delta.content or ""
-                done = chunk.choices[0].finish_reason is not None
-                yield LLMChunk(delta=delta, done=done, finish_reason=chunk.choices[0].finish_reason)
+                if hasattr(chunk, "usage") and chunk.usage:
+                    self._usage.prompt_tokens = getattr(chunk.usage, "prompt_tokens", 0) or self._usage.prompt_tokens
+                    self._usage.completion_tokens = getattr(chunk.usage, "completion_tokens", 0) or self._usage.completion_tokens
+                    self._usage.total_tokens = getattr(chunk.usage, "total_tokens", 0) or self._usage.total_tokens
+
+                if not chunk.choices:
+                    continue
+
+                choice = chunk.choices[0]
+                delta = getattr(choice.delta, "content", "") or ""
+                done = choice.finish_reason is not None
+                yield LLMChunk(delta=delta, done=done, finish_reason=choice.finish_reason)
                 if done:
                     break
         except Exception as exc:  # noqa: BLE001

@@ -68,8 +68,18 @@ class QdrantClient:
                 field_name="file_id",
                 field_schema=PayloadSchemaType.KEYWORD,
             )
+            await client.create_payload_index(
+                collection_name=self._collection,
+                field_name="index_version",
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
+            await client.create_payload_index(
+                collection_name=self._collection,
+                field_name="owner_id",
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
         except Exception as exc:
-            log.debug("Payload index creation skipped/already exists for file_id: %s", exc)
+            log.debug("Payload index creation skipped/already exists: %s", exc)
 
     def _extract_vector_size(self, collection_info: Any) -> Optional[int]:
         try:
@@ -160,6 +170,41 @@ class QdrantClient:
             log.error("vector search failed: %s", exc)
             raise
 
+    async def scroll_chunks(
+        self,
+        file_ids: List[str],
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """Scroll chunks belonging to allowed file IDs for BM25 lexical ranking."""
+        if not file_ids:
+            return []
+        client = await self._get_client()
+        try:
+            from qdrant_client.models import FieldCondition, Filter, MatchAny  # type: ignore[import]
+
+            query_filter = Filter(
+                must=[
+                    FieldCondition(
+                        key="file_id",
+                        match=MatchAny(any=file_ids),
+                    )
+                ]
+            )
+            records, _ = await client.scroll(
+                collection_name=self._collection,
+                scroll_filter=query_filter,
+                limit=limit,
+                with_payload=True,
+                with_vectors=False,
+            )
+            return [
+                {"id": str(r.id), "score": 0.0, "payload": r.payload}
+                for r in records
+            ]
+        except Exception as exc:
+            log.warning("scroll_chunks failed: %s", exc)
+            return []
+
     async def delete_by_file_id(self, file_id: str) -> None:
         """Remove all vectors belonging to a file."""
         if not file_id or not file_id.strip():
@@ -180,15 +225,43 @@ class QdrantClient:
             log.error("delete_by_file_id failed: %s", exc)
             raise
 
+    async def delete_old_versions(self, file_id: str, keep_index_version: str) -> None:
+        """Remove older index versions for a file after successful re-ingestion."""
+        if not file_id or not file_id.strip() or not keep_index_version:
+            return
+        client = await self._get_client()
+        try:
+            from qdrant_client.models import FieldCondition, Filter, MatchValue  # type: ignore[import]
+
+            selector = Filter(
+                must=[FieldCondition(key="file_id", match=MatchValue(value=file_id))],
+                must_not=[FieldCondition(key="index_version", match=MatchValue(value=keep_index_version))],
+            )
+            await client.delete(
+                collection_name=self._collection,
+                points_selector=selector,
+                wait=True,
+            )
+            log.info(
+                "Deleted older index versions for file_id=%s retaining keep_version=%s",
+                file_id,
+                keep_index_version,
+            )
+        except Exception as exc:
+            log.warning("delete_old_versions failed: %s", exc)
+
     @staticmethod
     def deterministic_point_id(
         file_id: str,
         chunk_index: int,
         extraction_version: str,
         embedding_model_version: str,
+        index_version: str = "",
     ) -> str:
         """Return a deterministic UUID-like point ID for idempotent upserts."""
         raw = f"{file_id}:{chunk_index}:{extraction_version}:{embedding_model_version}"
+        if index_version:
+            raw = f"{raw}:{index_version}"
         digest = hashlib.sha256(raw.encode()).hexdigest()
         return f"{digest[:8]}-{digest[8:12]}-{digest[12:16]}-{digest[16:20]}-{digest[20:32]}"
 

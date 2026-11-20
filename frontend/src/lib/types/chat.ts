@@ -163,6 +163,7 @@ export interface AIModel {
   providerCount?: number;
   description?: string;
   platformKeyAvailable?: boolean;
+  isDefault?: boolean;
   active?: boolean;
 }
 

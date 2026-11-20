@@ -99,3 +99,38 @@ KAFKA_DLT_TOTAL = Counter(
     "Total Kafka records published to dead-letter topics",
     ["topic", "status"],
 )
+RETRIEVAL_LATENCY_SECONDS = Histogram(
+    "rag_retrieval_latency_seconds",
+    "Retrieval pipeline latency in seconds",
+    ["mode"],
+)
+TIME_TO_FIRST_TOKEN_SECONDS = Histogram(
+    "rag_time_to_first_token_seconds",
+    "Time from start of execution to first token chunk in seconds",
+    ["provider", "model"],
+)
+EMBEDDING_FAILURES_TOTAL = Counter(
+    "rag_embedding_failures_total",
+    "Failed embedding attempts",
+    ["reason"],
+)
+RERANKER_REQUESTS_TOTAL = Counter(
+    "rag_reranker_requests_total",
+    "Total reranker scoring requests",
+    ["status"],
+)
+RERANKER_FALLBACKS_TOTAL = Counter(
+    "rag_reranker_fallbacks_total",
+    "Reranker fallbacks triggered",
+    ["fallback_type"],
+)
+EXECUTION_RETRIES_TOTAL = Counter(
+    "rag_execution_retries_total",
+    "AI execution retries scheduled",
+    ["error_code"],
+)
+EXECUTION_COST_TOTAL = Counter(
+    "rag_execution_cost_usd_total",
+    "Estimated AI execution cost in USD",
+    ["provider", "model"],
+)

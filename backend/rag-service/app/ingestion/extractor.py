@@ -6,8 +6,8 @@ import io
 import logging
 import os
 import re
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, List
 
 log = logging.getLogger(__name__)
 
@@ -24,12 +24,26 @@ class ExtractionError(RuntimeError):
 
 
 @dataclass
+class DocumentElement:
+    """Represents a structural element (page, slide, sheet, section) with character offsets."""
+
+    text: str
+    page_number: Optional[int] = None
+    slide_number: Optional[int] = None
+    sheet_name: Optional[str] = None
+    section: Optional[str] = None
+    char_start: int = 0
+    char_end: int = 0
+
+
+@dataclass
 class ExtractionResult:
     text: str
     page_count: Optional[int] = None
     extraction_version: str = EXTRACTION_VERSION
     confidence: float = 1.0
     extractor: str = "unknown"
+    elements: list[DocumentElement] = field(default_factory=list)
 
 
 class TextExtractor:
@@ -130,6 +144,8 @@ class TextExtractor:
                 raise ExtractionError("PDF document contains zero pages")
 
             pages_text: list[str] = []
+            elements: list[DocumentElement] = []
+            current_offset = 0
             used_ocr = False
             for idx, page in enumerate(doc):
                 text = (page.get_text("text") or "").strip()
@@ -140,7 +156,20 @@ class TextExtractor:
                         used_ocr = True
                         text = ocr_text
                 if text:
-                    pages_text.append(f"[Page {idx + 1}]\n{text}")
+                    page_str = f"[Page {idx + 1}]\n{text}"
+                    pages_text.append(page_str)
+                    start = current_offset
+                    end = start + len(page_str)
+                    elements.append(
+                        DocumentElement(
+                            text=page_str,
+                            page_number=idx + 1,
+                            section=f"Page {idx + 1}",
+                            char_start=start,
+                            char_end=end,
+                        )
+                    )
+                    current_offset = end + 2
 
             combined = "\n\n".join(pages_text)
             return ExtractionResult(
@@ -149,6 +178,7 @@ class TextExtractor:
                 extraction_version=EXTRACTION_VERSION,
                 confidence=0.85 if used_ocr else 0.98,
                 extractor="pymupdf+ocr" if used_ocr else "pymupdf",
+                elements=elements,
             )
         finally:
             doc.close()
@@ -177,16 +207,47 @@ class TextExtractor:
             raise ExtractionError(f"Invalid or corrupted DOCX document: {exc}") from exc
 
         parts: list[str] = []
+        elements: list[DocumentElement] = []
+        current_offset = 0
+        current_section = "Document"
+
         for para in doc.paragraphs:
             text = (para.text or "").strip()
             if text:
+                if getattr(para, "style", None) and getattr(para.style, "name", None):
+                    style_name = str(para.style.name).lower()
+                    if "heading" in style_name or "title" in style_name:
+                        current_section = text
                 parts.append(text)
+                start = current_offset
+                end = start + len(text)
+                elements.append(
+                    DocumentElement(
+                        text=text,
+                        section=current_section,
+                        char_start=start,
+                        char_end=end,
+                    )
+                )
+                current_offset = end + 2
 
         for table in doc.tables:
             for row in table.rows:
                 cells = [cell.text.strip().replace("\n", " ") for cell in row.cells]
                 if any(cells):
-                    parts.append(" | ".join(cells))
+                    row_text = " | ".join(cells)
+                    parts.append(row_text)
+                    start = current_offset
+                    end = start + len(row_text)
+                    elements.append(
+                        DocumentElement(
+                            text=row_text,
+                            section=f"{current_section} (Table)",
+                            char_start=start,
+                            char_end=end,
+                        )
+                    )
+                    current_offset = end + 2
 
         return ExtractionResult(
             text="\n\n".join(parts),
@@ -194,6 +255,7 @@ class TextExtractor:
             extraction_version=EXTRACTION_VERSION,
             confidence=0.98,
             extractor="python-docx",
+            elements=elements,
         )
 
     def _extract_xlsx(self, content: bytes) -> ExtractionResult:
@@ -209,6 +271,8 @@ class TextExtractor:
 
         try:
             sheets_text: list[str] = []
+            elements: list[DocumentElement] = []
+            current_offset = 0
             for sheet_name in wb.sheetnames:
                 ws = wb[sheet_name]
                 rows_text: list[str] = []
@@ -217,7 +281,20 @@ class TextExtractor:
                     if any(values):
                         rows_text.append(" | ".join(values))
                 if rows_text:
-                    sheets_text.append(f"[Sheet: {sheet_name}]\n" + "\n".join(rows_text))
+                    sheet_str = f"[Sheet: {sheet_name}]\n" + "\n".join(rows_text)
+                    sheets_text.append(sheet_str)
+                    start = current_offset
+                    end = start + len(sheet_str)
+                    elements.append(
+                        DocumentElement(
+                            text=sheet_str,
+                            sheet_name=sheet_name,
+                            section=f"Sheet: {sheet_name}",
+                            char_start=start,
+                            char_end=end,
+                        )
+                    )
+                    current_offset = end + 2
 
             return ExtractionResult(
                 text="\n\n".join(sheets_text),
@@ -225,6 +302,7 @@ class TextExtractor:
                 extraction_version=EXTRACTION_VERSION,
                 confidence=0.98,
                 extractor="openpyxl",
+                elements=elements,
             )
         finally:
             wb.close()
@@ -241,12 +319,17 @@ class TextExtractor:
             raise ExtractionError(f"Invalid or corrupted PPTX presentation: {exc}") from exc
 
         slides_text: list[str] = []
+        elements: list[DocumentElement] = []
+        current_offset = 0
         for idx, slide in enumerate(prs.slides, start=1):
             slide_parts: list[str] = []
+            slide_title = ""
             for shape in slide.shapes:
                 if getattr(shape, "has_text_frame", False) and shape.text_frame is not None:
                     text = shape.text_frame.text.strip()
                     if text:
+                        if not slide_title and getattr(shape, "name", "").lower().startswith("title"):
+                            slide_title = text
                         slide_parts.append(text)
                 if getattr(shape, "has_table", False) and shape.table is not None:
                     for row in shape.table.rows:
@@ -258,7 +341,20 @@ class TextExtractor:
                 if notes:
                     slide_parts.append(f"Notes: {notes}")
             if slide_parts:
-                slides_text.append(f"[Slide {idx}]\n" + "\n".join(slide_parts))
+                slide_str = f"[Slide {idx}]\n" + "\n".join(slide_parts)
+                slides_text.append(slide_str)
+                start = current_offset
+                end = start + len(slide_str)
+                elements.append(
+                    DocumentElement(
+                        text=slide_str,
+                        slide_number=idx,
+                        section=slide_title or f"Slide {idx}",
+                        char_start=start,
+                        char_end=end,
+                    )
+                )
+                current_offset = end + 2
 
         return ExtractionResult(
             text="\n\n".join(slides_text),
@@ -266,6 +362,7 @@ class TextExtractor:
             extraction_version=EXTRACTION_VERSION,
             confidence=0.98,
             extractor="python-pptx",
+            elements=elements,
         )
 
     def _extract_image_ocr(self, content: bytes) -> ExtractionResult:
@@ -282,12 +379,23 @@ class TextExtractor:
         except Exception as exc:
             raise ExtractionError(f"Image OCR extraction failed: {exc}") from exc
 
+        elements = [
+            DocumentElement(
+                text=text,
+                page_number=1,
+                section="Image OCR",
+                char_start=0,
+                char_end=len(text),
+            )
+        ] if text else []
+
         return ExtractionResult(
             text=text,
             page_count=1,
             extraction_version=EXTRACTION_VERSION,
             confidence=0.8,
             extractor="pytesseract",
+            elements=elements,
         )
 
     def _extract_plain_text(self, content: bytes, content_type: str) -> ExtractionResult:
@@ -325,10 +433,30 @@ class TextExtractor:
             decoded = _HTML_SCRIPT_STYLE_RE.sub(" ", decoded)
             decoded = _HTML_TAG_RE.sub(" ", decoded)
 
+        elements: list[DocumentElement] = []
+        current_offset = 0
+        current_section = "Content"
+        paragraphs = [p.strip() for p in decoded.split("\n\n") if p.strip()]
+        for p in paragraphs:
+            if p.startswith("#"):
+                current_section = p.lstrip("#").strip().split("\n")[0]
+            start = current_offset
+            end = start + len(p)
+            elements.append(
+                DocumentElement(
+                    text=p,
+                    section=current_section,
+                    char_start=start,
+                    char_end=end,
+                )
+            )
+            current_offset = end + 2
+
         return ExtractionResult(
             text=decoded,
             page_count=None,
             extraction_version=EXTRACTION_VERSION,
             confidence=0.95,
             extractor="text",
+            elements=elements,
         )

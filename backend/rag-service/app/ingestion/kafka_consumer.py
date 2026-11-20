@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import concurrent.futures
 import json
 import logging
 import threading
@@ -149,16 +150,43 @@ class IngestionConsumer:
         """
         correlation_id = self._extract_correlation_id(record)
         token = set_correlation_id(correlation_id)
+        task_ref: list[asyncio.Task[None]] = []
+
+        async def _run_tracked() -> None:
+            current = asyncio.current_task()
+            if current is not None:
+                task_ref.append(current)
+            await self._dispatch_with_correlation(record.topic, payload, correlation_id)
+
+        future = None
         try:
             payload = self._decode_payload(record.value)
             future = asyncio.run_coroutine_threadsafe(
-                self._dispatch_with_correlation(record.topic, payload, correlation_id),
+                _run_tracked(),
                 self._event_loop,
             )
             future.result(timeout=self._record_timeout_seconds)
             self._commit_record_offset(consumer, tp, record)
             KAFKA_CONSUME_TOTAL.labels(topic=record.topic, status="success").inc()
             return True
+        except (concurrent.futures.TimeoutError, TimeoutError) as exc:
+            if future is not None:
+                future.cancel()
+            if task_ref and not task_ref[0].done():
+                self._event_loop.call_soon_threadsafe(task_ref[0].cancel)
+            KAFKA_CONSUME_TOTAL.labels(topic=record.topic, status="timeout").inc()
+            log.error(
+                "Kafka record execution timed out after %ss topic=%s partition=%s offset=%s",
+                self._record_timeout_seconds,
+                record.topic,
+                getattr(record, "partition", "?"),
+                getattr(record, "offset", "?"),
+            )
+            dlt_sent = self._send_to_dlt(record, exc, correlation_id)
+            if dlt_sent:
+                self._commit_record_offset(consumer, tp, record)
+                return True
+            return False
         except Exception as exc:  # noqa: BLE001
             KAFKA_CONSUME_TOTAL.labels(topic=record.topic, status="error").inc()
             log.error(
@@ -254,33 +282,64 @@ class IngestionConsumer:
 
         log.info("Ingesting file_id=%s owner=%s content_type=%s", file_id, owner_id, content_type)
 
-        try:
-            loader = FileLoader()
-            validator = FileValidator()
-            extractor = TextExtractor()
-            splitter = RecursiveCharacterTextSplitter()
-            pipeline = EmbeddingPipeline()
+        max_retries = 3
+        backoff_delay = 1.0
 
-            content = loader.load(storage_path)
-            validator.validate(content_type=content_type, file_size_bytes=len(content), file_name=file_name)
-            result = extractor.extract(content, content_type, file_name)
-            chunks = splitter.split(result.text)
-            if not chunks:
-                raise ValueError(f"Chunker produced zero chunks for file_id={file_id}")
+        for attempt in range(1, max_retries + 1):
+            try:
+                loader = FileLoader()
+                validator = FileValidator()
+                extractor = TextExtractor()
+                splitter = RecursiveCharacterTextSplitter()
+                pipeline = EmbeddingPipeline()
 
-            count = await pipeline.embed_and_store(
-                chunks=chunks,
-                file_id=file_id,
-                owner_id=owner_id,
-                user_id=owner_id,
-                folder_id=folder_id,
-                extraction_version=result.extraction_version,
-            )
-            INGESTION_TOTAL.labels(status="success", content_type=content_type).inc()
-            log.info("Ingestion complete: file_id=%s chunks=%d", file_id, count)
-        except Exception:
-            INGESTION_TOTAL.labels(status="error", content_type=content_type).inc()
-            raise
+                validator.validate(
+                    content_type=content_type,
+                    file_size_bytes=1,
+                    file_name=file_name,
+                    storage_path=storage_path,
+                )
+                content = loader.load(storage_path)
+                validator.validate(
+                    content_type=content_type,
+                    file_size_bytes=len(content),
+                    file_name=file_name,
+                    storage_path=storage_path,
+                )
+                result = extractor.extract(content, content_type, file_name)
+                chunks = splitter.split(result.text, elements=result.elements)
+                if not chunks:
+                    raise ValueError(f"Chunker produced zero chunks for file_id={file_id}")
+
+                count = await pipeline.embed_and_store(
+                    chunks=chunks,
+                    file_id=file_id,
+                    owner_id=owner_id,
+                    user_id=owner_id,
+                    folder_id=folder_id,
+                    extraction_version=result.extraction_version,
+                    document_name=file_name,
+                )
+                INGESTION_TOTAL.labels(status="success", content_type=content_type).inc()
+                log.info("Ingestion complete: file_id=%s chunks=%d", file_id, count)
+                break
+            except Exception as exc:
+                from app.llm.provider_executor import is_retryable_exception
+
+                if attempt < max_retries and is_retryable_exception(exc):
+                    log.warning(
+                        "Transient ingestion error for file_id=%s (attempt %d/%d): %s. Backing off %.1fs",
+                        file_id,
+                        attempt,
+                        max_retries,
+                        exc,
+                        backoff_delay,
+                    )
+                    await asyncio.sleep(backoff_delay)
+                    backoff_delay *= 2
+                else:
+                    INGESTION_TOTAL.labels(status="error", content_type=content_type).inc()
+                    raise
 
     async def _handle_file_deleted(self, event: Dict[str, Any]) -> None:
         from app.storage.qdrant_client import get_qdrant_client
@@ -293,11 +352,16 @@ class IngestionConsumer:
         await get_qdrant_client().delete_by_file_id(file_id)
 
     async def _handle_ai_message_requested(self, event: Dict[str, Any]) -> None:
-        from app.orchestration.pipeline_executor import PipelineExecutor
+        from app.workers.direct_execution_runtime import get_direct_execution_worker
 
         p = event.get("payload", event)
-        executor = PipelineExecutor()
-        await executor.execute(p)
+        worker = get_direct_execution_worker()
+        if worker is not None and worker.is_running:
+            await worker.enqueue(p)
+        else:
+            from app.orchestration.pipeline_executor import PipelineExecutor
+            executor = PipelineExecutor()
+            await executor.execute(p)
 
     async def _handle_ai_message_cancelled(self, event: Dict[str, Any]) -> None:
         from app.orchestration.pipeline_executor import PipelineExecutor

@@ -27,6 +27,7 @@ from app.config import get_settings
 from app.db.session import init_database, ping_database
 from app.grpc.ai_models_server import AiModelsGrpcServer
 from app.ingestion.kafka_consumer import IngestionConsumer
+from app.llm.model_bootstrap import bootstrap_default_models
 from app.observability import (
     configure_structured_logging,
     get_correlation_id,
@@ -68,6 +69,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         await init_database()
         log.info("RAG PostgreSQL connection and migrations verified")
+        await bootstrap_default_models()
     except Exception as exc:  # noqa: BLE001
         log.error("RAG database verification failed: %s", exc)
         if strict_startup:

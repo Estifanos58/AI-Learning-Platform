@@ -279,17 +279,52 @@ export const chatApi = {
       }
 
       const family = typeof input.family === 'string' ? input.family : undefined;
-      const provider = typeof input.provider === 'string' ? input.provider : family ?? 'unknown';
+      const rawProvider = typeof input.provider === 'string' ? input.provider : family ?? 'unknown';
+      const provider = rawProvider.toLowerCase() === 'gemini'
+        ? 'Google Gemini'
+        : rawProvider.toLowerCase() === 'openai'
+          ? 'OpenAI'
+          : rawProvider;
+
       const contextLengthRaw = input.context_length ?? input.contextLength;
       const contextLength = typeof contextLengthRaw === 'number' ? contextLengthRaw : 0;
-      const supportsStreamingRaw = input.supports_streaming ?? input.supportsStreaming;
-      const supportsStreaming = typeof supportsStreamingRaw === 'boolean' ? supportsStreamingRaw : false;
       const userKeyConfiguredRaw = input.user_key_configured ?? input.userKeyConfigured;
       const userKeyConfigured = typeof userKeyConfiguredRaw === 'boolean' ? userKeyConfiguredRaw : false;
-      const platformKeyAvailableRaw = input.platform_key_available ?? input.platformKeyAvailable;
       const activeRaw = input.active;
       const providerCountRaw = input.provider_count ?? input.providerCount;
       const capabilitiesJsonRaw = input.capabilities_json ?? input.capabilitiesJson;
+
+      let capabilities: Record<string, unknown> = {};
+      if (typeof capabilitiesJsonRaw === 'string') {
+        try {
+          capabilities = JSON.parse(capabilitiesJsonRaw);
+        } catch {
+          capabilities = {};
+        }
+      }
+
+      const supportsStreamingRaw = input.supports_streaming ?? input.supportsStreaming;
+      const supportsStreaming = typeof supportsStreamingRaw === 'boolean'
+        ? supportsStreamingRaw
+        : typeof capabilities.streaming === 'boolean'
+          ? Boolean(capabilities.streaming)
+          : true;
+
+      const platformKeyAvailableRaw = input.platform_key_available ?? input.platformKeyAvailable;
+      const platformKeyAvailable = typeof platformKeyAvailableRaw === 'boolean'
+        ? platformKeyAvailableRaw
+        : typeof capabilities.platform_key_available === 'boolean'
+          ? Boolean(capabilities.platform_key_available)
+          : typeof capabilities.platformKeyAvailable === 'boolean'
+            ? Boolean(capabilities.platformKeyAvailable)
+            : (family?.toLowerCase() === 'gemini');
+
+      const isDefaultRaw = input.is_default ?? input.isDefault;
+      const isDefault = typeof isDefaultRaw === 'boolean'
+        ? isDefaultRaw
+        : typeof capabilities.is_default === 'boolean'
+          ? Boolean(capabilities.is_default)
+          : (modelId.includes('gemini-2.5-flash') || modelName.toLowerCase().includes('gemini 2.5 flash'));
 
       return {
         modelId,
@@ -304,7 +339,8 @@ export const chatApi = {
         contextLength,
         supportsStreaming,
         userKeyConfigured,
-        platformKeyAvailable: typeof platformKeyAvailableRaw === 'boolean' ? platformKeyAvailableRaw : undefined,
+        platformKeyAvailable,
+        isDefault,
         active: typeof activeRaw === 'boolean' ? activeRaw : undefined,
       };
     };
@@ -331,7 +367,53 @@ export const chatApi = {
       }
     }
 
-    return [];
+    return [
+      {
+        modelId: 'gemini-2.5-flash',
+        modelName: 'Gemini 2.5 Flash',
+        id: 'gemini-2.5-flash',
+        name: 'Gemini 2.5 Flash',
+        provider: 'Google Gemini',
+        family: 'gemini',
+        description: "Google's fast, multimodal model with 1M context window (Platform Default).",
+        contextLength: 1048576,
+        supportsStreaming: true,
+        userKeyConfigured: false,
+        platformKeyAvailable: true,
+        isDefault: true,
+        active: true,
+      },
+      {
+        modelId: 'gemini-2.5-pro',
+        modelName: 'Gemini 2.5 Pro',
+        id: 'gemini-2.5-pro',
+        name: 'Gemini 2.5 Pro',
+        provider: 'Google Gemini',
+        family: 'gemini',
+        description: "Google's flagship reasoning model with 2M context window.",
+        contextLength: 2097152,
+        supportsStreaming: true,
+        userKeyConfigured: false,
+        platformKeyAvailable: true,
+        isDefault: true,
+        active: true,
+      },
+      {
+        modelId: 'gemini-1.5-flash',
+        modelName: 'Gemini 1.5 Flash',
+        id: 'gemini-1.5-flash',
+        name: 'Gemini 1.5 Flash',
+        provider: 'Google Gemini',
+        family: 'gemini',
+        description: "Google's high-speed, lightweight model.",
+        contextLength: 1048576,
+        supportsStreaming: true,
+        userKeyConfigured: false,
+        platformKeyAvailable: true,
+        isDefault: false,
+        active: true,
+      },
+    ];
   },
 
   async createUserApiKey(token: string, input: UpsertUserAiApiKeyInput): Promise<UserAiApiKeyResponse> {

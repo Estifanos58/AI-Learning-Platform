@@ -3,9 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import get_settings
 
 from app.models.model_definition import ModelDefinition
 from app.models.model_endpoint import ModelEndpoint
@@ -245,7 +247,10 @@ class ModelOrchestrationRepository:
             .join(ModelDefinition, ModelDefinition.id == ModelProvider.model_definition_id)
             .where(
                 and_(
-                    ModelDefinition.id == model_id,
+                    or_(
+                        ModelDefinition.id == model_id,
+                        ModelDefinition.model_name == model_id,
+                    ),
                     ModelDefinition.active.is_(True),
                     ModelProvider.active.is_(True),
                     ModelEndpoint.active.is_(True),

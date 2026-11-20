@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from app.agents.base_agent import AgentContext, AgentResult, BaseAgent
+from typing import Awaitable, Callable, Optional
+
+from app.agents.base_agent import (
+    PROMPT_INJECTION_DEFENSE,
+    AgentContext,
+    AgentResult,
+    BaseAgent,
+)
 from app.llm.base_provider import LLMMessage
 
 
@@ -16,7 +23,11 @@ class ExplanationAgent(BaseAgent):
     def description(self) -> str:
         return "Explains a concept in depth using document content."
 
-    async def run(self, context: AgentContext) -> AgentResult:
+    async def run(
+        self,
+        context: AgentContext,
+        on_chunk: Optional[Callable[[str], Awaitable[None]]] = None,
+    ) -> AgentResult:
         ctx_text = self._build_context_text(context.chunks)
         citations = self._extract_citations(context.chunks)
 
@@ -31,7 +42,8 @@ class ExplanationAgent(BaseAgent):
                 "You are a knowledgeable tutor. "
                 "Explain the concept in the user's question thoroughly and clearly, "
                 "using the provided document excerpts as your primary source. "
-                "Use examples and analogies where helpful."
+                "Use examples and analogies where helpful. Cite sources using [N] notation.\n\n"
+                f"{PROMPT_INJECTION_DEFENSE}"
             )
             user_content = f"Document excerpts:\n{ctx_text}\n\nExplain: {context.question}"
         else:
@@ -54,15 +66,20 @@ class ExplanationAgent(BaseAgent):
             ),
         ]
 
-        content = await self._execute_llm(
+        exec_res = await self._execute_llm(
             context=context,
             messages=messages,
             max_tokens=context.options.get("max_tokens", 2048),
             temperature=0.3,
+            on_chunk=on_chunk,
         )
+
+        content = exec_res.content if hasattr(exec_res, "content") else str(exec_res)
+        valid_citations = self._validate_and_filter_citations(content, citations)
 
         return AgentResult(
             agent_name=self.name,
             content=content,
-            citations=citations,
+            citations=valid_citations,
+            provider_result=exec_res if hasattr(exec_res, "content") else None,
         )

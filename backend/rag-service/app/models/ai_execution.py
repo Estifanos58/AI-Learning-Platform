@@ -42,6 +42,8 @@ class AIExecution(Base):
     lease_expires_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
     next_retry_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    actual_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    actual_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     created_at: Mapped[object] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

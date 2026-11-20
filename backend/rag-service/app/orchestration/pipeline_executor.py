@@ -8,13 +8,14 @@ import time
 import uuid
 from typing import Any, Awaitable, Callable, Dict
 
-from app.agents.base_agent import AgentContext
+from app.agents.base_agent import AgentContext, AgentResult, BaseAgent
 from app.llm.model_orchestrator import EndpointSelection, ModelOrchestrator
 from app.llm.provider_executor import (
     ProviderPermanentError,
     ProviderTransientError,
     is_retryable_exception,
 )
+from app.observability import EXECUTION_COST_TOTAL, TIME_TO_FIRST_TOKEN_SECONDS
 from app.orchestration.planner_agent import PlannerAgent
 from app.orchestration.response_aggregator import ResponseAggregator
 from app.orchestration.workflow_builder import WorkflowBuilder
@@ -229,14 +230,59 @@ class PipelineExecutor:
             account_id=candidate_endpoints[0].account_id,
             options={**options, "context_window": context_window},
         )
-        agents = self._builder.build(plan)
+        stages = self._builder.build_groups(plan)
         await self._check_cancel(cancel_event, request_id, is_cancelled)
 
-        # 4. Execute agents (sequential with endpoint failover)
-        results = []
-        for agent in agents:
-            await self._check_cancel(cancel_event, request_id, is_cancelled)
-            agent_result = None
+        # 4. Execute agents (parallel groups with endpoint failover and token streaming)
+        results: list[AgentResult] = []
+        seq = 0
+        persisted_buffer = ""
+        last_persisted_len = 0
+        persist_flush_chars = int(options.get("persist_flush_chars", 400))
+        first_token_recorded = False
+        start_exec_time = time.monotonic()
+        successful_endpoint: EndpointSelection | None = None
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+
+        total_agents = sum(len(stage) for stage in stages)
+        allow_live_streaming = (total_agents == 1)
+
+        def make_stream_chunk_handler(endpoint: EndpointSelection):
+            async def on_stream_chunk(delta: str) -> None:
+                nonlocal seq, persisted_buffer, last_persisted_len, first_token_recorded
+                if not delta:
+                    return
+                if not first_token_recorded:
+                    first_token_recorded = True
+                    ttft = max(0.0, time.monotonic() - start_exec_time)
+                    TIME_TO_FIRST_TOKEN_SECONDS.labels(
+                        provider=endpoint.provider_name,
+                        model=endpoint.provider_model_name,
+                    ).observe(ttft)
+
+                persisted_buffer += delta
+                if (
+                    on_partial_persist is not None
+                    and (len(persisted_buffer) - last_persisted_len) >= max(50, persist_flush_chars)
+                ):
+                    await on_partial_persist(message_id, persisted_buffer)
+                    last_persisted_len = len(persisted_buffer)
+
+                await self._streamer.publish_chunk(
+                    chatroom_id=chatroom_id,
+                    message_id=message_id,
+                    request_id=request_id,
+                    sequence=seq,
+                    content_delta=delta,
+                    citations=[],
+                    done=False,
+                )
+                seq += 1
+            return on_stream_chunk
+
+        async def run_agent_with_failover(agent: BaseAgent, can_stream: bool) -> AgentResult:
+            nonlocal successful_endpoint, total_prompt_tokens, total_completion_tokens
             last_exc: Exception | None = None
             saw_retryable = False
 
@@ -256,9 +302,14 @@ class PipelineExecutor:
                     account_id=endpoint.account_id,
                     options={**options, "context_window": context_window},
                 )
+                chunk_cb = make_stream_chunk_handler(endpoint) if can_stream else None
                 try:
-                    agent_result = await agent.run(agent_ctx)
-                    break
+                    res = await agent.run(agent_ctx, on_chunk=chunk_cb)
+                    successful_endpoint = endpoint
+                    if res.provider_result:
+                        total_prompt_tokens += res.provider_result.prompt_tokens
+                        total_completion_tokens += res.provider_result.completion_tokens
+                    return res
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001
@@ -272,58 +323,95 @@ class PipelineExecutor:
                         exc,
                     )
 
-            if agent_result is None:
-                if saw_retryable:
-                    raise ProviderTransientError(
-                        f"All endpoints failed transiently for agent '{agent.name}': {last_exc}",
-                        error_code=getattr(last_exc, "error_code", "ALL_ENDPOINTS_TRANSIENT_FAILURE"),
-                    ) from last_exc
-                raise ProviderPermanentError(
-                    f"All endpoints failed permanently for agent '{agent.name}': {last_exc}",
-                    error_code=getattr(last_exc, "error_code", "ALL_ENDPOINTS_PERMANENT_FAILURE"),
+            if saw_retryable:
+                raise ProviderTransientError(
+                    f"All endpoints failed transiently for agent '{agent.name}': {last_exc}",
+                    error_code=getattr(last_exc, "error_code", "ALL_ENDPOINTS_TRANSIENT_FAILURE"),
                 ) from last_exc
+            raise ProviderPermanentError(
+                f"All endpoints failed permanently for agent '{agent.name}': {last_exc}",
+                error_code=getattr(last_exc, "error_code", "ALL_ENDPOINTS_PERMANENT_FAILURE"),
+            ) from last_exc
 
-            results.append(agent_result)
+        for stage in stages:
+            await self._check_cancel(cancel_event, request_id, is_cancelled)
+            if len(stage) == 1:
+                res = await run_agent_with_failover(stage[0], can_stream=allow_live_streaming)
+                results.append(res)
+            else:
+                stage_results = await asyncio.gather(
+                    *[run_agent_with_failover(agent, can_stream=False) for agent in stage]
+                )
+                results.extend(stage_results)
 
         # 5. Aggregate
         aggregated = self._aggregator.aggregate(results)
         await self._check_cancel(cancel_event, request_id, is_cancelled)
         full_text = aggregated["content"]
         citations = aggregated["citations"]
-        chunk_size = 200
-        persist_flush_chars = int(options.get("persist_flush_chars", 800))
-        seq = 0
-        persisted_buffer = ""
-        last_persisted_len = 0
 
-        for i in range(0, len(full_text), chunk_size):
-            await self._check_cancel(cancel_event, request_id, is_cancelled)
-            delta = full_text[i : i + chunk_size]
-            persisted_buffer += delta
-            if (
-                on_partial_persist is not None
-                and (len(persisted_buffer) - last_persisted_len) >= max(100, persist_flush_chars)
-            ):
-                await on_partial_persist(message_id, persisted_buffer)
-                last_persisted_len = len(persisted_buffer)
-            await self._streamer.publish_chunk(
-                chatroom_id=chatroom_id,
-                message_id=message_id,
-                request_id=request_id,
-                sequence=seq,
-                content_delta=delta,
-                citations=citations if i == 0 else [],
-                done=False,
-            )
-            seq += 1
+        # If live streaming was not performed (multi-agent, fallback, or non-delta provider),
+        # publish chunks from full_text
+        if seq == 0 and full_text:
+            chunk_size = 200
+            for i in range(0, len(full_text), chunk_size):
+                await self._check_cancel(cancel_event, request_id, is_cancelled)
+                delta = full_text[i : i + chunk_size]
+                persisted_buffer += delta
+                if (
+                    on_partial_persist is not None
+                    and (len(persisted_buffer) - last_persisted_len) >= max(50, persist_flush_chars)
+                ):
+                    await on_partial_persist(message_id, persisted_buffer)
+                    last_persisted_len = len(persisted_buffer)
+                await self._streamer.publish_chunk(
+                    chatroom_id=chatroom_id,
+                    message_id=message_id,
+                    request_id=request_id,
+                    sequence=seq,
+                    content_delta=delta,
+                    citations=citations if i == 0 else [],
+                    done=False,
+                )
+                seq += 1
 
-        # 6. Publish completion
-        model_used = candidate_endpoints[0].provider_model_name if candidate_endpoints else model_id
-        usage = await self._meter.estimate(question, full_text, model_used)
+        # 6. Publish completion with model tracking and token accounting
+        model_used = (
+            successful_endpoint.provider_model_name
+            if successful_endpoint
+            else (candidate_endpoints[0].provider_model_name if candidate_endpoints else model_id)
+        )
+        provider_used = (
+            successful_endpoint.provider_name
+            if successful_endpoint
+            else (candidate_endpoints[0].provider_name if candidate_endpoints else "")
+        )
+
+        usage = await self._meter.estimate(
+            prompt=question,
+            completion=full_text,
+            model_id=model_used,
+            prompt_tokens=total_prompt_tokens,
+            completion_tokens=total_completion_tokens,
+            provider_name=provider_used,
+        )
+        cost = usage.get("cost_estimate", 0.0)
+        EXECUTION_COST_TOTAL.labels(provider=provider_used, model=model_used).inc(cost)
+
         if on_partial_persist is not None:
             await on_partial_persist(message_id, full_text)
         if on_completed is not None:
-            await on_completed(request_id, message_id, full_text)
+            try:
+                await on_completed(
+                    request_id,
+                    message_id,
+                    full_text,
+                    actual_provider=provider_used,
+                    actual_model=model_used,
+                )
+            except TypeError:
+                await on_completed(request_id, message_id, full_text)
+
         await self._streamer.publish_completed(
             chatroom_id=chatroom_id,
             message_id=message_id,

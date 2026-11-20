@@ -73,18 +73,26 @@ class _AiModelService:
             models = await repo.list_models()
 
         pb2 = importlib.import_module("app.grpc_stubs.ai_models_pb2")
-        model_items = [
-            pb2.AiModelDto(
-                model_id=item["model_id"],
-                model_name=item["model_name"],
-                family=item["family"],
-                context_length=item["context_length"],
-                capabilities_json=json.dumps(item.get("capabilities") or {}),
-                active=bool(item.get("active", True)),
-                provider_count=int(item.get("provider_count") or 0),
+        model_items = []
+        for item in models:
+            caps = dict(item.get("capabilities") or {})
+            if item.get("family") == "gemini" and settings.gemini_api_key:
+                caps.setdefault("platform_key_available", True)
+                caps.setdefault("is_default", True)
+            elif item.get("family") == "openai" and settings.openai_api_key:
+                caps.setdefault("platform_key_available", True)
+
+            model_items.append(
+                pb2.AiModelDto(
+                    model_id=item["model_id"],
+                    model_name=item["model_name"],
+                    family=item["family"],
+                    context_length=item["context_length"],
+                    capabilities_json=json.dumps(caps),
+                    active=bool(item.get("active", True)),
+                    provider_count=int(item.get("provider_count") or 0),
+                )
             )
-            for item in models
-        ]
         return pb2.ListModelsResponse(models=model_items)
 
     async def CreateModelDefinition(self, request, context):  # noqa: N802
@@ -266,18 +274,21 @@ class _RagService:
         try:
             loader = FileLoader()
             validator = FileValidator()
-            extractor = TextExtractor()
-            splitter = RecursiveCharacterTextSplitter()
-            pipeline = EmbeddingPipeline()
-
+            validator.validate(
+                content_type=request.content_type,
+                file_size_bytes=1,  # will verify actual content length after read
+                file_name=request.file_name,
+                storage_path=request.storage_path,
+            )
             content = loader.load(request.storage_path)
             validator.validate(
                 content_type=request.content_type,
                 file_size_bytes=len(content),
                 file_name=request.file_name,
+                storage_path=request.storage_path,
             )
             result = extractor.extract(content, request.content_type, request.file_name)
-            chunks = splitter.split(result.text)
+            chunks = splitter.split(result.text, elements=result.elements)
             if not chunks:
                 await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "Document produced no indexable text chunks")
             count = await pipeline.embed_and_store(
@@ -287,6 +298,7 @@ class _RagService:
                 user_id=user_id,
                 folder_id=request.folder_id or None,
                 extraction_version=result.extraction_version,
+                document_name=request.file_name,
             )
             return pb2.IngestFileResponse(
                 status="ok",
